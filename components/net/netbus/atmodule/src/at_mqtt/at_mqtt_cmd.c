@@ -76,14 +76,14 @@ typedef struct at_mqtt {
     char *user_name;
     char *password;
     uint16_t keepalive;
-    uint8_t connect_flags;
+    uint16_t connect_flags;
     char will_topic[128];
     char will_message[128];
     char topic[128];
     char remote_host[128];
     char remote_port[8];
-    uint8_t sendbuf[2048];
-    uint8_t recvbuf[2048];
+    uint8_t sendbuf[1536];
+    uint8_t recvbuf[1536];
 
     struct {
         char *topic;
@@ -92,7 +92,7 @@ typedef struct at_mqtt {
 
 } at_mqtt_t;
 
-static at_mqtt_t g_at_mqtt[AT_MQTT_LINK_MAX];
+static __attribute__((section(".wifi_ram."))) at_mqtt_t g_at_mqtt[AT_MQTT_LINK_MAX];
 
 static int at_ssl_sni_set(int linkid, const char *sni)
 {

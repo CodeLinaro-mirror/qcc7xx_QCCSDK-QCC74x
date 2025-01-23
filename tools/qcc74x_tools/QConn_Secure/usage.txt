@@ -153,3 +153,28 @@ Other options:
 
   --checkpartition:check partition in whole_flash_data.bin;
   e.g.: QConn_Secure --checkpartition=whole_flash_data.bin
+  
+  --add_pincode:add pincode protect for efusedata.bin: true/false;--pincode:8 decimal digits pincode;
+  e.g.1: Encrypt efuse data useing pincode
+  QConn_Secure --add_pincode=true --pincode=12345678 --edatafile_in=efusedata.bin
+  e.g.2: Decrypt efuse data useing pincode
+  QConn_Secure --dump_data=true --pincode=12345678 --edatafile_in=efusedata_pincode.bin
+  
+  --secp384r1: true: use secp384r1 as ecdsa parameter
+  e.g.: QConn_Secure --imgfile=wifi_tcp_qcc743.bin --privatekey=privatekey_secp384r1.pem --secp384r1=true --appkeys=true
+  
+  --appignore:ignore app firmware when only deal boot2/mfg
+  e.g.: QConn_Secure --brdcfgdir=bsp/board/qcc743dk/config --imgfile=./build/build_out/wifi_tcp_qcc743.bin --key=000102030405060708090A0B0C0D0E0F --iv=100102030405060708090A0B00000000 --privatekey=privatekey_uecc.pem
+  --appignore=true  
+  
+  --boot2ignore:ignore boot2 when only deal app/mfg
+  e.g.: QConn_Secure --brdcfgdir=bsp/board/qcc743dk/config --imgfile=./build/build_out/wifi_tcp_qcc743.bin --key=000102030405060708090A0B0C0D0E0F --iv=100102030405060708090A0B00000000 --privatekey=privatekey_uecc.pem --boot2ignore=true  
+  
+  --mfgignore:ignore mfg when only deal boot2/app
+  e.g.: QConn_Secure --brdcfgdir=bsp/board/qcc743dk/config --imgfile=./build/build_out/wifi_tcp_qcc743.bin --key=000102030405060708090A0B0C0D0E0F --iv=100102030405060708090A0B00000000 --privatekey=privatekey_uecc.pem --mfgignore=true
+  
+  --ptfile¡¢--dtsfile¡¢--boot2file¡¢--mfgfile£ºIn the iot burning scenario, select the corresponding bin file to burn
+  e.g.: QConn_Secure --imgfile=./build/build_out/wifi_tcp_qcc743.bin --ptfile=bsp/board/qcc743dk/config/partition_cfg_4M.toml --dtsfile=bsp/board/qcc743dk/config/qcc74x_factory_params_IoTKitA_auto.dts --boot2file=bsp/board/qcc743dk/config/boot2_qcc743_isp_release_v8.1.7.bin --mfgfile=bsp/board/qcc743dk/config/mfg_qcc743_gu_2.0.48.bin --key=000102030405060708090A0B0C0D0E0F --iv=100102030405060708090A0B00000000
+  
+  --ota_header:custom ota header
+  e.g.: QConn_Secure --imgfile=./build/build_out/wifi_tcp_qcc743.bin --ota_header=QCC74X_OTAVer2.0

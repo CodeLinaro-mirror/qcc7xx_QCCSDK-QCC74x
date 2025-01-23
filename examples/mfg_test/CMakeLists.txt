@@ -9,6 +9,7 @@ sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
 sdk_add_compile_definitions(-DQCC74x_VERIFY)
 sdk_add_compile_definitions(-DMFG_GU_QCC743)
 sdk_add_compile_definitions(-DMFG_PSRAM_TEST)
+sdk_add_compile_definitions(-DCONFIG_XTAL_SELECT_EN)
 
 execute_process(
     COMMAND git rev-parse HEAD

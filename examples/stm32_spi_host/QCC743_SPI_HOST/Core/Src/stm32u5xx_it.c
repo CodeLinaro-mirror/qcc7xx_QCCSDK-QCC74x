@@ -22,6 +22,7 @@
 #include "stm32u5xx_it.h"
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -89,7 +90,7 @@ void NMI_Handler(void)
 void HardFault_Handler(void)
 {
   /* USER CODE BEGIN HardFault_IRQn 0 */
-
+	printf("=====Hard Fault=====\r\n");
   /* USER CODE END HardFault_IRQn 0 */
   while (1)
   {
@@ -164,17 +165,17 @@ void DebugMon_Handler(void)
 /******************************************************************************/
 
 /**
-  * @brief This function handles EXTI Line0 interrupt.
+  * @brief This function handles EXTI Line13 interrupt.
   */
-void EXTI0_IRQHandler(void)
+void EXTI13_IRQHandler(void)
 {
-  /* USER CODE BEGIN EXTI0_IRQn 0 */
+  /* USER CODE BEGIN EXTI13_IRQn 0 */
 
-  /* USER CODE END EXTI0_IRQn 0 */
+  /* USER CODE END EXTI13_IRQn 0 */
   HAL_GPIO_EXTI_IRQHandler(SPI_SLAVE_DATA_RDY_Pin);
-  /* USER CODE BEGIN EXTI0_IRQn 1 */
+  /* USER CODE BEGIN EXTI13_IRQn 1 */
 
-  /* USER CODE END EXTI0_IRQn 1 */
+  /* USER CODE END EXTI13_IRQn 1 */
 }
 
 /**

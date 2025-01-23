@@ -8,14 +8,15 @@
 #define OTA_PARTITION_NAME_TYPE_FW    "FW"
 #define OTA_UPGRADE_RETRY 1
 #define OTA_DEBUG_IMG 0
+#define OTA_ERASE_BLOCK_SIZE (4*1024)
 
 static int at_ota_erase(at_ota_handle_t handle, uint32_t offset, uint32_t len)
 {
     uint32_t start_index, end_index, index;
     int ret;
     
-    start_index = offset / 4096;
-    end_index = (offset + len - 1) / 4096;
+    start_index = offset / OTA_ERASE_BLOCK_SIZE;
+    end_index = (offset + len - 1) / OTA_ERASE_BLOCK_SIZE;
     
     for (index = start_index; index <= end_index; index++) {
         if (index / 32 >= handle->sector_erased_size) {
@@ -23,7 +24,7 @@ static int at_ota_erase(at_ota_handle_t handle, uint32_t offset, uint32_t len)
             return -1;
         }
         if ((handle->sector_erased[index / 32] & (1U << (index % 32))) == 0) {
-            ret = qcc74x_flash_erase(handle->ota_addr + index * 4096, 4096);
+            ret = qcc74x_flash_erase(handle->ota_addr + index * OTA_ERASE_BLOCK_SIZE, OTA_ERASE_BLOCK_SIZE);
             if (ret) {
                 printf("mtd erase failed\r\n");
                 return -1;
@@ -170,7 +171,7 @@ at_ota_handle_t at_ota_start(at_ota_header_t *ota_header)
         printf("[OTA] file_size overflow:0x%08x part_size:0x%08x\r\n", ota_handle->file_size, ota_handle->part_size);
         goto _fail;
     }
-    ota_handle->sector_erased_size = ((ota_handle->part_size + 4095)/4096 + 31)/32;
+    ota_handle->sector_erased_size = ((ota_handle->part_size + (OTA_ERASE_BLOCK_SIZE - 1))/OTA_ERASE_BLOCK_SIZE + 31)/32;
     ota_handle->sector_erased = pvPortMalloc(4 * ota_handle->sector_erased_size);
     memset(ota_handle->sector_erased, 0, 4 * ota_handle->sector_erased_size);
 

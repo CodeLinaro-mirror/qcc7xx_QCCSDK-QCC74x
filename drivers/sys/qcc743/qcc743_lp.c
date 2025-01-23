@@ -1301,6 +1301,11 @@ int ATTR_TCM_SECTION qcc74x_lp_fw_enter(qcc74x_lp_fw_cfg_t *qcc74x_lp_fw_cfg)
     rtc_sleep_us = qcc74x_lp_fw_cfg->rtc_timeout_us;
 
     if (qcc74x_lp_fw_cfg->lpfw_copy) {
+        extern unsigned char __lpfw_start[];
+        uintptr_t dst_addr = LP_FW_START_ADDR;
+        uint32_t lpfw_size = *((uint32_t *)__lpfw_start - 7);
+        memcpy((void *)dst_addr, __lpfw_start, lpfw_size);
+
 #if 0
         /* ensure integrity of lpfw  */
         /* Copy move to idle task */

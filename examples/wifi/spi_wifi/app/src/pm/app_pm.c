@@ -22,7 +22,7 @@
 #include "qcc743_glb_gpio.h"
 #include "qcc743_hbn.h"
 #include "qcc74x_rtc.h"
-
+#include "assert.h"
 #include "rfparam_adapter.h"
 
 #include "board.h"
@@ -37,10 +37,12 @@
 #include "hci_core.h"
 #endif
 #include "qcc743_glb.h"
-#include "spisync.h"
+//#include "spisync.h"
 
 extern int enable_tickless;
 static TaskHandle_t twt_time_update_task_hd = NULL;
+
+#define APP_PM_IELD_TASK_STACK_SIZE (512)
 
 void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize)
 {
@@ -48,7 +50,7 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackTyp
     function then they must be declared static - otherwise they will be allocated on
     the stack and so not exists after this function exits. */
     static StaticTask_t xIdleTaskTCB;
-    static StackType_t uxIdleTaskStack[1024];
+    static StackType_t uxIdleTaskStack[APP_PM_IELD_TASK_STACK_SIZE];
 
     /* Pass out a pointer to the StaticTask_t structure in which the Idle task's
     state will be stored. */
@@ -60,7 +62,7 @@ void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackTyp
     /* Pass out the size of the array pointed to by *ppxIdleTaskStackBuffer.
     Note that, as the array is necessarily of type StackType_t,
     configMINIMAL_STACK_SIZE is specified in words, not bytes. */
-    *pulIdleTaskStackSize = 1024;
+    *pulIdleTaskStackSize = APP_PM_IELD_TASK_STACK_SIZE;
 }
 
 GLB_GPIO_Type pinList[4] = {
@@ -108,6 +110,8 @@ static void set_cpu_bclk_80M_and_gate_clk(void)
 static int lp_exit(void *arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+
+    nxspi_ps_exit(NULL);
 
     set_cpu_bclk_80M_and_gate_clk();
 
@@ -160,6 +164,7 @@ static int lp_exit(void *arg)
 
 static int lp_enter(void *arg)
 {
+    nxspi_ps_enter(NULL);
     return 0;
 }
 
@@ -217,6 +222,7 @@ static void cmd_twt(int argc, char **argv)
 
     qcc74x_lp_fw_bcn_loss_cfg_dtim_default(lpfw_cfg.dtim_origin);
     printf("sta_ps %ld\r\n", wifi_mgmr_sta_ps_enter());
+
     enable_tickless = 1;
 }
 
@@ -413,7 +419,7 @@ static void cmd_xtal32k_calc(int argc, char **argv)
 
 static void lp_io_wakeup_callback(uint64_t wake_up_io_bits)
 {
-    enable_tickless = 1;
+    enable_tickless = 0;
 
      //TODO ;can not call in interupt context
     //if (wifi_mgmr_sta_state_get()) {
@@ -421,9 +427,9 @@ static void lp_io_wakeup_callback(uint64_t wake_up_io_bits)
     //}
 
     //call resume spi
-    spisync_wakeuparg_t wakeup_arg;
-    wakeup_arg.wakeup_reason = 0;
-    spisync_ps_wakeup(NULL, &wakeup_arg);
+    //spisync_wakeuparg_t wakeup_arg;
+    //wakeup_arg.wakeup_reason = 0;
+    //spisync_ps_wakeup(NULL, &wakeup_arg);
 }
 
 static qcc74x_lp_io_cfg_t lp_wake_io_cfg = {
@@ -509,47 +515,82 @@ static void cmd_32k_output(int argc, char **argv)
     write_register(0x20000930, 0x40000F02);
 }
 
-TimerHandle_t xArpTimer = NULL;
-static void arp_send(TimerHandle_t xTimer) {
-
+void app_arp_send(void)
+{
     if (!wifi_mgmr_sta_state_get()) {
+        return;
+    }
+
+    if (ip4_addr_isany_val(*netif_ip4_addr(netif_default))) {
+        printf("IP address not assigned. ARP announcement skipped.\n");
         return;
     }
 
     LOCK_TCPIP_CORE();
     do {
-        assert(netif_default != NULL);
-        etharp_request(netif_default, &netif_default->gw);
-    } while(0);
+        ip_addr_t src_ip = netif_default->ip_addr;
+        ip_addr_t dest_ip;                        
+        ip_addr_copy(dest_ip, src_ip);            
+        err_t result = etharp_request(netif_default, &dest_ip);
+
+        if (result != ERR_OK) {
+            printf("Failed to send ARP request. Error: %d\n", result);
+        }
+    } while (0);
     UNLOCK_TCPIP_CORE();
 }
 
-static void cmd_send_arp(int argc, char **argv)
+TimerHandle_t xArpTimer = NULL;
+static void arp_send(TimerHandle_t xTimer) {
+
+    app_arp_send();
+}
+
+int app_pm_create_arp_announce_timer(uint32_t seconds)
+{   
+    if (xArpTimer) {
+        return -1;
+    }
+
+    app_arp_send();
+
+    xArpTimer = xTimerCreate("traffic probe",  pdMS_TO_TICKS(seconds * 1000), pdTRUE, (void*)0, arp_send);
+    xTimerStart(xArpTimer, 0);
+
+    return 0;
+}
+
+int app_pm_delete_arp_announce_timer(void)
+{
+    if (xArpTimer) {
+        xTimerStop(xArpTimer, 0);
+        xTimerDelete(xArpTimer, portMAX_DELAY);
+        xArpTimer = NULL;
+        printf("Delete arp timer.\r\n");
+    } else {
+        printf("Arp timer has not been create.\r\n");
+    }
+
+    return 0;
+}
+
+static void cmd_create_arp_timer(int argc, char **argv)
 {
     if (argc != 2) {
-    printf("Need param\r\n");
-    return;
+        printf("Need param\r\n");
+        return;
     }
 
-    if (atoi(argv[1])) {
-        if (xArpTimer) {
-            printf("Arp timer already created.\r\n");
-            return;
-        }
-        xArpTimer = xTimerCreate("traffic probe",  pdMS_TO_TICKS(55*1000), pdFALSE, (void*)0, arp_send);
-
-        xTimerStart(xArpTimer, 0);
-        printf("create period 55s arp timer success.\r\n");
-    } else {
-        if (xArpTimer) {
-            xTimerDelete(xArpTimer, portMAX_DELAY);
-            xArpTimer = NULL;
-            printf("Delete arp timer.\r\n");
-        }
-    }
+    printf("set arp interval :%d s\r\n",atoi(argv[1]));
+    app_pm_create_arp_announce_timer(atoi(argv[1]));
 
     return;
+}
 
+static void cmd_delete_arp_timer(int argc, char **argv)
+{
+    app_pm_delete_arp_announce_timer();
+    return;
 }
 
 SHELL_CMD_EXPORT_ALIAS(cmd_tickless, tickless, cmd tickless);
@@ -560,7 +601,8 @@ SHELL_CMD_EXPORT_ALIAS(cmd_io_dbg, io_debug, cmd io_debug);
 SHELL_CMD_EXPORT_ALIAS(cmd_32k_output, output_32k, cmd 32k output);
 SHELL_CMD_EXPORT_ALIAS(cmd_xtal32k_calibration, xtal_calibration, cmd xtal calibration);
 SHELL_CMD_EXPORT_ALIAS(cmd_xtal32k_calc, calc, cmd xtal32k calc);
-SHELL_CMD_EXPORT_ALIAS(cmd_send_arp, arp_send, cmd send arp);
+SHELL_CMD_EXPORT_ALIAS(cmd_create_arp_timer, create_arp_timer, cmd create arp timer);
+SHELL_CMD_EXPORT_ALIAS(cmd_delete_arp_timer, delete_arp_timer, cmd delete arp timer);
 #endif
 
 static void xtal32k_input(void)
@@ -756,15 +798,15 @@ static int xtal32k_check_entry_task(int crystal_flag)
         mtimer_us = (uint32_t)(mtimer_now_us - mtimer_record_us);
         diff_us = rtc_us - mtimer_us;
 
-        printf("xtal32k_check: mtimer_us:%d, rtc_us:%d\r\n", mtimer_us, rtc_us);
+        //printf("xtal32k_check: mtimer_us:%d, rtc_us:%d\r\n", mtimer_us, rtc_us);
 
         if(diff_us < -100 || diff_us > 100){
             /* continue */
-            printf("xtal32k_check: retry_cnt:%d, diff_us:%d, continue...\r\n", retry_cnt, diff_us);
+            //printf("xtal32k_check: retry_cnt:%d, diff_us:%d, continue...\r\n", retry_cnt, diff_us);
             vTaskDelay(10);
         }else{
             /* finish */
-            printf("xtal32k_check: retry_cnt:%d, diff_us:%d, finish!\r\n", retry_cnt, diff_us);
+            //printf("xtal32k_check: retry_cnt:%d, diff_us:%d, finish!\r\n", retry_cnt, diff_us);
             success_flag = 1;
             break;
         }
@@ -821,9 +863,9 @@ void timerCallback(TimerHandle_t xTimer)
     //if (wifi_mgmr_sta_state_get()) {
     //    wifi_mgmr_sta_ps_exit();
     //}
-    spisync_wakeuparg_t wakeup_arg;
-    wakeup_arg.wakeup_reason = 2;
-    spisync_ps_wakeup(NULL, &wakeup_arg);
+    //spisync_wakeuparg_t wakeup_arg;
+    //wakeup_arg.wakeup_reason = 2;
+    //spisync_ps_wakeup(NULL, &wakeup_arg);
 }
 
 void createAndStartTimer(const char* timerName, TickType_t timerPeriod)
@@ -1022,7 +1064,7 @@ static void xtal32k_calibration(void)
             break;
         }
 
-        printf("xtal32k_check: mtimer_us:%ld, rtc_us:%ld minus:%ld\r\n", mtimer_us, rtc_us, diff_us);
+        //printf("xtal32k_check: mtimer_us:%ld, rtc_us:%ld minus:%ld\r\n", mtimer_us, rtc_us, diff_us);
     }
 
     qcc74x_lp_set_32k_clock_ready(1);
@@ -1040,6 +1082,9 @@ static void xtal32k_select_task(void *pvParameters)
 
     printf("xtal32k_check task: vTaskDelete\r\n");
     xtal32k_check_entry_task_hd = NULL;
+
+    app_atmoudle_init();
+
     vTaskDelete(NULL);
 }
 
@@ -1050,7 +1095,12 @@ int app_pm_use_crystal_oscillator(void)
 
         return -1;
     }
-    xTaskCreate(xtal32k_select_task, (char*)"xtal32k_select_task", 512, NULL, 10, &xtal32k_check_entry_task_hd);
+    xTaskCreate(xtal32k_select_task, (char*)"xtal32k_select_task", 4096, NULL, 10, &xtal32k_check_entry_task_hd);
+}
+
+int qcc74x_pm_app_check(void)
+{
+    return nxspi_ps_get();
 }
 
 int app_pm_init(void)
@@ -1076,5 +1126,5 @@ int app_pm_init(void)
 
     app_pm_use_crystal_oscillator();
 
-    xTaskCreate(twt_time_update_task, (char*)"twt_time_update_entry", 256, NULL, 10, &twt_time_update_task_hd);
+    xTaskCreate(twt_time_update_task, (char*)"twt_time_update_entry", 256, NULL, 25, &twt_time_update_task_hd);
 }

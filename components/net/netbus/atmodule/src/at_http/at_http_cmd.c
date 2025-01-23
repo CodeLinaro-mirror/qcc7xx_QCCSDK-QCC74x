@@ -18,63 +18,197 @@
 #include <semphr.h>
 #include <stream_buffer.h>
 
+#define AT_HTTPC_HANDLE_MAX (3)
 #define AT_HTTPC_DEFAULT_TIMEOUT (5000)
-#define AT_HTTPC_RECVBUF_SIZE_DEFAULT (1024)
+#define AT_HTTPC_RECVBUF_SIZE_DEFAULT (15*1024)
 
+//#define AT_HTTPC_RECVBUF_CNT_MAX (2 * MAC_RXQ_DEPTH)
+#define AT_HTTPC_RECVBUF_CNT_MAX (DEFAULT_TCP_RECVMBOX_SIZE)
+
+#define AT_MSG_PEEK 0x01
 #define AT_HTTPC_RECV_MODE_ACTIVE  0
 #define AT_HTTPC_RECV_MODE_PASSIVE 1
 
 #define AT_HTTP_EVT_HEAD(s)      (g_https_cfg.recv_mode == AT_HTTPC_RECV_MODE_PASSIVE)?s"\r\n":s","
+#define AT_HTTP_LOCK(lock)       xSemaphoreTake(lock, portMAX_DELAY)
+#define AT_HTTP_UNLOCK(lock)     xSemaphoreGive(lock)
 
 struct at_http_ctx {
     httpc_connection_t settings;
     uint8_t *data;
-    char url_buf[256];
-};
-
-struct at_https_global_config {
+    struct altcp_pcb *altcp_conn;
+    QueueHandle_t recv_mbox;
+    SemaphoreHandle_t mutex;
+    struct pbuf *lastbuf;
+    uint8_t used;
 #define AT_HTTPS_NOT_AUTH        0
 #define AT_HTTPS_SERVER_AUTH     1
 #define AT_HTTPS_CLIENT_AUTH     2
 #define AT_HTTPS_BOTH_AUTH       3
     uint8_t https_auth_type;
     uint8_t recv_mode;
+    uint8_t linkid;
     char ca_file[32];
     char cert_file[32];
     char key_file[32];
 
     char *url;
     uint32_t url_size;
-    SemaphoreHandle_t mutex;
-    StreamBufferHandle_t recv_buf;
-    uint32_t recvbuf_size;
-    struct altcp_pcb *altcp_conn;
+    uint32_t recv_avail;
 };
 
-struct at_https_global_config g_https_cfg = {0};
+struct at_https_global_config {
+    uint8_t recv_mode;
+    uint32_t recvbuf_size;
+};
 
-static int httpc_get_recvsize(void)
+static struct at_http_ctx g_httpc_handle[AT_HTTPC_HANDLE_MAX];
+
+static struct at_https_global_config g_https_cfg = {0};
+
+static inline void free_ctx(struct at_http_ctx *ctx)
 {
-    if (g_https_cfg.recv_buf)
-        return xStreamBufferBytesAvailable(g_https_cfg.recv_buf);
-    else
-        return 0;
+    ctx->used = 0;
 }
 
-static int httpc_buffer_write(struct at_http_ctx *ctx, void *buf, uint32_t len)
+static int httpc_get_recvcnt(struct at_http_ctx *ctx)
+{
+    if (g_https_cfg.recv_mode == AT_HTTPC_RECV_MODE_ACTIVE) {
+        return 0;
+    }
+
+    return uxQueueMessagesWaiting(ctx->recv_mbox);
+}
+
+static int httpc_get_recvsize(int linkid)
+{
+    int size = 0;
+    struct at_http_ctx *ctx = &g_httpc_handle[linkid];
+
+    AT_HTTP_LOCK(ctx->mutex);
+    size = ctx->recv_avail;
+    if (ctx->lastbuf) {
+    	size += ctx->lastbuf->tot_len;
+    }
+    AT_HTTP_UNLOCK(ctx->mutex);
+    return size;
+}
+
+static inline uint8_t httpc_recvbuf_overflow(struct at_http_ctx *ctx)
+{
+    if (httpc_get_recvcnt(ctx) >= AT_HTTPC_RECVBUF_CNT_MAX || httpc_get_recvsize(ctx->linkid) >= g_https_cfg.recvbuf_size) {
+        return 1;
+    }
+    return 0;
+}
+
+static int httpc_buffer_write(struct at_http_ctx *ctx, struct pbuf *p)
 {
     int ret = 0;
 
-    xSemaphoreTake(g_https_cfg.mutex, portMAX_DELAY);
-    ret = xStreamBufferSend(g_https_cfg.recv_buf, buf, len, 3000);
-    xSemaphoreGive(g_https_cfg.mutex);
-
-    ret = ret < 0 ? 0 : ret;
-
-    if (ret < len) {
-        at_write("+HTTPCLOST,%d\r\n", len - ret);
+    AT_HTTP_LOCK(ctx->mutex);
+    ret = xQueueSend(ctx->recv_mbox, &p, 0);
+    if (ret == pdTRUE) {
+    	ctx->recv_avail += p->tot_len;
     }
+    AT_HTTP_UNLOCK(ctx->mutex);
+
+    if (ret != pdTRUE) {
+        /* It will never run to here. */
+        at_write("+HTTPCLOST:%d,%d\r\n", ctx->linkid, p->tot_len);
+        ret = -1;
+    }
+
     return ret;
+}
+
+static ssize_t httpc_buffer_read(struct at_http_ctx *ctx, void *mem, int len, int flags)
+{
+    ssize_t recvd = 0;
+    ssize_t recv_left = (len <= SSIZE_MAX) ? (ssize_t)len : SSIZE_MAX;
+
+    AT_HTTP_LOCK(ctx->mutex);
+    do {
+      struct pbuf *p;
+      int err = 0;
+      u16_t copylen;
+
+      /* Check if there is data left from the last recv operation. */
+      if (ctx->lastbuf) {
+        p = ctx->lastbuf;
+      } else {
+        /* No data was left from the previous operation, so we try to get
+           some from the network. */
+
+    	err = xQueueReceive(ctx->recv_mbox, &p, 0);
+        if (err == pdTRUE && p != NULL) {
+    	    ctx->recv_avail -= p->tot_len;
+        }
+
+        if (err != pdTRUE) {
+          if (recvd > 0) {
+            /* already received data, return that (this trusts in getting the same error from
+               netconn layer again next time netconn_recv is called) */
+            goto _recv_http_done;
+          }
+          AT_HTTP_UNLOCK(ctx->mutex);
+          return 0;
+        }
+
+        ctx->lastbuf = p;
+      }
+
+      if (recv_left > p->tot_len) {
+        copylen = p->tot_len;
+      } else {
+        copylen = (u16_t)recv_left;
+      }
+      if (recvd > SSIZE_MAX - copylen) {
+        /* overflow */
+        copylen = (u16_t)(SSIZE_MAX - recvd);
+      }
+
+      /* copy the contents of the received buffer into
+      the supplied memory pointer mem */
+      if (mem) {
+        pbuf_copy_partial(p, (u8_t *)mem + recvd, copylen, 0);
+      }
+
+      recvd += copylen;
+
+      /* TCP combines multiple pbufs for one recv */
+      recv_left -= copylen;
+
+      /* Unless we peek the incoming message... */
+      if ((flags & AT_MSG_PEEK) == 0) {
+        /* ... check if there is data left in the pbuf */
+        if (p->tot_len - copylen > 0) {
+          /* If so, it should be saved in the sock structure for the next recv call.
+             We store the pbuf but hide/free the consumed data: */
+          ctx->lastbuf = pbuf_free_header(p, copylen);
+        } else {
+          ctx->lastbuf = NULL;
+          pbuf_free(p);
+        }
+      }
+    } while ((recv_left > 0) && !(flags & AT_MSG_PEEK));
+
+_recv_http_done:
+	AT_HTTP_UNLOCK(ctx->mutex);
+    if (recvd > 0 && ctx->altcp_conn) {
+        altcp_recved(ctx->altcp_conn, recvd);
+    }
+    return recvd;
+}
+
+static void httpc_buffer_clear(int linkid)
+{
+    int len;
+
+    len = httpc_get_recvsize(linkid);
+    if (len > 0) {
+        httpc_buffer_read(&g_httpc_handle[linkid], NULL, len, 0);
+    }
 }
 
 static err_t cb_altcp_recv_fn(void *arg, struct altcp_pcb *conn, struct pbuf *p, err_t err)
@@ -86,13 +220,12 @@ static err_t cb_altcp_recv_fn(void *arg, struct altcp_pcb *conn, struct pbuf *p,
         if (p->tot_len) {
             AT_CMD_DATA_SEND(p->payload, p->tot_len);
         }
+        pbuf_free(p);
     } else {
-        g_https_cfg.altcp_conn = conn;
-        httpc_buffer_write(ctx, p->payload, p->tot_len);
-        //altcp_recved(conn, p->tot_len);
+        ctx->altcp_conn = conn;
+        httpc_buffer_write(ctx, p);
     }
     
-    pbuf_free(p);
     return 0;
 }
 
@@ -104,9 +237,9 @@ static void cb_httpc_result(void *arg, httpc_result_t httpc_result, u32_t rx_con
     
     if ((err == 0 && httpc_result == HTTPC_RESULT_OK) || 
         (ctx->settings.req_type == REQ_TYPE_HEAD && httpc_result == HTTPC_RESULT_ERR_CONTENT_LEN)) {
-        at_response_string("+HTTPSTATUS:OK\r\n");
+        at_response_string("\r\n+HTTPSTATUS:%d,OK\r\n", ctx->linkid);
     } else {
-        at_response_string("+HTTPSTATUS:ERROR\r\n");
+        at_response_string("\r\n+HTTPSTATUS:%d,ERROR\r\n", ctx->linkid);
     }
     free(ctx->data);
     ctx->data = NULL;
@@ -115,8 +248,8 @@ static void cb_httpc_result(void *arg, httpc_result_t httpc_result, u32_t rx_con
         altcp_tls_free_config(ctx->settings.tls_config);
     }
 #endif
-    g_https_cfg.altcp_conn = NULL;
-    free(ctx);
+    ctx->altcp_conn = NULL;
+    free_ctx(ctx);
 }
 
 static err_t cb_httpc_headers_done_fn(httpc_state_t *connection, void *arg, struct pbuf *hdr, u16_t hdr_len, u32_t content_len)
@@ -129,16 +262,11 @@ static err_t cb_httpc_headers_done_fn(httpc_state_t *connection, void *arg, stru
 
     if (ctx->settings.req_type == REQ_TYPE_HEAD) {
         if (hdr->tot_len) {
-            at_write(AT_HTTP_EVT_HEAD("+HTTPC:%d"), hdr_len);
-    
-            if (g_https_cfg.recv_mode == AT_HTTPC_RECV_MODE_ACTIVE) {
-                AT_CMD_DATA_SEND(hdr->payload, hdr->tot_len);
-            } else {
-                httpc_buffer_write(ctx, hdr->payload, hdr->tot_len);
-            }
+            at_write(AT_HTTP_EVT_HEAD("+HTTPC:%d,%d"), ctx->linkid, hdr_len);
+            AT_CMD_DATA_SEND(hdr->payload, hdr->tot_len);
         }
     } else {
-        at_write(AT_HTTP_EVT_HEAD("+HTTPC:%d"), content_len);
+        at_write(AT_HTTP_EVT_HEAD("+HTTPC:%d,%d"), ctx->linkid, content_len);
     }
     return ERR_OK;
 }
@@ -157,6 +285,12 @@ static int at_httpc_request(struct at_http_ctx *ctx,
     char *p_port;
     int port;
 
+    if (httpc_recvbuf_overflow(ctx) && (ctx->settings.req_type != REQ_TYPE_HEAD)) {
+        printf("HTTPC not enough RX buffer\r\n");
+        free_ctx(ctx);
+        return AT_RESULT_CODE_ERROR;
+    }
+
 #if LWIP_ALTCP_TLS && LWIP_ALTCP_TLS_MBEDTLS
     ctx->settings.tls_config = NULL;
 #endif
@@ -173,14 +307,14 @@ static int at_httpc_request(struct at_http_ctx *ctx,
         uint8_t *ca_buf = NULL, *cert_buf = NULL, *privkey_buf = NULL;
         uint32_t ca_len, cert_len, privkey_len;
 
-        if (g_https_cfg.https_auth_type == AT_HTTPS_NOT_AUTH) {
+        if (ctx->https_auth_type == AT_HTTPS_NOT_AUTH) {
 
             ctx->settings.tls_config = altcp_tls_create_config_client(NULL, 0);
 
-        } else if (g_https_cfg.https_auth_type == AT_HTTPS_CLIENT_AUTH) {
+        } else if (ctx->https_auth_type == AT_HTTPS_CLIENT_AUTH) {
 
-            at_load_file(g_https_cfg.cert_file, &cert_buf, &cert_len);
-            at_load_file(g_https_cfg.key_file, &privkey_buf, &privkey_len);
+            at_load_file(ctx->cert_file, &cert_buf, &cert_len);
+            at_load_file(ctx->key_file, &privkey_buf, &privkey_len);
 
             ctx->settings.tls_config = altcp_tls_create_config_client_2wayauth(NULL, 0,
                                                                                privkey_buf, privkey_len,
@@ -189,17 +323,17 @@ static int at_httpc_request(struct at_http_ctx *ctx,
 
             free(cert_buf);
             free(privkey_buf);
-        } else if (g_https_cfg.https_auth_type == AT_HTTPS_SERVER_AUTH) {
+        } else if (ctx->https_auth_type == AT_HTTPS_SERVER_AUTH) {
 
-            at_load_file(g_https_cfg.ca_file, &ca_buf, &ca_len);
+            at_load_file(ctx->ca_file, &ca_buf, &ca_len);
             ctx->settings.tls_config = altcp_tls_create_config_client(ca_buf, ca_len);
             free(ca_buf);
 
-        } else if (g_https_cfg.https_auth_type == AT_HTTPS_BOTH_AUTH) {
+        } else if (ctx->https_auth_type == AT_HTTPS_BOTH_AUTH) {
 
-            at_load_file(g_https_cfg.cert_file, &cert_buf, &cert_len);
-            at_load_file(g_https_cfg.key_file, &privkey_buf, &privkey_len);
-            at_load_file(g_https_cfg.ca_file, &ca_buf, &ca_len);
+            at_load_file(ctx->cert_file, &cert_buf, &cert_len);
+            at_load_file(ctx->key_file, &privkey_buf, &privkey_len);
+            at_load_file(ctx->ca_file, &ca_buf, &ca_len);
 
             ctx->settings.tls_config = altcp_tls_create_config_client_2wayauth(ca_buf, ca_len,
                                                                                privkey_buf, privkey_len,
@@ -212,7 +346,7 @@ static int at_httpc_request(struct at_http_ctx *ctx,
 
 #endif
     } else {
-        free(ctx);
+        free_ctx(ctx);
         return AT_RESULT_CODE_ERROR;
     }
 
@@ -257,16 +391,27 @@ static int at_httpc_request(struct at_http_ctx *ctx,
 
 static int at_setup_cmd_httpsslcfg(int argc, const char **argv)
 {
-    int scheme;
+    int linkid, scheme;
     char cert_file[32] = {0};
     char key_file[32] = {0};
     char ca_file[32] = {0};
+    struct at_http_ctx *ctx = NULL;
     int cert_file_valid = 0, key_file_valid = 0, ca_file_valid = 0;
 
-    AT_CMD_PARSE_NUMBER(0, &scheme);
-    AT_CMD_PARSE_OPT_STRING(1, cert_file, sizeof(cert_file), cert_file_valid);
-    AT_CMD_PARSE_OPT_STRING(2, key_file, sizeof(key_file), key_file_valid);
-    AT_CMD_PARSE_OPT_STRING(3, ca_file, sizeof(ca_file), ca_file_valid);
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_NUMBER(1, &scheme);
+    AT_CMD_PARSE_OPT_STRING(2, cert_file, sizeof(cert_file), cert_file_valid);
+    AT_CMD_PARSE_OPT_STRING(3, key_file, sizeof(key_file), key_file_valid);
+    AT_CMD_PARSE_OPT_STRING(4, ca_file, sizeof(ca_file), ca_file_valid);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    
+    ctx = &g_httpc_handle[linkid];
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
 
     if (scheme == AT_HTTPS_NOT_AUTH) {
         cert_file[0] = '\0';
@@ -287,67 +432,85 @@ static int at_setup_cmd_httpsslcfg(int argc, const char **argv)
         if ((!key_file_valid) || (!cert_file_valid) || (!ca_file_valid)) {
             return AT_RESULT_CODE_ERROR;
         }
+    } else {
+        return AT_RESULT_CODE_ERROR;
     }
-    g_https_cfg.https_auth_type = scheme;
+    ctx->https_auth_type = scheme;
 
-    strlcpy(g_https_cfg.cert_file, cert_file, sizeof(g_https_cfg.cert_file));
-    strlcpy(g_https_cfg.key_file, key_file, sizeof(g_https_cfg.key_file));
-    strlcpy(g_https_cfg.ca_file, ca_file, sizeof(g_https_cfg.ca_file));
+    strlcpy(ctx->cert_file, cert_file, sizeof(ctx->cert_file));
+    strlcpy(ctx->key_file, key_file, sizeof(ctx->key_file));
+    strlcpy(ctx->ca_file, ca_file, sizeof(ctx->ca_file));
 
     return AT_RESULT_CODE_OK;
 }
 
 static int at_query_cmd_httpsslcfg(int argc, const char **argv)
 {
-    at_response_string("+HTTPSSLCFG:%d,\"%s\",\"%s\",\"%s\"\r\n", 
-            g_https_cfg.https_auth_type, g_https_cfg.cert_file, g_https_cfg.key_file, g_https_cfg.ca_file);
+    int linkid;
+    struct at_http_ctx *ctx = NULL;
+
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    
+    ctx = &g_httpc_handle[linkid];
+
+    at_response_string("+HTTPSSLCFG:%d,%d,\"%s\",\"%s\",\"%s\"\r\n",linkid, 
+            ctx->https_auth_type, ctx->cert_file, ctx->key_file, ctx->ca_file);
     return AT_RESULT_CODE_OK;
 }
 
 static int at_setup_cmd_httpclient(int argc, const char **argv)
 {
-    int opt, content_type;
+    int opt, content_type, linkid;
     struct at_http_ctx *ctx = NULL;
     uint8_t data_valid = 0;
-    char *url_buf;
-    
-    ctx = malloc(sizeof(struct at_http_ctx));
-    if (!ctx) {
+    char url_buf[256];
+    char *data = malloc(256);
+   
+    if (!data) {
         return AT_RESULT_CODE_ERROR;
     }
-    memset(ctx, 0, sizeof(struct at_http_ctx));
-
-    ctx->data = malloc(256);
-    if (!ctx->data) {
-        free(ctx);
-        return AT_RESULT_CODE_ERROR;
-    }
-    memset(ctx->data, 0, 256);
-
-    url_buf = ctx->url_buf;
-    AT_CMD_PARSE_NUMBER(0, &opt);
-    AT_CMD_PARSE_NUMBER(1, &content_type);
-    AT_CMD_PARSE_STRING(2, ctx->url_buf, sizeof(ctx->url_buf));
-    AT_CMD_PARSE_OPT_STRING(3, ctx->data, 256, data_valid);
-
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_NUMBER(1, &opt);
+    AT_CMD_PARSE_NUMBER(2, &content_type);
+    AT_CMD_PARSE_STRING(3, url_buf, sizeof(url_buf));
+    AT_CMD_PARSE_OPT_STRING(4, data, 256, data_valid);
  
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+ 
+    ctx = &g_httpc_handle[linkid];
+    //memset(ctx, 0, sizeof(struct at_http_ctx));
+
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    ctx->used = 1;
+
+    ctx->data = data;
+    
     if (strlen(url_buf) == 0) {
-        if ((g_https_cfg.url == NULL) && (g_https_cfg.url_size == 0)) {
+        if ((ctx->url == NULL) && (ctx->url_size == 0)) {
             free(ctx->data);
-            free(ctx);
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
-        url_buf = g_https_cfg.url;
+        strlcpy(url_buf, ctx->url, sizeof(url_buf));
     }   
     ctx->settings.timeout = AT_HTTPC_DEFAULT_TIMEOUT;
     ctx->settings.use_proxy = 0;
     ctx->settings.req_type  = opt;
     ctx->settings.content_type = content_type;
     ctx->settings.data = ctx->data;
+    ctx->linkid = linkid;
 
     int ret = at_httpc_request(ctx, url_buf, cb_httpc_result, cb_httpc_headers_done_fn, cb_altcp_recv_fn, ctx);
     if (ret != 0) {
-        free(ctx->data);
+        free(data);
         ctx->data = NULL;
         return AT_RESULT_CODE_ERROR;
     }
@@ -359,7 +522,7 @@ static err_t cb_httpgetsize_headers_done_fn(httpc_state_t *connection, void *arg
 {
     struct at_http_ctx *ctx = (struct at_http_ctx *)arg;
 
-    at_response_string("+HTTPGETSIZE:%d\r\n", content_len);
+    at_response_string("+HTTPGETSIZE:%d,%d\r\n", ctx->linkid, content_len);
 
     return ERR_OK;
 }
@@ -373,23 +536,29 @@ static err_t cb_httpgetsize_recv_fn(void *arg, struct altcp_pcb *conn, struct pb
 
 static int at_setup_cmd_httpgetsize(int argc, const char **argv)
 {
-    int timeout, timeout_valild = 0;
+    int linkid, timeout, timeout_valild = 0;
     struct at_http_ctx *ctx = NULL;
-    char *url_buf;
-    
-    ctx = malloc(sizeof(struct at_http_ctx));
-    if (!ctx) {
+    char url_buf[256];
+ 
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_STRING(1, url_buf, sizeof(url_buf));
+    AT_CMD_PARSE_OPT_NUMBER(2, &timeout, timeout_valild);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
         return AT_RESULT_CODE_ERROR;
     }
-    url_buf = ctx->url_buf;
-    memset(ctx, 0, sizeof(struct at_http_ctx));
+ 
+    ctx = &g_httpc_handle[linkid];
+    //memset(ctx, 0, sizeof(struct at_http_ctx));
 
-    AT_CMD_PARSE_STRING(0, ctx->url_buf, sizeof(ctx->url_buf));
-    AT_CMD_PARSE_OPT_NUMBER(1, &timeout, timeout_valild);
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    ctx->used = 1;
 
     if (timeout_valild) {
         if (timeout < 0 || timeout > 180000) {
-            free(ctx);
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
     } else {
@@ -397,11 +566,11 @@ static int at_setup_cmd_httpgetsize(int argc, const char **argv)
     }
 
     if (strlen(url_buf) == 0) {
-        if ((g_https_cfg.url == NULL) && (g_https_cfg.url_size == 0)) {
-            free(ctx);
+        if ((ctx->url == NULL) && (ctx->url_size == 0)) {
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
-        url_buf = g_https_cfg.url;
+        strlcpy(url_buf, ctx->url, sizeof(url_buf));
     }
 
     ctx->data = NULL;
@@ -419,36 +588,31 @@ static int at_setup_cmd_httpgetsize(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
-static err_t cb_httpcget_headers_done_fn(httpc_state_t *connection, void *arg, struct pbuf *hdr, u16_t hdr_len, u32_t content_len)
-{
-    char buf[32];
-    struct at_http_ctx *ctx = (struct at_http_ctx *)arg;
-
-    snprintf(buf, sizeof(buf), "+HTTPCGET:%d,", content_len);
-    AT_CMD_DATA_SEND(buf, strlen(buf));
-
-    return ERR_OK;
-}
-
 static int at_setup_cmd_httpcget(int argc, const char **argv)
 {
-    int timeout, timeout_valild = 0;
+    int linkid, timeout, timeout_valild = 0;
     struct at_http_ctx *ctx = NULL;
-    char *url_buf;
+    char url_buf[256];
     
-    ctx = malloc(sizeof(struct at_http_ctx));
-    if (!ctx) {
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_STRING(1, url_buf, sizeof(url_buf));
+    AT_CMD_PARSE_OPT_NUMBER(2, &timeout, timeout_valild);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
         return AT_RESULT_CODE_ERROR;
     }
-    url_buf = ctx->url_buf;
-    memset(ctx, 0, sizeof(struct at_http_ctx));
-    
-    AT_CMD_PARSE_STRING(0, ctx->url_buf, sizeof(ctx->url_buf));
-    AT_CMD_PARSE_OPT_NUMBER(1, &timeout, timeout_valild);
+ 
+    ctx = &g_httpc_handle[linkid];
+    //memset(ctx, 0, sizeof(struct at_http_ctx));
+
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    ctx->used = 1;
 
     if (timeout_valild) {
         if (timeout < 0 || timeout > 180000) {
-            free(ctx);
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
     } else {
@@ -456,11 +620,11 @@ static int at_setup_cmd_httpcget(int argc, const char **argv)
     }
 
     if (strlen(url_buf) == 0) {
-        if ((g_https_cfg.url == NULL) && (g_https_cfg.url_size == 0)) {
-            free(ctx);
+        if ((ctx->url == NULL) && (ctx->url_size == 0)) {
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
-        url_buf = g_https_cfg.url;
+        strlcpy(url_buf, ctx->url, sizeof(url_buf));
     }
     
     ctx->data = NULL;
@@ -480,33 +644,38 @@ static int at_setup_cmd_httpcget(int argc, const char **argv)
 
 static int at_setup_cmd_httpcpost(int argc, const char **argv)
 {
-    int ret;
+    int ret, linkid;
     int len, recv_num = 0;
     struct at_http_ctx *ctx = NULL;
-    uint8_t header_cnt_valid = 0;
-    char *url_buf;
+    char url_buf[256];
+ 
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_STRING(1, url_buf, sizeof(url_buf));
+    AT_CMD_PARSE_NUMBER(2, &len);
     
-    ctx = malloc(sizeof(struct at_http_ctx));
-    if (!ctx) {
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
         return AT_RESULT_CODE_ERROR;
     }
-    memset(ctx, 0, sizeof(struct at_http_ctx));
-
-    url_buf = ctx->url_buf;
-    AT_CMD_PARSE_STRING(0, ctx->url_buf, sizeof(ctx->url_buf));
-    AT_CMD_PARSE_NUMBER(1, &len);
  
+    ctx = &g_httpc_handle[linkid];
+    //memset(ctx, 0, sizeof(struct at_http_ctx));
+
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    ctx->used = 1;
+
     if (strlen(url_buf) == 0) {
-        if ((g_https_cfg.url == NULL) && (g_https_cfg.url_size == 0)) {
-            free(ctx);
+        if ((ctx->url == NULL) && (ctx->url_size == 0)) {
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
-        url_buf = g_https_cfg.url;
+        strlcpy(url_buf, ctx->url, sizeof(url_buf));
     }   
 
     ctx->data = malloc(len + 1);
     if (!ctx->data) {
-        free(ctx);
+        free_ctx(ctx);
         return AT_RESULT_CODE_ERROR;
     }
     memset(ctx->data, 0, len + 1);
@@ -542,34 +711,39 @@ static int at_setup_cmd_httpcpost(int argc, const char **argv)
 
 static int at_setup_cmd_httpcput(int argc, const char **argv)
 {
-    int ret;
+    int ret, linkid;
     int len, content_type, recv_num = 0;
     struct at_http_ctx *ctx = NULL;
-    uint8_t header_cnt_valid = 0;
-    char *url_buf;
-    
-    ctx = malloc(sizeof(struct at_http_ctx));
-    if (!ctx) {
+    char url_buf[256];
+   
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_STRING(1, url_buf, sizeof(url_buf));
+    AT_CMD_PARSE_NUMBER(2, &content_type);
+    AT_CMD_PARSE_NUMBER(3, &len);
+  
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
         return AT_RESULT_CODE_ERROR;
     }
-    memset(ctx, 0, sizeof(struct at_http_ctx));
+    
+    ctx = &g_httpc_handle[linkid];
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
 
-    url_buf = ctx->url_buf;
-    AT_CMD_PARSE_STRING(0, ctx->url_buf, sizeof(ctx->url_buf));
-    AT_CMD_PARSE_NUMBER(1, &content_type);
-    AT_CMD_PARSE_NUMBER(2, &len);
- 
+    ctx->used = 1;
+    //memset(ctx, 0, sizeof(struct at_http_ctx));
+
     if (strlen(url_buf) == 0) {
-        if ((g_https_cfg.url == NULL) && (g_https_cfg.url_size == 0)) {
-            free(ctx);
+        if ((ctx->url == NULL) && (ctx->url_size == 0)) {
+            free_ctx(ctx);
             return AT_RESULT_CODE_ERROR;
         }
-        url_buf = g_https_cfg.url;
+        strlcpy(url_buf, ctx->url, sizeof(url_buf));
     }   
 
     ctx->data = malloc(len + 1);
     if (!ctx->data) {
-        free(ctx);
+        free_ctx(ctx);
         return AT_RESULT_CODE_ERROR;
     }
     memset(ctx->data, 0, len + 1);
@@ -606,37 +780,50 @@ static int at_setup_cmd_httpcput(int argc, const char **argv)
 
 static int at_setup_cmd_httpcurlcfg(int argc, const char **argv)
 {
+    int linkid;
     int len, recv_num = 0;
+    struct at_http_ctx *ctx = NULL;
 
-    AT_CMD_PARSE_NUMBER(0, &len);
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_NUMBER(1, &len);
     if (len < 0) {
         return AT_RESULT_CODE_ERROR;
     }
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    
+    ctx = &g_httpc_handle[linkid];
+    if (ctx->used) {
+        return AT_RESULT_CODE_ERROR;
+    }
+
     if (len == 0) {
-        free(g_https_cfg.url);
-        g_https_cfg.url_size = 0;
-        g_https_cfg.url = NULL;
+        free(ctx->url);
+        ctx->url_size = 0;
+        ctx->url = NULL;
         return AT_RESULT_CODE_OK;
     }
 
-    if (g_https_cfg.url != NULL) {
+    if (ctx->url != NULL) {
         return AT_RESULT_CODE_ERROR;
     }
-    g_https_cfg.url = malloc(len);
-    if (!g_https_cfg.url) {
+    ctx->url = malloc(len + 1);
+    if (!ctx->url) {
         return AT_RESULT_CODE_ERROR;
     }
-    memset(g_https_cfg.url, 0, len);
+    memset(ctx->url, 0, len + 1);
 
     at_response_result(AT_RESULT_CODE_OK);
     AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
     while(recv_num < len) {
-        recv_num += AT_CMD_DATA_RECV(g_https_cfg.url + recv_num, len - recv_num);
+        recv_num += AT_CMD_DATA_RECV(ctx->url + recv_num, len - recv_num);
     }
     at_response_string("Recv %d bytes\r\n", recv_num);
-    g_https_cfg.url_size = len;
+    ctx->url_size = len;
 
-    g_https_cfg.url[len] = '\0';
+    ctx->url[len] = '\0';
     if (len == recv_num) {
         return AT_RESULT_CODE_SEND_OK;
     }
@@ -645,7 +832,17 @@ static int at_setup_cmd_httpcurlcfg(int argc, const char **argv)
 
 static int at_query_cmd_httpcurlcfg(int argc, const char **argv)
 {
-    at_response_string("+HTTPURLCFG:%d,%s\r\n", g_https_cfg.url_size, g_https_cfg.url);
+    int linkid;
+    struct at_http_ctx *ctx = NULL;
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    
+    ctx = &g_httpc_handle[linkid];
+
+    at_response_string("+HTTPURLCFG:%d,%d,%s\r\n", linkid, ctx->url_size, ctx->url);
     return AT_RESULT_CODE_OK;
 }
 
@@ -657,7 +854,7 @@ static int at_query_cmd_httprecvmode(int argc, const char **argv)
 
 static int at_setup_cmd_httprecvmode(int argc, const char **argv)
 {
-    int mode;
+    int mode, id;
 
     AT_CMD_PARSE_NUMBER(0, &mode);
     if(mode != AT_HTTPC_RECV_MODE_ACTIVE && mode != AT_HTTPC_RECV_MODE_PASSIVE) {
@@ -667,31 +864,54 @@ static int at_setup_cmd_httprecvmode(int argc, const char **argv)
     if (at_get_work_mode() != AT_WORK_MODE_CMD) {
         return AT_RESULT_CODE_ERROR;
     }
-    g_https_cfg.recv_mode = mode;
+ 
+    if (g_https_cfg.recv_mode == mode) {
+        return AT_RESULT_CODE_OK;
+    }
 
-    xSemaphoreTake(g_https_cfg.mutex, portMAX_DELAY);
-    if (mode == AT_HTTPC_RECV_MODE_PASSIVE) {
-    
-        if (!g_https_cfg.recv_buf) {
-            g_https_cfg.recv_buf = xStreamBufferCreate(g_https_cfg.recvbuf_size, 1);
-        }
-    } else {
-        if (g_https_cfg.recv_buf) {
-            vStreamBufferDelete(g_https_cfg.recv_buf);
-            g_https_cfg.recv_buf = NULL;
+    for (id = 0; id < AT_HTTPC_HANDLE_MAX; id++) {
+        if (g_httpc_handle[id].used) {
+            return AT_RESULT_CODE_ERROR;
         }
     }
-    xSemaphoreGive(g_https_cfg.mutex);
+
+    for (id = 0; id < AT_HTTPC_HANDLE_MAX; id++) {
+
+        httpc_buffer_clear(id);
+        AT_HTTP_LOCK(g_httpc_handle[id].mutex);
+
+        if (g_httpc_handle[id].recv_mbox) {
+            vQueueDelete(g_httpc_handle[id].recv_mbox);
+            g_httpc_handle[id].recv_mbox = NULL;
+        }
+        g_httpc_handle[id].recv_avail = 0;
+        if (mode == AT_HTTPC_RECV_MODE_PASSIVE) {
+            g_httpc_handle[id].recv_mbox = xQueueCreate(AT_HTTPC_RECVBUF_CNT_MAX, sizeof(void *));
+        }
+    
+        AT_HTTP_UNLOCK(g_httpc_handle[id].mutex);
+    }
+
+    g_https_cfg.recv_mode = mode;
 
     return AT_RESULT_CODE_OK;
 }
 
 static int at_setup_cmd_httprecvdata(int argc, const char **argv)
 {
+    int linkid;
     int read_len, size, ret = 0, n, offset = 0;
     uint8_t *buffer;
+    struct at_http_ctx *ctx = NULL;
 
-    AT_CMD_PARSE_NUMBER(0, &size);
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+    AT_CMD_PARSE_NUMBER(1, &size);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
+
+    ctx = &g_httpc_handle[linkid];
 
     if (size <= 0 || size > g_https_cfg.recvbuf_size) {
         return AT_RESULT_CODE_ERROR;
@@ -699,7 +919,7 @@ static int at_setup_cmd_httprecvdata(int argc, const char **argv)
 
     buffer = (char *)pvPortMalloc(size + 48);
 
-    read_len = httpc_get_recvsize();
+    read_len = httpc_get_recvsize(linkid);
     read_len = read_len > size ? size : read_len;
 
     n = snprintf(buffer + offset, 48, "+HTTPRECVDATA:%d,", read_len);
@@ -708,12 +928,9 @@ static int at_setup_cmd_httprecvdata(int argc, const char **argv)
     }
 
     if (read_len) {
-        ret = xStreamBufferReceive(g_https_cfg.recv_buf, buffer + offset, read_len, 0);
+        ret = httpc_buffer_read(ctx, buffer + offset, read_len, 0);
         if (ret != read_len) {
             printf("at_net_recvbuf_read error %d\r\n", ret);
-        }
-        if (g_https_cfg.altcp_conn) {
-            altcp_recved(g_https_cfg.altcp_conn, ret);
         }
     }
     
@@ -730,17 +947,14 @@ static int at_setup_cmd_httprecvdata(int argc, const char **argv)
 
 static int at_setup_cmd_httprecvbuf(int argc, const char **argv)
 {
-    int linkid = 0, size;
+    int size;
         
     AT_CMD_PARSE_NUMBER(0, &size);
-
+ 
     if (size <= 0) {
         return AT_RESULT_CODE_ERROR;
     }
 
-	if (g_https_cfg.recv_buf) {
-		return AT_RESULT_CODE_ERROR;
-	}
     g_https_cfg.recvbuf_size = size;
 
     return AT_RESULT_CODE_OK;
@@ -755,30 +969,39 @@ static int at_query_cmd_httprecvbuf(int argc, const char **argv)
 
 static int at_query_cmd_httprecvlen(int argc, const char **argv)
 {
-    int id = 0;
+    int linkid = 0;
+    AT_CMD_PARSE_NUMBER(0, &linkid);
+ 
+    if (linkid < 0 || linkid >= AT_HTTPC_HANDLE_MAX) {
+        return AT_RESULT_CODE_ERROR;
+    }
 
-    at_response_string("+HTTPRECVLEN:%d\r\n", httpc_get_recvsize());
+    at_response_string("+HTTPRECVLEN:%d,%d\r\n",linkid, httpc_get_recvsize(linkid));
     return AT_RESULT_CODE_OK;
 }
 
 static const at_cmd_struct at_http_cmd[] = {
-    {"+HTTPRECVDATA", NULL, NULL, at_setup_cmd_httprecvdata, NULL, 1, 1},
+    {"+HTTPRECVDATA", NULL, NULL, at_setup_cmd_httprecvdata, NULL, 2, 2},
     {"+HTTPRECVMODE", NULL, at_query_cmd_httprecvmode, at_setup_cmd_httprecvmode, NULL, 1, 1},
     {"+HTTPRECVBUF", NULL, at_query_cmd_httprecvbuf, at_setup_cmd_httprecvbuf, NULL, 1, 1},
-    {"+HTTPRECVLEN", NULL, at_query_cmd_httprecvlen, NULL, NULL, 0, 0},
-    {"+HTTPCLIENT", NULL, NULL, at_setup_cmd_httpclient, NULL, 3, 4},
-    {"+HTTPGETSIZE", NULL, NULL, at_setup_cmd_httpgetsize, NULL, 1, 2},
-    {"+HTTPCGET", NULL, NULL, at_setup_cmd_httpcget, NULL, 1, 2},
-    {"+HTTPCPOST", NULL, NULL, at_setup_cmd_httpcpost, NULL, 2, 2},
-    {"+HTTPCPUT", NULL, NULL, at_setup_cmd_httpcput, NULL, 3, 3},
-    {"+HTTPURLCFG", NULL, at_query_cmd_httpcurlcfg, at_setup_cmd_httpcurlcfg, NULL, 1, 1},
-    {"+HTTPSSLCFG", NULL, at_query_cmd_httpsslcfg, at_setup_cmd_httpsslcfg, NULL, 1, 4},
+    {"+HTTPRECVLEN", NULL, at_query_cmd_httprecvlen, NULL, NULL, 1, 1},
+    {"+HTTPCLIENT", NULL, NULL, at_setup_cmd_httpclient, NULL, 4, 5},
+    {"+HTTPGETSIZE", NULL, NULL, at_setup_cmd_httpgetsize, NULL, 2, 3},
+    {"+HTTPCGET", NULL, NULL, at_setup_cmd_httpcget, NULL, 2, 3},
+    {"+HTTPCPOST", NULL, NULL, at_setup_cmd_httpcpost, NULL, 3, 3},
+    {"+HTTPCPUT", NULL, NULL, at_setup_cmd_httpcput, NULL, 4, 4},
+    {"+HTTPURLCFG", NULL, at_query_cmd_httpcurlcfg, at_setup_cmd_httpcurlcfg, NULL, 1, 2},
+    {"+HTTPSSLCFG", NULL, at_query_cmd_httpsslcfg, at_setup_cmd_httpsslcfg, NULL, 2, 5},
 };
 
 bool at_http_cmd_regist(void)
 {
+    memset(&g_httpc_handle, 0, sizeof(g_httpc_handle));
+
     g_https_cfg.recvbuf_size = AT_HTTPC_RECVBUF_SIZE_DEFAULT;
-    g_https_cfg.mutex = xSemaphoreCreateMutex();
+    for (int i = 0; i < AT_HTTPC_HANDLE_MAX; i++) {
+        g_httpc_handle[i].mutex = xSemaphoreCreateMutex();
+    }
 
     if (at_cmd_register(at_http_cmd, sizeof(at_http_cmd) / sizeof(at_http_cmd[0])) == 0)
         return true;

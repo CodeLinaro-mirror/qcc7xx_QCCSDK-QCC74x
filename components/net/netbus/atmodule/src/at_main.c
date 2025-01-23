@@ -15,6 +15,7 @@
 #include <stdarg.h>
 #include <FreeRTOS.h>
 #include <task.h>
+#include "queue.h"
 
 #include "at_main.h"
 #include "at_core.h"
@@ -29,9 +30,15 @@
 #include "at_through.h"
 #include "at_ble_cmd.h"
 #include "at_bredr_cmd.h"
-#define ATCMD_TASK_STACK_SIZE (768)
+#define ATCMD_TASK_STACK_SIZE (896)
 #define ATCMD_TASK_PRIORITY 28
 #define AT_CMD_PRINTF printf
+
+#define AT_WORK_QUEUE 1
+
+#if AT_WORK_QUEUE
+static QueueHandle_t g_work_queue;
+#endif
 
 void at_response_result(uint8_t result_code)
 {
@@ -127,6 +134,54 @@ at_work_mode at_get_work_mode(void)
 {
     return at->incmd;
 }
+
+#if AT_WORK_QUEUE
+int at_workq_send(int id, struct at_workq *q, int timeout)
+{
+
+    if (!g_work_queue) {
+        return 0;
+    }
+    q->eventid = id;
+    
+    return xQueueSend(g_work_queue, q, timeout);
+}
+
+int at_workq_dowork(int eventid, int timeout)
+{
+    int ret;
+    struct at_workq work;
+
+    if (!g_work_queue) {
+        return -1;
+    }
+    
+    xQueuePeek(g_work_queue, &work, timeout);
+    if (work.eventid != eventid) {
+        return 0;
+    }
+    ret = xQueueReceive(g_work_queue, &work, timeout);
+    if ((ret == pdTRUE) && work.pfunc) {
+        work.pfunc(work.eventid, work.arg);
+    }
+    return ret;
+}
+
+static void at_workq_task(void *pvParameters)
+{
+    int ret;
+    struct at_workq work;
+
+    g_work_queue = xQueueCreate(1, sizeof(struct at_workq));
+
+    while (1) {
+        ret = xQueueReceive(g_work_queue, &work, portMAX_DELAY);
+        if ((ret == pdTRUE) && work.pfunc) {
+            work.pfunc(work.eventid, work.arg);
+        }
+    }
+}
+#endif 
 
 static void at_main_task(void *pvParameters)
 {
@@ -256,6 +311,13 @@ int at_module_init(void)
         goto INIT_ERROR;
     }
 
+#if AT_WORK_QUEUE
+    ret = xTaskCreate(at_workq_task, (char*)"at_workq", 512, NULL, 15, NULL);
+    if (ret != pdPASS) {
+        AT_CMD_PRINTF("ERROR: create net_main_task failed, ret = %d\r\n", ret);
+        return -1;
+    }
+#endif
     at->initialized = 1;
     return 0;
 

@@ -10,38 +10,10 @@ sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
 
 
 if (CONFIG_LPAPP)
-    sdk_add_compile_definitions(-DLP_APP)
-    sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
-    sdk_add_compile_definitions(-DconfigUSE_TICKLESS_IDLE=1)
-    sdk_add_compile_definitions(-Dconfig_CUSTOM_TICKLESS=2)
-    sdk_add_compile_definitions(-DCFG_QCC74x_WIFI_PS_ENABLE)
-    sdk_add_compile_definitions(-DCFG_PS)
-    #sdk_add_compile_definitions(-DconfigEXPECTED_IDLE_TIME_BEFORE_SLEEP=40)
-    sdk_add_compile_definitions(-DWPA_SUPPLICANT_CLEANUP_INTERVAL=1800)
-    sdk_add_compile_definitions(-DQCC74x_RA_EN=1)
-    sdk_add_compile_definitions(-DPM_PDS_LDO_LEVEL_SOC_DEFAULT=10)
-    sdk_add_compile_definitions(-DPM_PDS_LDO_LEVEL_AON_DEFAULT=10)
-    sdk_add_compile_definitions(-DTICKLESS_DEBUG=0)
-    sdk_add_compile_definitions(-DLP_RAM_REUSE=1)
-    sdk_add_compile_definitions(-DCONFIG_LPFW_INIT_SKIP_COPY=1)
-
-    if (CONFIG_ACTIVE_CRYSTAL)
-        sdk_add_compile_definitions(-DCFG_ACTIVE_CRYSTAL)
-    endif ()
-
-    if (CONFIG_DCDC_ENABLE)
-        sdk_add_compile_definitions(-DPM_PDS_LDO_LEVEL_RT_DEFAULT=8)
-    else ()
-        sdk_add_compile_definitions(-DPM_PDS_LDO_LEVEL_RT_DEFAULT=10)
-    endif ()
-
-    # sdk_add_compile_definitions(-DLP_FW_START_ADDR=0x63029000)
-
     target_sources(app PRIVATE
                        app/src/app_spiwifi.c
                        app/src/atmoudle/app_atmoudle.c
                        app/src/pm/app_pm.c
-                       app/src/pm/tickless.c
                        )
 else ()
 
@@ -60,6 +32,9 @@ target_sources(app PRIVATE
                    # app/src/useruart/app_useruart.c
                    )
 endif()
+
+sdk_add_compile_definitions(-DAT_NET_TX_MAX_LEN=NXBD_MTU)
+sdk_add_compile_definitions(-DAT_TRANS_ZEROCOPY=1)
 
 if (CONFIG_SPI_3PIN_MODE_ENABLE)
     sdk_add_compile_definitions(-DCONFIG_SPI_3PIN_MODE_ENABLE=1)

@@ -61,6 +61,7 @@ enum rtos_task_id {
     SMARTCONF_TASK,
     DOORBELL_TASK,
     WPA_CONNECTED_TASK,
+    ANTENNA_SCAN_TASK,
     MAX_TASK,
     UNDEF_TASK = 255,
 };

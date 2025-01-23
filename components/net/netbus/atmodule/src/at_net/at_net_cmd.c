@@ -28,14 +28,20 @@
 #include "at_net_main.h"
 #include "at_net_config.h"
 #include "at_through.h"
+#include "at_port.h"
+#include "assert.h"
 #include "wifi_mgmr_ext.h"
-
+#if AT_TRANS_ZEROCOPY 
+#include "nxspi.h"
+#endif
 #define AT_NET_CMD_PRINTF printf
 
-#define AT_NET_TX_MAX_LEN  (8192)
+#define AT_THROUGHPUT_NOWIFI (0)
 
-//static __attribute__((section(".wifi_ram."))) uint8_t at_net_tx_buffer[AT_NET_TX_MAX_LEN];
-static uint8_t at_net_tx_buffer[AT_NET_TX_MAX_LEN];
+#if (!AT_TRANS_ZEROCOPY) 
+static __attribute__((section(".wifi_ram."))) uint8_t at_net_tx_buffer[AT_NET_TX_MAX_LEN];
+#endif
+//static uint8_t at_net_tx_buffer[AT_NET_TX_MAX_LEN];
 
 /*static int string_is_valid_ip(char *string)
 {
@@ -610,6 +616,18 @@ static int at_exe_cmd_cipclose(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+static void _net_tx_async(int linkid, void *arg)
+{
+#if AT_TRANS_ZEROCOPY 
+    trans_desc_t *desc_buf = (trans_desc_t *)arg;
+    
+#if (!AT_THROUGHPUT_NOWIFI)
+    at_net_client_send(linkid, desc_buf->payload, desc_buf->len);
+#endif
+    nxspi_readbuf_push(desc_buf);
+#endif
+}
+
 static int at_setup_cmd_cipsend(int argc, const char **argv)
 {
     int linkid = 0;
@@ -621,8 +639,12 @@ static int at_setup_cmd_cipsend(int argc, const char **argv)
     ip_addr_t remote_ipaddr;
     int recv_num = 0;
     int send_num = 0;
+    uint8_t *buffer;
+#if AT_TRANS_ZEROCOPY 
+    trans_desc_t *desc_buf = NULL;
+#endif
 
-    AT_DEBUG_POINT(0);
+    //AT_DEBUG_POINT(0);
 
     if (at_net_config->mux_mode == NET_LINK_SINGLE) {
         AT_CMD_PARSE_NUMBER(0, &length);
@@ -664,29 +686,40 @@ static int at_setup_cmd_cipsend(int argc, const char **argv)
             return AT_RESULT_CODE_FAIL;
         }
     }
-    AT_DEBUG_POINT(0);
+    //AT_DEBUG_POINT(0);
 
-    at_response_string("%s%s", AT_CMD_MSG_OK, AT_CMD_MSG_WAIT_DATA);
-    //at_response_result(AT_RESULT_CODE_OK);
+    AT_CMD_DATA_SEND("\r\nOK\r\n"AT_CMD_MSG_WAIT_DATA, strlen("\r\nOK\r\n"AT_CMD_MSG_WAIT_DATA));
 
-    //AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
+    at_workq_dowork(linkid, 0);
+#if AT_TRANS_ZEROCOPY 
+    desc_buf = nxspi_readbuf_pop(portMAX_DELAY);
+    if (desc_buf) {
+        buffer = desc_buf->payload;
+        recv_num = desc_buf->len;
+    }
+
+#else
+    buffer = at_net_tx_buffer;
     while(recv_num < length) {
-        AT_DEBUG_POINT(0);
-        recv_num += AT_CMD_DATA_RECV(at_net_tx_buffer + recv_num, length - recv_num);
+        //AT_DEBUG_POINT(0);
+        recv_num += AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
     }
-    AT_DEBUG_POINT(0);
+#endif 
+
+#if AT_TRANS_ZEROCOPY 
+    struct at_workq wq = {
+        .pfunc = _net_tx_async,
+        .arg = desc_buf,
+    };
+    at_workq_send(linkid, &wq, portMAX_DELAY);
+#else
+    at_net_client_send(linkid, buffer, recv_num);
+#endif
+    //AT_DEBUG_POINT(0);
     at_response_string("Recv %d bytes\r\n", recv_num);
-    AT_DEBUG_POINT(0);
+    //AT_DEBUG_POINT(0);
 
-    //send_num = at_net_client_send_async(linkid, at_net_tx_buffer, recv_num, portMAX_DELAY);
-    send_num = at_net_client_send(linkid, at_net_tx_buffer, recv_num);
-    AT_DEBUG_POINT(0);
-
-    if (send_num == recv_num) {
-        return AT_RESULT_CODE_SEND_OK;
-    } else {
-        return AT_RESULT_CODE_FAIL;
-    }
+    return AT_RESULT_CODE_SEND_OK;
 }
 
 static int at_exe_cmd_cipsend(int argc, const char **argv)
@@ -834,6 +867,10 @@ static int at_setup_cmd_cipsendex(int argc, const char **argv)
     int send_num = 0;
     int index = 0, finish = 0;
     int ret;
+    uint8_t *buffer;
+#if AT_TRANS_ZEROCOPY 
+    trans_desc_t *desc_buf = NULL;
+#endif
 
     if (at_net_config->mux_mode == NET_LINK_SINGLE) {
         AT_CMD_PARSE_NUMBER(0, &length);
@@ -877,25 +914,38 @@ static int at_setup_cmd_cipsendex(int argc, const char **argv)
     }
 
     at_response_string("%s%s", AT_CMD_MSG_OK, AT_CMD_MSG_WAIT_DATA);
-    //at_response_result(AT_RESULT_CODE_OK);
 
-    //AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
+    at_workq_dowork(linkid, 0);
+#if AT_TRANS_ZEROCOPY 
+    desc_buf = nxspi_readbuf_pop(portMAX_DELAY);
+    if (desc_buf) {
+        buffer = desc_buf->payload;
+        recv_num = desc_buf->len;
+        recv_num = at_senddata_parse(buffer, recv_num, &index, &finish);
+    }
+#else
+    buffer = at_net_tx_buffer;
     while(recv_num < length) {
-        ret = AT_CMD_DATA_RECV(at_net_tx_buffer + recv_num, length - recv_num);
+        ret = AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
         if (ret > 0) {
             recv_num += ret;
-            recv_num = at_senddata_parse(at_net_tx_buffer, recv_num, &index, &finish);
+            recv_num = at_senddata_parse(buffer, recv_num, &index, &finish);
             if (finish)
                 break;
         }
     }
+#endif 
+
+#if AT_TRANS_ZEROCOPY 
+    struct at_workq wq = {
+        .pfunc = _net_tx_async,
+        .arg = desc_buf,
+    };
+    at_workq_send(linkid, &wq, portMAX_DELAY);
+#else 
+    at_net_client_send(linkid, buffer, recv_num);
+#endif
     at_response_string("Recv %d bytes\r\n", recv_num);
-
-    send_num = at_net_client_send(linkid, at_net_tx_buffer, recv_num);
-
-    if (send_num != recv_num) {
-        return AT_RESULT_CODE_FAIL;
-    }
 
     return AT_RESULT_CODE_SEND_OK;
 }
@@ -998,6 +1048,7 @@ static int at_setup_cmd_ciprecvdata(int argc, const char **argv)
     uint16_t remote_port;
     ip_addr_t ipaddr;
 
+    AT_DEBUG_POINT(0);
     if (at_net_config->mux_mode == NET_LINK_SINGLE) {
         if (argc != 1) {
             return AT_RESULT_CODE_ERROR;
@@ -1015,37 +1066,76 @@ static int at_setup_cmd_ciprecvdata(int argc, const char **argv)
         return AT_RESULT_CODE_ERROR;
     }
 
-    buffer = (char *)pvPortMalloc(size + 48);
-
-    read_len = at_net_client_get_recvsize(linkid);
-    read_len = read_len > size ? size : read_len;
-
-    n = snprintf(buffer + offset, 48, "+CIPRECVDATA:%d,", read_len);
-    if (n > 0) {
-        offset += n;
+    if (size + 48 > AT_NET_TX_MAX_LEN) {
+        return AT_RESULT_CODE_ERROR;
     }
 
+#if AT_THROUGHPUT_NOWIFI
+    read_len = 1470;
+#else
+    read_len = at_net_client_get_recvsize(linkid);
+#endif
+    read_len = read_len > size ? size : read_len;
+
+#if (AT_TRANS_ZEROCOPY) 
+    trans_desc_t *desc_buf = nxspi_writebuf_pop(portMAX_DELAY);
+    if (!desc_buf) {
+        return AT_RESULT_CODE_ERROR;
+    }
+    buffer = desc_buf->payload;
+    desc_buf->len = 0;
+#else 
+    buffer = at_net_tx_buffer;
+#endif 
+
+    /* Use strncat + itoa instead of snprintf to improve performance. */
+    uint8_t tmp[10];
+    buffer[0] = 0;
+    strncat(buffer, "+CIPRECVDATA:", 48);
+    strncat(buffer, itoa(read_len, tmp, 10), 48 - strlen(buffer));
+    strncat(buffer, ",", 48 - strlen(buffer));
+    offset = strlen(buffer);
+    
+    //n = snprintf(buffer + offset, 48, "+CIPRECVDATA:%d,", read_len);
+    //if (n > 0) {
+    //    offset += n;
+    //}
+    
     if (at_net_config->ipd_info == NET_IPDINFO_ENABLE_IPPORT) {
+        at_net_recvbuf_read(linkid, &ipaddr, &remote_port, NULL, 0);
         n = snprintf(buffer + offset, 48 - offset, "\"%s\",%d,", ipaddr_ntoa(&ipaddr), remote_port);
         if (n > 0) {
             offset += n;
         }
     } 
+    AT_DEBUG_POINT(0);
     if (read_len) {
-        ret = at_net_recvbuf_read(linkid, &ipaddr, &remote_port, buffer + offset, read_len);
+#if AT_THROUGHPUT_NOWIFI
+        ret = read_len;
+#else
+        ret = at_net_recvbuf_read(linkid, NULL, NULL, buffer + offset, read_len);
+#endif
         if (ret != read_len) {
             printf("at_net_recvbuf_read error %d\r\n", ret);
         }
     }
+    AT_DEBUG_POINT(0);
     
     offset += ret;
    
     memcpy(buffer + offset, "\r\n", 2);
     offset += 2;
-    AT_CMD_DATA_SEND((uint8_t *)buffer, offset);
-    
-    vPortFree(buffer);
 
+    assert(offset < AT_NET_TX_MAX_LEN);
+
+#if (AT_TRANS_ZEROCOPY) 
+    desc_buf->len = offset;
+    nxspi_writebuf_push(desc_buf);
+#else
+    AT_CMD_DATA_SEND((uint8_t *)buffer, offset);
+#endif
+    AT_DEBUG_POINT(0);
+    
     return AT_RESULT_CODE_OK;
 }
 
@@ -1654,19 +1744,12 @@ static int at_setup_cmd_cipsntpcfg(int argc, const char **argv)
 
 static int at_query_cmd_cipsntptime(int argc, const char **argv)
 {
-    time_t ut;
+    struct timespec tp;
     char time_buf[32];
-    int zone = (int)at_net_config->sntp_cfg.timezone;
 
-    if (zone >= -12 && zone <= 14)
-        zone = zone*3600;
-    else {
-        int zone_h = zone/100;
-        int zone_m = zone%100;
-        zone = zone_h * 3600 + zone_m * 60;
-    }
-    ut = (time_t)((at_base_config->systime_stamp + at_current_ms_get())/1000 + zone);
-    ctime_r(&ut, time_buf);
+    at_net_sntp_gettime(&tp);
+
+    ctime_r(&tp.tv_sec, time_buf);
 
     time_buf[strlen(time_buf)-1] = '\0'; // delete last 0x0A
 

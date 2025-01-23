@@ -57,19 +57,17 @@ void Error_Handler(void);
 /* USER CODE END EFP */
 
 /* Private defines -----------------------------------------------------------*/
-#define USER_BUTTON_Pin GPIO_PIN_13
-#define USER_BUTTON_GPIO_Port GPIOC
 #define VBUS_SENSE_Pin GPIO_PIN_2
 #define VBUS_SENSE_GPIO_Port GPIOC
-#define SPI_SLAVE_DATA_RDY_Pin GPIO_PIN_0
-#define SPI_SLAVE_DATA_RDY_GPIO_Port GPIOG
-#define SPI_SLAVE_DATA_RDY_EXTI_IRQn EXTI0_IRQn
-#define QCC74X_LP_WAKEUP_Pin GPIO_PIN_1
-#define QCC74X_LP_WAKEUP_GPIO_Port GPIOG
+#define SPI_SLAVE_DATA_RDY_Pin GPIO_PIN_13
+#define SPI_SLAVE_DATA_RDY_GPIO_Port GPIOE
+#define SPI_SLAVE_DATA_RDY_EXTI_IRQn EXTI13_IRQn
 #define UCPD_FLT_Pin GPIO_PIN_14
 #define UCPD_FLT_GPIO_Port GPIOB
 #define UCPD1_CC2_Pin GPIO_PIN_15
 #define UCPD1_CC2_GPIO_Port GPIOB
+#define QCC74X_LP_WAKEUP_Pin GPIO_PIN_14
+#define QCC74X_LP_WAKEUP_GPIO_Port GPIOD
 #define LED_RED_Pin GPIO_PIN_2
 #define LED_RED_GPIO_Port GPIOG
 #define LED_GREEN_Pin GPIO_PIN_7

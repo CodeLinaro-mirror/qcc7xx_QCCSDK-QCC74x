@@ -136,6 +136,12 @@ struct wl_param_tcap_t
     int8_t      tcap_cap[11];
 };
 
+struct wl_param_spur_rules_t
+{
+    uint32_t    cfg20;
+    uint32_t    cfg40;
+};
+
 struct wl_param_t
 {
     uint32_t                     xtalfreq_hz;     // multi source driven (efuse/flash/dts...)
@@ -152,6 +158,9 @@ struct wl_param_t
     uint8_t                      pwr_update;      // power update flag
     #endif
     struct wl_param_tcap_t       tcap;
+    struct wl_param_spur_rules_t spur_rules[NUM_WLAN_CHANNELS];
+    uint8_t                      spur_rules_en[NUM_WLAN_CHANNELS];
+    uint8_t                      bz_backoff_db[21];
 };
 
 struct wl_env_t

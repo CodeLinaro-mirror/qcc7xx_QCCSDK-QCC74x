@@ -20,6 +20,9 @@
 #define AT_HOST_RESP_EVT_SEND_OK       (1 << 2)
 #define AT_HOST_RESP_EVT_CIPRECVDATA   (1 << 3)
 #define AT_HOST_RESP_EVT_RECV_BTYES    (1 << 4)
+#define AT_HOST_RESP_EVT_IPD           (1 << 5)
+
+#define AT_HOST_DEBUG_POINT()  //at_gpio_debug();
 
 typedef int (*at_receive_cb_t)(uint8_t *buf, uint32_t size, void *arg);
 struct at_host;
@@ -65,6 +68,7 @@ typedef struct at_host {
 	uint8_t recv_mode;
 	uint32_t recv_len_totle;
 
+	uint16_t last_recvdata_len;
 	//char rxbuf[1024*3];
 
 } *at_host_handle_t;
@@ -85,5 +89,6 @@ int at_host_recvmode_set(at_host_handle_t at, uint8_t mode);
 
 int at_host_recvdata(at_host_handle_t at, int linkid, uint8_t *buf, uint32_t buf_size, uint32_t timeout);
 
+int at_host_read(at_host_handle_t at, uint8_t *buf, uint32_t buf_size);
 
 #endif /* SRC_AT_HOST_H_ */

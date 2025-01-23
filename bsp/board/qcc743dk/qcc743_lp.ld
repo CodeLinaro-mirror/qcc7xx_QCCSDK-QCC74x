@@ -120,62 +120,107 @@ SECTIONS
         *libgcc.a:_clzsi2.o*(.rodata)          
         *libgcc.a:_clz.o*(.text)               
         *libgcc.a:_clz.o*(.rodata)             
-         
-        /*
-        *at_net_main.c.o*(.text.at_net_client_is_connected)
-        *at_net_main.c.o*(.rodata.at_net_client_is_connected)
-        *at_net_main.c.o*(.text.at_net_client_send_async)
-        *at_net_main.c.o*(.rodata.at_net_client_send_async)
-        *qcc74x_gpio.c.o*(.text.qcc74x_gpio_set)
-        *qcc74x_gpio.c.o*(.text.qcc74x_gpio_reset)
-        *qcc743_gpio.c.o*(.text.qcc74x_gpio_pad_check)
-        *lib_strcasecmp.c.o*(.text*)
-        *lib_strcasecmp.c.o*(.rodata*)
-        *lib_atoi.c.o*(.text*)
-        *lib_atoi.c.o*(.rodata*)
-        *lib_a-strlen.o*(.text*)
-        *lib_a-strlen.o*(.rodata*)
-        *lib_a-strncmp.o*(.text*)
-        *lib_a-strncmp.o*(.rodata*)
-        *lib_a-strlcpy.o*(.text*)
-        *lib_a-strlcpy.o*(.rodata*)
-        *vsnprintf.c.o*(.text*)
-        *vsnprintf.c.o*(.rodata*)
-        *mem.c.o*(.text.malloc)
-        *mem.c.o*(.text.free)
-        *qcc74x_tlsf.c.o*(.text*)
-        *qcc74x_tlsf.c.o*(.rodata*)
-        *tlsf.c.o*(.text*)
-        *tlsf.c.o*(.rodata*)
-        *utils_list.c.o*(.text*)
-        *utils_list.c.o*(.rodata*)
-        *libspisync.a:*.o*(.text*)
-        *libspisync.a:*.o*(.rodata*)
-        *at_port_spi.c.o*(.text*)
-        *at_port_spi.c.o*(.rodata*)
-  
+
+        INCLUDE run_in_function_high_performance.ld.in 
+        
+        *(.text.GLB_Set_SPI_CLK
+          .text.GLB_Swap_MCU_SPI_0_MOSI_With_MISO
+          .text.qcc74x_dma_channel_stop
+          .text.GLB_AHB_MCU_Software_Reset
+          .text.qcc74x_spi_init
+          .text.qcc74x_spi_link_txdma
+          .text.qcc74x_dma_channel_init
+          .text.qcc74x_dma_channel_irq_attach
+          .text.qcc74x_dma_channel_tcint_mask
+          .text.qcc74x_gpio_init
+          .text.qcc74x_irq_disable
+          .text.qcc74x_gpio_int_init
+          .text.qcc74x_gpio_int_mask
+          .text.qcc74x_gpio_int_clear
+          .text.qcc74x_gpio_get_intstatus
+          .text.qcc74x_irq_clear_pending
+          .text.qcc74x_irq_enable
+          .text.csi_vic_disable_irq
+          .text.csi_vic_enable_irq
+          .text.qcc74x_spi_link_rxdma
+          .text.csi_vic_clear_pending_irq
+        )
         *at_main.c.o*(.text.at_main_task)
         *at_main.c.o*(.rodata.at_main_task)
         *at_main.c.o*(.text.at_response_string)
         *at_main.c.o*(.rodata.at_response_string)
         *at_main.c.o*(.text.at_response_result)
         *at_main.c.o*(.rodata.at_response_result)
+        *at_main.c.o*(.text.at_workq_send)
+        *at_main.c.o*(.rodata.at_workq_send)
+        *at_main.c.o*(.text.at_workq_dowork)
+        *at_main.c.o*(.rodata.at_workq_dowork)
         *at_net_cmd.c.o*(.text.at_setup_cmd_cipsend)
         *at_net_cmd.c.o*(.rodata.at_setup_cmd_cipsend)
         *at_net_cmd.c.o*(.text.at_setup_cmd_cipsendl)
         *at_net_cmd.c.o*(.rodata.at_setup_cmd_cipsendl)
+        *at_net_cmd.c.o*(.text.at_setup_cmd_ciprecvdata)
+        *at_net_cmd.c.o*(.rodata.at_setup_cmd_ciprecvdata)
         *at_core.c.o*(.text*)
         *at_core.c.o*(.rodata*)
-        */
-
+        *at_net_main.c.o*(.text.at_net_client_is_connected)
+        *at_net_main.c.o*(.rodata.at_net_client_is_connected)
+        *at_net_main.c.o*(.text.at_net_client_send_async)
+        *at_net_main.c.o*(.rodata.at_net_client_send_async)
+        *at_net_main.c.o*(.text.at_net_recvbuf_size_get)
+        *at_net_main.c.o*(.rodata.at_net_recvbuf_size_get)
+        *at_net_main.c.o*(.text.at_net_client_get_recvsize)
+        *at_net_main.c.o*(.rodata.at_net_client_get_recvsize)
+        *at_net_main.c.o*(.text.at_net_recvbuf_read)
+        *at_net_main.c.o*(.rodata.at_net_recvbuf_read)
+        *qcc74x_gpio.c.o*(.text.qcc74x_gpio_set)
+        *qcc74x_gpio.c.o*(.text.qcc74x_gpio_read)
+        *qcc74x_gpio.c.o*(.text.qcc74x_gpio_reset)
+        *qcc743_gpio.c.o*(.text.qcc74x_gpio_pad_check)
+        *qcc743_gpio.c.o*(.text.gpio_all_isr)
+        *qcc743_gpio.c.o*(.rodata.gpio_all_isr)
+        *qcc743_gpio.c.o*(.rodata.qcc74x_gpio_read)
+        *lib_strcasecmp.c.o*(.text*)
+        *lib_strcasecmp.c.o*(.rodata*)
+        *lib_atoi.c.o*(.text*)
+        *lib_atoi.c.o*(.rodata*)
+        *lib_a-strlen.o*(.text*)
+        *lib_a-strlen.o*(.rodata*)
+        *lib_a-strncat.o*(.text*)
+        *lib_a-strncat.o*(.rodata*)
+        *lib_itoa.c.o*(.text*)
+        *lib_itoa.c.o*(.rodata*)
+        *lib_a-strncmp.o*(.text*)
+        *lib_a-strncmp.o*(.rodata*)
+        *lib_a-strlcpy.o*(.text*)
+        *lib_a-strlcpy.o*(.rodata*)
+        *vsnprintf.c.o*(.text*)
+        *vsnprintf.c.o*(.rodata*)
+        *snprintf.c.o*(.text*)
+        *snprintf.c.o*(.rodata*)
+        *mem.c.o*(.text.malloc)
+        *mem.c.o*(.text.free)
+        *qcc74x_tlsf.c.o*(.text*)
+        *qcc74x_tlsf.c.o*(.rodata*)
+        *tlsf.c.o*(.text*)
+        *tlsf.c.o*(.rodata*)
+       
         *qcc74x_dma.c.o*(.text.dma0_isr)
         *qcc74x_dma.c.o*(.text.dma1_isr)
         *qcc74x_dma.c.o*(.text.dma2_isr)
+        *qcc74x_dma.c.o*(.text.qcc74x_dma_channel_lli_reload)
+        *qcc74x_dma.c.o*(.rodata.qcc74x_dma_channel_lli_reload)
+        *qcc74x_dma.c.o*(.text.qcc74x_dma_channel_start)
+        *qcc74x_dma.c.o*(.rodata.qcc74x_dma_channel_start)
+        *qcc74x_dma.c.o*(.text.qcc74x_dma_lli_config)
+        *qcc74x_dma.c.o*(.rodata.qcc74x_dma_lli_config)
+        *qcc74x_gpio.c.o*(.text.gpio_all_isr)
+        *qcc74x_gpio.c.o*(.rodata.gpio_all_isr)
         *vector.S.o*(.text*)
         *vector.S.o*(.rodata*)
         *interrupt.c.o*(.text*)
         *interrupt.c.o*(.rodata*)
-        *libfreertos.a:*.o*(.rodata*)   
+        *libfreertos.a:*.o*(SORT_BY_NAME(.rodata*))   
         *libfreertos.a:portASM.S.o*(.rodata*)   
         *libfreertos.a:portASM.S.o*(.text*)   
         
@@ -221,6 +266,17 @@ SECTIONS
         __ram_data_start__ = .;
 
         PROVIDE( __global_pointer$ = . + 0x800 );
+
+        *libqcc74x_macsw*.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *libqcc74x_fhost*.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *libqcc74x_os_adapter.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *liblwip.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *libwifi6_lwip_adapter.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *libqcc743_phyrf.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
+        *libm.a:*.o(SORT_BY_NAME(.data.* ) SORT_BY_NAME(.sdata.*))
+        *libc.a:*.o(SORT_BY_NAME(.data.* ) SORT_BY_NAME(.sdata.*))
+        *libgcc.a:*.o(SORT_BY_NAME(.data.* ) SORT_BY_NAME(.sdata.*))
+        *libatmodule.a:*.o*(SORT_BY_NAME(.data*) SORT_BY_NAME(.sdata*))
 
         *(.data)
         *(.data.*)
@@ -328,6 +384,17 @@ SECTIONS
         . = ALIGN(32);
         __bss_start__ = .;
 
+        *libqcc74x_macsw*.a:*.o*(SORT_BY_NAME(.bss*))
+        *libqcc74x_fhost*.a:*.o*(SORT_BY_NAME(.bss*))
+        *libqcc74x_os_adapter.a:*.o*(SORT_BY_NAME(.bss*))
+        *liblwip.a:*.o*(SORT_BY_NAME(.bss*))
+        *libwifi6_lwip_adapter.a:*.o*(SORT_BY_NAME(.bss*))
+        *libqcc743_phyrf.a:*.o*(SORT_BY_NAME(.bss*))
+        *libm.a:*.o(SORT_BY_NAME(.bss*))
+        *libc.a:*.o(SORT_BY_NAME(.bss*))
+        *libgcc.a:*.o(SORT_BY_NAME(.bss*))
+        *libatmodule.a:*.o*(SORT_BY_NAME(.bss*))
+
         *(.bss*)
         *(.sbss*)
         *(COMMON)
@@ -398,8 +465,20 @@ SECTIONS
     {
         . = ALIGN(32);
         __ram_lp_code_start__ = .;
-        
-        *libfreertos.a:*.o*(.text*)
+        *(.ram_lp*)
+        *utils_list.c.o*(.text*)
+        *utils_list.c.o*(.rodata*)
+        *libspisync.a:*.o*(.text*)
+        *libspisync.a:*.o*(.rodata*)
+
+        *libnxspi.a:nxspi.c.o*(.text*)
+        *libnxspi.a:nxspi.c.o*(.rodata*)
+        *libnxspi.a:nxspi_port.c.o*(.text*)
+        *libnxspi.a:nxspi_port.c.o*(.rodata*)
+
+        *at_port_spi.c.o*(.text*)
+        *at_port_spi.c.o*(.rodata*)
+  
         __ram_lp_code_end__ = .;
         . = ALIGN(32);
     } > ram_lp 
@@ -410,6 +489,17 @@ SECTIONS
     {
         . = ALIGN(32);
         __text_code_start__ = .;
+
+        *libqcc74x_macsw*.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libqcc74x_fhost*.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libqcc74x_os_adapter.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *liblwip.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libwifi6_lwip_adapter.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libqcc743_phyrf.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libm.a:*.o(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libc.a:*.o(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libgcc.a:*.o(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
+        *libatmodule.a:*.o*(SORT_BY_NAME(.text*) SORT_BY_NAME(.rodata*) SORT_BY_NAME(.srodata.*))
 
         *(.text)
         *(.text.*)

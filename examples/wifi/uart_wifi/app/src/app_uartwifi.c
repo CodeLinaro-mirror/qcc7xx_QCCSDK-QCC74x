@@ -22,7 +22,6 @@
 #define TASK_PRIORITY_FW (16)
 
 extern void app_atmoudle_init(void);
-TaskHandle_t wifi_fw_task;
 
 int app_uartwifi_init(void)
 {
@@ -50,10 +49,7 @@ int app_uartwifi_init(void)
 
     /* AT moudle start */
     app_atmoudle_init();
-   
-    /* Start Wifi_FW */
-    xTaskCreate(wifi_main, (char *)"fw", WIFI_STACK_SIZE, NULL, TASK_PRIORITY_FW, &wifi_fw_task);
-
+  
     return 0;
 }
 

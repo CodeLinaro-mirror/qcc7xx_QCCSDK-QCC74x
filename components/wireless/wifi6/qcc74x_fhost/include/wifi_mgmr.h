@@ -77,6 +77,9 @@ typedef struct wifi_mgmr {
 
     uint8_t sta_mode;
     uint8_t ap_mode;
+
+    // Antenna scan
+    bool is_antenna_scanning;
 } wifi_mgmr_t;
 extern wifi_mgmr_t wifiMgmr;
 

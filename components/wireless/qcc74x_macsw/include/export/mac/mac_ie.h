@@ -558,6 +558,19 @@ uint32_t mac_ie_ext_cap_find(uint32_t buffer, uint16_t buflen, uint16_t *length)
 
 /**
  ****************************************************************************************
+ * @brief Check whether ie format length is right in beacon or probe response.
+ *
+ * @param[in] addr Address of the variable part of the management frame body to look
+ * for the IE into.
+ * @param[in] buflen Length of the frame body variable part.
+ *
+ * @return true if check OK, otherwise false.
+ ****************************************************************************************
+ */
+bool mac_ie_check(uint32_t addr, uint16_t buflen);
+
+/**
+ ****************************************************************************************
  * @brief Find an information element in the variable part of a management frame body.
  *
  * @param[in] addr Address of the variable part of the management frame body to look

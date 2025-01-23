@@ -9,9 +9,18 @@ set(TOOL_SUFFIX "-macos")
 set(CMAKE cmake)
 endif()
 
+if(EXISTS "${QCC74x_SDK_BASE}/VERSION")
+    file(READ "${QCC74x_SDK_BASE}/VERSION" VERSION_FILE_CONTENT)
+
+    string(REGEX MATCH "PROJECT_SDK_VERSION[ ]+\"([^\"]+)\"" _ ${VERSION_FILE_CONTENT})
+    set(PROJECT_SDK_VERSION "${CMAKE_MATCH_1}")
+else()
+    set(PROJECT_SDK_VERSION "2.0.0")
+endif()
+
 set(QCC74x_FW_POST_PROC ${QCC74x_SDK_BASE}/tools/qcc74x_tools/QConn_Secure/QConn_Secure${TOOL_SUFFIX})
 
-set(QCC74x_FW_POST_PROC_CONFIG --imgfile=${BIN_FILE} --appkeys=shared)
+set(QCC74x_FW_POST_PROC_CONFIG --imgfile=${BIN_FILE} --appkeys=shared --ota_header=${PROJECT_SDK_VERSION})
 
 if(BOARD_DIR)
 list(APPEND QCC74x_FW_POST_PROC_CONFIG --brdcfgdir=${BOARD_DIR}/${BOARD}/config)
@@ -82,3 +91,14 @@ endforeach()
 add_custom_target(post_build
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
         ${post_build_cmds})
+
+file(GLOB BUILD_BINS "${CMAKE_CURRENT_SOURCE_DIR}/build/build_out/*.bin" "${CMAKE_CURRENT_SOURCE_DIR}/build/build_out/*.elf" "${CMAKE_CURRENT_SOURCE_DIR}/build/build_out/*.xz" "${CMAKE_CURRENT_SOURCE_DIR}/build/build_out/*.ota")
+
+set(pre_build_cmds)
+if(BUILD_BINS)
+    list(APPEND pre_build_cmds COMMAND ${CMAKE} -E echo "[clean] clean old binary"
+                               COMMAND ${CMAKE} -E remove ${BUILD_BINS})
+endif()
+add_custom_target(pre_build
+        WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+        ${pre_build_cmds})

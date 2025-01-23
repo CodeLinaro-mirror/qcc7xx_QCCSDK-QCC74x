@@ -81,13 +81,14 @@ cmake_definition+= -DAPP_ANTI_ROLLBACK=$(APP_ANTI_ROLLBACK)
 
 build:Makefile
 	$(CMAKE) -S . -B build -G $(cmake_generator) $(cmake_definition)
+	$(MAKE) -C build pre_build
 	$(MAKE) -C build -j8
 	$(MAKE) -C build combine
 	$(MAKE) -C build post_build
 
 ninja:Makefile
 	$(CMAKE) -S . -B build -G Ninja $(cmake_definition)
-	cd build && ninja && ninja combine && ninja post_build
+	cd build && ninja pre_build && ninja && ninja combine && ninja post_build
 
 clean::
 	$(RM) build

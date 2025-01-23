@@ -5,6 +5,7 @@ target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/fw_header.c)
 
 if(CONFIG_RF)
 target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/board_rf.c)
+target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/wireless_regdb.c)
 endif()
 
 if(CONFIG_LINK_FOR_MFGTEST)
@@ -38,6 +39,7 @@ if(CONFIG_CONSOLE_WO)
 sdk_add_compile_definitions(-DCONFIG_CONSOLE_WO)
 endif()
 
+sdk_add_compile_definitions_ifdef(CONFIG_ANTENNA_CONTROL -DCONFIG_ANTENNA_CONTROL)
 sdk_add_compile_definitions_ifdef(CONFIG_PSRAM_COPY_CODE -DCONFIG_PSRAM_COPY_CODE)
 
 sdk_add_link_options(-ufw_header)

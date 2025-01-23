@@ -375,7 +375,7 @@ void qcc74x_dma_channel_tcint_mask(struct qcc74x_device_s *dev, bool mask)
 
 void qcc74x_dma_channel_irq_attach(struct qcc74x_device_s *dev, void (*callback)(void *arg), void *arg)
 {
-    static uint8_t init_attach = 0;
+    uint8_t init_attach = 0;
     dma_callback[dev->idx][dev->sub_idx].handler = callback;
     dma_callback[dev->idx][dev->sub_idx].arg = arg;
 

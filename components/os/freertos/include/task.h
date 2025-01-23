@@ -1513,6 +1513,7 @@ char * pcTaskGetName( TaskHandle_t xTaskToQuery ) PRIVILEGED_FUNCTION; /*lint !e
  * \ingroup TaskUtils
  */
 TaskHandle_t xTaskGetHandle( const char * pcNameToQuery ) PRIVILEGED_FUNCTION; /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
+TaskHandle_t xTaskGetHandleFromISR( const char * pcNameToQuery ) PRIVILEGED_FUNCTION;
 
 /**
  * task. h
@@ -3230,7 +3231,7 @@ void vTaskInternalSetTimeOutState( TimeOut_t * const pxTimeOut ) PRIVILEGED_FUNC
 #if (config_CUSTOM_TICKLESS == 2)
 typedef void (*foreach_handler_cb)(TaskHandle_t, eTaskState);
 uint8_t * pcTaskGetVendorFlags(TaskHandle_t tsk);
-void vTaskHandleForeach(foreach_handler_cb cb);
+void vTaskHandleForeachFromISR(foreach_handler_cb cb);
 #endif
 
 /* *INDENT-OFF* */

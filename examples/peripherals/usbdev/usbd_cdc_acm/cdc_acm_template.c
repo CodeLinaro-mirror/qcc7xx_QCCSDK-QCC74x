@@ -1,10 +1,17 @@
+#include "qcc74x_irq.h"
+
 #include "usbd_core.h"
 #include "usbd_cdc.h"
 
+#include "ring_buffer.h"
+
+#define DBG_TAG "ACM"
+#include "log.h"
+
 /*!< endpoint address */
-#define CDC_IN_EP  0x81
-#define CDC_OUT_EP 0x02
-#define CDC_INT_EP 0x83
+#define CDC_IN_EP          0x81
+#define CDC_OUT_EP         0x02
+#define CDC_INT_EP         0x83
 
 #define USBD_VID           0xFFFF
 #define USBD_PID           0xFFFF
@@ -12,7 +19,7 @@
 #define USBD_LANGID_STRING 1033
 
 /*!< config descriptor size */
-#define USB_CONFIG_SIZE (9 + CDC_ACM_DESCRIPTOR_LEN)
+#define USB_CONFIG_SIZE    (9 + CDC_ACM_DESCRIPTOR_LEN)
 
 #ifdef CONFIG_USB_HS
 #define CDC_MAX_MPS 512
@@ -57,11 +64,11 @@ static const uint8_t cdc_descriptor[] = {
     'U', 0x00,                  /* wcChar6 */
     'S', 0x00,                  /* wcChar7 */
     'B', 0x00,                  /* wcChar8 */
-    ' ', 0x00,                  /* wcChar9 */
+    '_', 0x00,                  /* wcChar9 */
     'C', 0x00,                  /* wcChar10 */
     'D', 0x00,                  /* wcChar11 */
     'C', 0x00,                  /* wcChar12 */
-    ' ', 0x00,                  /* wcChar13 */
+    '_', 0x00,                  /* wcChar13 */
     'D', 0x00,                  /* wcChar14 */
     'E', 0x00,                  /* wcChar15 */
     'M', 0x00,                  /* wcChar16 */
@@ -102,6 +109,9 @@ static const uint8_t cdc_descriptor[] = {
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t read_buffer[2048];
 USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t write_buffer[2048];
 
+Ring_Buffer_Type loopback_rb;
+USB_NOCACHE_RAM_SECTION USB_MEM_ALIGNX uint8_t loopback_rb_buffer[4096];
+
 volatile bool ep_tx_busy_flag = false;
 
 #ifdef CONFIG_USB_HS
@@ -124,6 +134,7 @@ void usbd_event_handler(uint8_t event)
         case USBD_EVENT_SUSPEND:
             break;
         case USBD_EVENT_CONFIGURED:
+            USB_LOG_INFO("USB DEVICE CONFIGURED DONE!\r\n");
             /* setup first out ep read transfer */
             usbd_ep_start_read(CDC_OUT_EP, read_buffer, 2048);
             break;
@@ -139,24 +150,28 @@ void usbd_event_handler(uint8_t event)
 
 void usbd_cdc_acm_bulk_out(uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual out len:%d\r\n", nbytes);
-    // for (int i = 0; i < 100; i++) {
-    //     printf("%02x ", read_buffer[i]);
-    // }
-    // printf("\r\n");
+    USB_LOG_RAW("dnld done, size: %d\r\n", nbytes);
+
+    if (Ring_Buffer_Get_Empty_Length(&loopback_rb) < nbytes) {
+        USB_LOG_RAW("ringbuff FULL\r\n");
+        nbytes = Ring_Buffer_Get_Empty_Length(&loopback_rb);
+    }
+
+    /* save to ringbuff */
+    Ring_Buffer_Write(&loopback_rb, (uint8_t *)read_buffer, nbytes);
+
     /* setup next out ep read transfer */
-    usbd_ep_start_read(CDC_OUT_EP, read_buffer, 2048);
+    usbd_ep_start_read(CDC_OUT_EP, read_buffer, sizeof(read_buffer));
 }
 
 void usbd_cdc_acm_bulk_in(uint8_t ep, uint32_t nbytes)
 {
-    USB_LOG_RAW("actual in len:%d\r\n", nbytes);
-
     if ((nbytes % CDC_MAX_MPS) == 0 && nbytes) {
         /* send zlp */
         usbd_ep_start_write(CDC_IN_EP, NULL, 0);
     } else {
         ep_tx_busy_flag = false;
+        USB_LOG_RAW("upld done\r\n");
     }
 }
 
@@ -171,15 +186,23 @@ struct usbd_endpoint cdc_in_ep = {
     .ep_cb = usbd_cdc_acm_bulk_in
 };
 
+/* ringbuff lock/unlock */
+static volatile uintptr_t irq_flag;
+static void rb_lock_cb(void)
+{
+    irq_flag = qcc74x_irq_save();
+}
+static void rb_unlock_cb(void)
+{
+    qcc74x_irq_restore(irq_flag);
+}
+
 struct usbd_interface intf0;
 struct usbd_interface intf1;
 
 void cdc_acm_init(void)
 {
-    const uint8_t data[10] = { 0x31, 0x32, 0x33, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x30 };
-
-    memcpy(&write_buffer[0], data, 10);
-    memset(&write_buffer[10], 'a', 2038);
+    Ring_Buffer_Init(&loopback_rb, (uint8_t *)loopback_rb_buffer, sizeof(loopback_rb_buffer), rb_lock_cb, rb_unlock_cb);
 
     usbd_desc_register(cdc_descriptor);
     usbd_add_interface(usbd_cdc_acm_init_intf(&intf0));
@@ -189,23 +212,23 @@ void cdc_acm_init(void)
     usbd_initialize();
 }
 
-volatile uint8_t dtr_enable = 0;
-
-void usbd_cdc_acm_set_dtr(uint8_t intf, bool dtr)
+void cdc_acm_data_send_poll(void)
 {
-    if (dtr) {
-        dtr_enable = 1;
-    } else {
-        dtr_enable = 0;
-    }
-}
+    uint32_t size;
 
-void cdc_acm_data_send_with_dtr_test(void)
-{
-    if (dtr_enable) {
-        ep_tx_busy_flag = true;
-        usbd_ep_start_write(CDC_IN_EP, write_buffer, 2048);
-        while (ep_tx_busy_flag) {
-        }
+    if (ep_tx_busy_flag) {
+        return;
     }
+
+    size = Ring_Buffer_Get_Length(&loopback_rb);
+    if (size == 0) {
+        return;
+    }
+
+    Ring_Buffer_Read(&loopback_rb, (uint8_t *)&write_buffer, size);
+
+    USB_LOG_RAW("upld size: %d\r\n", size);
+
+    ep_tx_busy_flag = true;
+    usbd_ep_start_write(CDC_IN_EP, write_buffer, size);
 }

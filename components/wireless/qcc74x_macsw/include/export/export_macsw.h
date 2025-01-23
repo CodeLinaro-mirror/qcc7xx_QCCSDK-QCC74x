@@ -70,6 +70,12 @@ uint8_t inline_nxmac_tkip_getf();
 uint8_t inline_nxmac_ccmp_getf();
 uint8_t inline_nxmac_gcmp_getf();
 
+// wifi statistics functions
+uint8_t export_stats_get_tx_mcs();
+uint8_t export_stats_get_rx_mcs();
+char* export_stats_get_rx_format();
+char* export_stats_get_tx_format();
+
 // redefinition
 typedef void (*cb_timer_func_ptr)(void *);
 struct mm_timer_tag

@@ -326,6 +326,49 @@ static void qcc74x_check_anti_rollback(void){
 }
 #endif
 
+#ifdef CONFIG_ANTENNA_CONTROL
+#define ANTENNA_NUM 2
+#define ANTENNA_ID_0 0
+#define ANTENNA_ID_1 1
+#define ANTENNA_GPIO_PIN GPIO_PIN_30
+
+static struct qcc74x_device_s *antenna_gpio;
+
+int board_antenna_set(uint8_t antenna_id)
+{
+    if (!antenna_gpio) {
+        return -1;
+    }
+
+    printf("[board] switch antenna to %d\r\n", antenna_id);
+
+    if (antenna_id == ANTENNA_ID_0) {
+        qcc74x_gpio_set(antenna_gpio, ANTENNA_GPIO_PIN);
+    } else if (antenna_id == ANTENNA_ID_1) {
+        qcc74x_gpio_reset(antenna_gpio, ANTENNA_GPIO_PIN);
+    }
+
+    return 0;
+}
+
+int board_antenna_init(void)
+{
+    antenna_gpio = qcc74x_device_get_by_name("gpio");
+    if (!antenna_gpio) {
+        return -1;
+    }
+
+    qcc74x_gpio_init(antenna_gpio, ANTENNA_GPIO_PIN, GPIO_OUTPUT | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_0);
+
+    return 0;
+}
+
+int board_antenna_num_get(void)
+{
+    return ANTENNA_NUM;
+}
+#endif
+
 void board_init(void)
 {
     int ret = -1;

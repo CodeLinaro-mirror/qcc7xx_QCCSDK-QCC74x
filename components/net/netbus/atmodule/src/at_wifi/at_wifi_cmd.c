@@ -1293,6 +1293,22 @@ static int at_setup_cmd_cwstaproto(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+int time_info_get(char *buffer, uint32_t buffer_len)
+{
+    struct timespec timespec;
+    struct tm *tm_info;
+    int offset, len = 0;
+
+    at_net_sntp_gettime(&timespec);
+    tm_info = localtime(&timespec.tv_sec);
+
+    offset = strftime(buffer, buffer_len, "%Y-%m-%d:%H:%M:%S", tm_info);
+    len += offset;
+
+    len += snprintf(buffer + offset, buffer_len - offset, ".%03ld ", timespec.tv_nsec/1000000);
+    return len;
+}
+
 static int g_min_pkg_len = 0, g_max_pkg_len = 0;
 static void cb_sniffer(struct qcc74x_frame_info *info, void *arg)
 {
@@ -1314,14 +1330,17 @@ static void cb_sniffer(struct qcc74x_frame_info *info, void *arg)
             return;
         }
         buffer_len = info->length * 2 + 30;
-        buffer = pvPortMalloc(buffer_len);
+        buffer = pvPortMalloc(buffer_len + 64);
         if (!buffer) {
             return;
         }
-        n = snprintf(buffer, buffer_len, "\r\n+CWMONITOR,%d,%d:", phy_freq_to_channel(0, info->freq), info->length);
+
+        n = time_info_get(buffer, 64);
         if (n > 0) {
             offset += n;
         }
+
+        //n = snprintf(buffer, buffer_len, "\r\n+CWMONITOR,%d,%d:", phy_freq_to_channel(0, info->freq), info->length);
 
         for (int i = 0; i < info->length; i++) {
             n = snprintf(buffer + offset, buffer_len - offset, "%02x", info->payload[i]);

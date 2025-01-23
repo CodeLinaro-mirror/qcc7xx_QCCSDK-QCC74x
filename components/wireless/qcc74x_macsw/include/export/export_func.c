@@ -9,6 +9,7 @@
 #include "ip/umac/src/me/me.h"
 #include "plf_build_reg/reg_mac_core.h"
 #include "plf/refip/src/driver/time/nx_time.h"
+#include "modules/statistics/src/co_stats.h"
 
 
 void *vif_info_get_vif(int index)
@@ -266,4 +267,43 @@ int get_time_SINCE_BOOT(uint32_t *sec, uint32_t *usec)
 uint32_t *export_get_rx_buffer1_addr(void)
 {
     return rxl_get_rx_buffer1_addr();
+}
+
+uint8_t export_stats_get_tx_mcs()
+{
+    return rc_pkt_ss.tx_mcs;
+}
+
+uint8_t export_stats_get_rx_mcs()
+{
+    return rc_pkt_ss.rx_mcs;
+}
+
+char* stats_get_format(uint8_t format)
+{
+    switch(format) {
+        case FORMATMOD_NON_HT:
+        case FORMATMOD_NON_HT_DUP_OFDM:
+                return "NON_HT";
+        case FORMATMOD_HT_MF:
+        case FORMATMOD_HT_GF:
+                return "HT";
+        case FORMATMOD_VHT:
+                return "VHT";
+        case FORMATMOD_HE_SU:
+        case FORMATMOD_HE_MU:
+        case FORMATMOD_HE_ER:
+                return "HE";
+        defaule:
+                return "N/A";
+    }
+}
+char* export_stats_get_tx_format()
+{
+    return stats_get_format(rc_pkt_ss.tx_format);
+}
+
+char* export_stats_get_rx_format()
+{
+    return stats_get_format(rc_pkt_ss.rx_format);
 }

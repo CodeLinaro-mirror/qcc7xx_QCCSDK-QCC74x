@@ -45,11 +45,16 @@
 
 #define AT_WIFI_SUPPORT_STORE_CHANNEL
 
+#define WIFI_STACK_SIZE  (1536)
+#define TASK_PRIORITY_FW (16)
+
 #define AT_WIFI_TASK_STACK_SIZE 1024
 #define AT_WIFI_TASK_PRIORITY 15
 #define AT_WIFI_MAX_STA_NUM 10
 
 static void wifi_ap_update_sta_ip(uint8_t mac[6], uint32_t ip);
+
+TaskHandle_t wifi_fw_task;
 
 //static wifi_interface_t g_wifi_sta_interface = NULL;
 //static wifi_interface_t g_wifi_ap_interface = NULL;
@@ -901,10 +906,13 @@ int at_wifi_start(void)
 
     memset(&g_wifi_ap_sta_info, 0, sizeof(g_wifi_ap_sta_info));
 #endif
-    xTaskCreate(wifi_event_task_entry, (char *)"wifi_event", 512, NULL, 15, NULL);
     event_queue = xQueueCreate(4, sizeof(uint32_t));
+    xTaskCreate(wifi_event_task_entry, (char *)"wifi_event", 512, NULL, 15, NULL);
     vTaskDelay(100);
-
+ 
+    /* Start Wifi_FW */
+    xTaskCreate(wifi_main, (char *)"fw", WIFI_STACK_SIZE, NULL, TASK_PRIORITY_FW, &wifi_fw_task);
+ 
     return 0;
 }
 

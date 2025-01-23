@@ -77,6 +77,7 @@ typedef struct wifi_mgmr_scan_item {
     uint8_t cipher;
     uint8_t is_used;
     uint8_t wps;
+    uint8_t best_antenna;
 } wifi_mgmr_scan_item_t;
 
 typedef struct wifi_mgmr_sniffer_item {
@@ -362,6 +363,12 @@ typedef struct
 
 typedef void (*scan_item_cb_t)(void *env, void *arg, wifi_mgmr_scan_item_t *item);
 
+#ifdef CONFIG_ANTDIV_STATIC
+// Antenna control function type
+typedef int (*wifi_mgmr_antenna_ctrl_func_t)(uint8_t antenna_id);
+int wifi_mgmr_antenna_ctrl_register(wifi_mgmr_antenna_ctrl_func_t func);
+#endif
+
 /**
  * wifi_sta_connect
  * Connect to the AP
@@ -502,6 +509,18 @@ int wifi_mgmr_sta_channel_get(int *channel);
  *  Others is Failed
  */
 int wifi_mgmr_sta_ssid_set(const char *ssid);
+
+/**
+ * wifi_mgmr_sta_ssid_get
+ * get sta mode ssid
+ * param:
+ *  param1 : ptr of ssid
+ * return:
+ *  0 : Success
+ *  -1 : Failed
+ *  Others is Failed
+ */
+int wifi_mgmr_sta_ssid_get(char *ssid);
 
 /**
  * wifi_mgmr_sta_passphr_set

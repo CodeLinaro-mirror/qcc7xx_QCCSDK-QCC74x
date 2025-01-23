@@ -6,11 +6,14 @@
 #include <timers.h>
 #include <mem.h>
 #include <shell.h>
-#include <spisync.h>
+//#include <spisync.h>
 #include "at_main.h"
 #include "qcc74x_dma.h"
 #include <utils_crc.h>
 
+#include <nxspi.h>
+
+#if 0
 spisync_t    *at_spisync = NULL;
 static void __spisync_gpio_init(void *arg);
 
@@ -51,6 +54,7 @@ const spisync_config_t spisync_config = {
     .reset_cb = __spisync_gpio_init,
     .reset_arg = NULL,
 };
+#endif
 
 static void __spisync_gpio_init(void *arg)
 {
@@ -61,6 +65,11 @@ static void __spisync_gpio_init(void *arg)
 #endif
 }
 
+#if 0
+#define FAKEBUF_SIZE SPISYNC_PAYLOADBUF_LEN
+#else
+#define FAKEBUF_SIZE NXBD_MTU
+#endif
 static void atspisync_fakepush_forpop_cmd(int argc, char **argv)
 {
     uint8_t *buf = NULL;
@@ -68,7 +77,7 @@ static void atspisync_fakepush_forpop_cmd(int argc, char **argv)
     int cmd_len;
     int compare_len;
     int hascrlf;
-    spisync_msg_t msg;
+    //spisync_msg_t msg;
 
     if (argc < 2) {
         printf("Usage: at_fake <data_str> [hascrlf]\r\n");
@@ -81,14 +90,14 @@ static void atspisync_fakepush_forpop_cmd(int argc, char **argv)
         hascrlf = 1;
     }
 
-    buf = pvPortMalloc(SPISYNC_PAYLOADBUF_LEN);
+    buf = pvPortMalloc(FAKEBUF_SIZE);
     if (NULL == buf) {
-        printf("mem err len = %d\r\n", SPISYNC_PAYLOADBUF_LEN);
+        printf("mem err len = %d\r\n", FAKEBUF_SIZE);
         goto fakepush_err;
     }
 
     cmd_len = strlen(argv[1]);
-    compare_len = hascrlf?(SPISYNC_PAYLOADBUF_LEN - 2):(SPISYNC_PAYLOADBUF_LEN);
+    compare_len = hascrlf?(FAKEBUF_SIZE - 2):(FAKEBUF_SIZE);
     if (cmd_len > compare_len) {
         printf("data too len %d > %d, Usage: ss_fakepush <data>\r\n",
                         cmd_len, compare_len);
@@ -101,8 +110,9 @@ static void atspisync_fakepush_forpop_cmd(int argc, char **argv)
     }
     buf_len = cmd_len;
 
-    //extern struct at_struct *at;
-    //at->fakeoutput = 1;
+    extern struct at_struct *at;
+    at->fakeoutput = 1;
+#if 0
     SPISYNC_MSGINIT(&msg,
                 SPISYNC_TYPESTREAM_AT,              /* type */
                 0,                                  /* copy */
@@ -112,6 +122,9 @@ static void atspisync_fakepush_forpop_cmd(int argc, char **argv)
                 NULL);                              /* cb_arg */
 
     buf_len = spisync_fakewrite_forread(at_spisync, &msg, 0);
+#else
+    buf_len = nxspi_fakewrite_forread(buf, buf_len, 0);
+#endif
 
     printf("fakewrite len:%d, hascrlf:%d\r\n", buf_len, hascrlf);
 fakepush_err:
@@ -123,11 +136,15 @@ SHELL_CMD_EXPORT_ALIAS(atspisync_fakepush_forpop_cmd, atfake, spisync fake push 
 
 void app_atmoudle_init(void)
 {
+#if 0
     at_spisync = (spisync_t *)pvPortMalloc(sizeof(spisync_t));
     if (NULL == at_spisync) {
         return -1;
     }
     spisync_init(at_spisync, &spisync_config);
+#else
+    nxspi_init();
+#endif
 
     at_module_init();
 }

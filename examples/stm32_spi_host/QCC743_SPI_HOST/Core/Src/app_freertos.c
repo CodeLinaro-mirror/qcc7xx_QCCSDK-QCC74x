@@ -27,12 +27,13 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <inttypes.h>
-#include "spisync.h"
+#include "spi.h"
+#include "spi_test.h"
 #include "app_atmodule.h"
-#include "power_manager.h"
-#include "app_pm.h"
-#include "spi_cmd_processor.h"
+#include "dwt.h"
+#include "stream_buffer.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -71,374 +72,461 @@ const osThreadAttr_t defaultTask_attributes = {
 uint8_t uart_rxbyte;
 extern UART_HandleTypeDef huart1;
 
-struct at_desc {
-	const char *cmd;
-	int post_delay_ms;
-};
 static at_host_handle_t g_at_handle;
 
-static char *argc_parse(const char *argv)
+static int arg_parse(char *in, char *argv[])
 {
-	char *s = strstr(argv, " ");
-	char *end = strstr(argv, "\r\n");
-	if (end) {
-		*end = '\0';
-	}
-	return s ? (s + 1) : NULL;
-}
+    if (in == NULL || argv == NULL)
+        return 0;
 
-void qcc74x_lp_gpio_wakeup()
-{
-    HAL_GPIO_WritePin(QCC74X_LP_WAKEUP_GPIO_Port, QCC74X_LP_WAKEUP_Pin, 1);
-	osDelay(1);
-    HAL_GPIO_WritePin(QCC74X_LP_WAKEUP_GPIO_Port, QCC74X_LP_WAKEUP_Pin, 0);
-}
+    int argc = 0;
+    char *start = NULL;
 
-static void spisync_tx_perf(void *arg)
-{
-    int type = (long)arg;
-    uint8_t buffer[SPISYNC_PAYLOADBUF_LEN];
-
-    spisync_msg_t msg;
-    spisync_build_msg_zerocopy(&msg, type, buffer, sizeof(buffer), portMAX_DELAY);
-
-    uint32_t success_count = 0;
-    uint32_t byte_count = 0;
-    uint32_t last_tick = osKernelGetTickCount();
-    uint32_t start_tick = last_tick;
-
-    printf("spisync tx perf task for type %d started successfully.\n", type);
-    while (1) {
-        int ret = spisync_write(g_at_handle->arg, &msg, 0);
-        if (ret > 0) {
-            success_count++;
-            if (type >= 0 && type <= 2) {
-                byte_count += sizeof(buffer);
-            } else if (type >= 3 && type <= 5) {
-                byte_count += ret;
+    /* Traverse the input string */
+    for (char *p = in; *p != '\0'; ++p) {
+        if (!isspace((uint8_t)*p)) {
+            if (start == NULL) {
+                /* Start of a new word */
+                start = p;
             }
-        } else if (ret == 0) {
-            printf("Timeout occurred while writing for type %d.\n", type);
-            osDelay(500);
-            continue;
-        } else if (ret < 0) {
-            printf("Error occurred while writing for type %d.\n", type);
-            osDelay(500);
-            continue;
-        }
-
-        uint32_t current_tick = osKernelGetTickCount();
-        if (current_tick - start_tick >= 30 * 1000) {
-        	printf("type %d tx perf task exited\r\n", type);
-            break;
-        }
-
-        if ((current_tick - last_tick) >= 1000) {
-            printf("Type %d: TX %"PRIu32" packets, %"PRIu32
-            		" bps, elapsed %"PRIu32" ticks.\n",
-                    type, success_count, byte_count * 8, current_tick - last_tick);
-
-            last_tick = current_tick;
-            success_count = 0;
-            byte_count = 0;
-        }
-    }
-    osThreadExit();
-}
-
-static void spisync_start_tx_perf(const char *arg)
-{
-    int type = atoi(arg + strlen("ss_tx_perf "));
-
-    if (type < 0 || type > 5) {
-        printf("Invalid data type %d\n", type);
-        return;
-    }
-
-    osThreadId_t task_handle;
-    osThreadAttr_t task_attr = {
-        .name = "ss_tx_perf",
-        .priority = osPriorityRealtime,
-        .stack_size = 4096
-    };
-
-    task_handle = osThreadNew(spisync_tx_perf, (void *)(long)type, &task_attr);
-    if (!task_handle) {
-        printf("Failed to create task for type %d.\n", type);
-        return;
-    }
-}
-
-static void spisync_rx_perf(void *arg)
-{
-    int type = (long)arg;
-    uint8_t buffer[2048];
-
-    spisync_msg_t msg;
-    /* FIXME */
-    spisync_build_msg_needcopy(&msg, type, buffer, sizeof(buffer), portMAX_DELAY);
-
-    uint32_t success_count = 0;
-    uint32_t byte_count = 0;
-    uint32_t last_tick = osKernelGetTickCount();
-
-    printf("spisync rx perf task for type %d started\r\n", type);
-    while (1) {
-        int ret = spisync_read(g_at_handle->arg, &msg, 0);
-
-        if (ret > 0) {
-            success_count++;
-            if (type >= 0 && type <= 2) {
-                byte_count += msg.buf_len;
-            } else if (type >= 3 && type <= 5) {
-                byte_count += ret;
+        } else {
+            if (start != NULL) {
+                /* End of a word: Insert null terminator and store the pointer */
+                *p = '\0';
+                argv[argc++] = start;
+                start = NULL;
             }
-        } else if (ret == 0) {
-            printf("Timeout occurred while reading for type %d.\r\n", type);
-            continue;
-        } else if (ret < 0) {
-            printf("Error occurred while reading for type %d.\r\n", type);
-            continue;
-        }
-
-        uint32_t current_tick = osKernelGetTickCount();
-        if ((current_tick - last_tick) >= 1000) {
-            printf("Type %d: RX %"PRIu32" packets, %"PRIu32
-            		" bps, elapsed %"PRIu32" ticks\r\n",
-                    type, success_count, byte_count * 8, current_tick - last_tick);
-            last_tick = current_tick;
-            success_count = 0;
-            byte_count = 0;
         }
     }
+
+    /* Handle the last word (if any) */
+    if (start != NULL) {
+        argv[argc++] = start;
+    }
+
+    return argc;
 }
 
-static void spisync_start_rx_perf(const char *arg)
+static int do_ips(int argc, char *argv[])
 {
-	static int task_status[6] = {0};
+	char *ip_addr = NULL;
 
-    int type = atoi(arg + strlen("ss_rx_perf "));
-
-    if (type < 0 || type > 5) {
-    	printf("invalid data type %d\r\n", type);
-    	return;
-    }
-
-    if (task_status[type] != 0) {
-        printf("The spisync rx perf task for type %d is already running.\n", type);
-        return;
-    }
-
-    task_status[type] = 1;
-    osThreadId_t task_handle;
-    osThreadAttr_t task_attr = {
-      .name = "ss_rx_perf",
-	  .priority = 55,
-      .stack_size = 6 * 1024,
-    };
-
-    task_handle = osThreadNew(spisync_rx_perf, (void *)(long)type, &task_attr);
-    if (!task_handle) {
-        printf("Failed to create task for type %d.\n", type);
-        task_status[type] = 0;
-        return;
-    }
-}
-
-static void spisync_rx_once(const char *arg)
-{
-	int ret;
-	uint8_t buf[SPISYNC_PAYLOADBUF_LEN];
-	spisync_msg_t msg;
-
-	int type = atoi(arg + strlen("ss_rx_once "));
-
-	if (type < 0 || type > 5) {
-		printf("Invalid type %d\r\n", type);
-		return;
+	if (argc <= 1) {
+		printf("Please input ip addr\r\n");
+		return -1;
 	}
-
-	memset(buf, 0x88, sizeof(buf));
-	/* FIXME */
-	spisync_build_msg_needcopy(&msg, type, buf, sizeof(buf), 5000);
-	ret = spisync_read(g_at_handle->arg, &msg, 0);
-	printf("spisync_read ret %d, msg len %"PRIu32"\r\n", ret, msg.buf_len);
+	ip_addr = (char *)argv[1];
+	//at_iperf_tcp_rx_start(g_at_handle, ip_addr, 5001);
+	at_iperf_tcp_rx_fast_start(g_at_handle, ip_addr, 5001);
+	return 0;
 }
 
-static void spisync_tx_once(const char *arg)
- {
-	int ret;
-	uint8_t buf[SPISYNC_PAYLOADBUF_LEN];
-	spisync_msg_t msg;
+static int do_ipus(int argc, char *argv[])
+{
+	char *ip_addr = NULL;
 
-	int type = atoi(arg + strlen("ss_tx_once "));
-
-	if (type < 0 || type > 5) {
-		printf("Invalid type %d\r\n", type);
-		return;
+	if (argc <= 1) {
+		printf("Please input ip addr\r\n");
+		return -1;
 	}
-
-	memset(buf, 0x88, sizeof(buf));
-	/* FIXME */
-	spisync_build_msg_needcopy(&msg, type, buf, sizeof(buf), 5000);
-	ret = spisync_write(g_at_handle->arg, &msg, 0);
-	printf("spisync_write ret %d\r\n", ret);
+	ip_addr = argv[1];
+	//at_iperf_udp_rx_start(g_at_handle, ip_addr, 5001);
+	at_iperf_udp_rx_fast_start(g_at_handle, ip_addr, 5001);
+	return 0;
 }
 
-static void do_ss_dump(const char *arg)
-{
-	spisync_status(g_at_handle->arg);
-}
-
-static void do_ss_tx_once(const char *arg)
-{
-	spisync_tx_once(arg);
-}
-
-static void do_ss_rx_once(const char *arg)
-{
-	spisync_rx_once(arg);
-}
-
-static void do_ss_tx_perf(const char *arg)
-{
-	spisync_start_tx_perf(arg);
-}
-
-static void do_ss_rx_perf(const char *arg)
-{
-	spisync_start_rx_perf(arg);
-}
-
-static void do_ips(const char *arg)
+static int do_ipu(int argc, char *argv[])
 {
 	char *ip_addr = NULL;
 
-	ip_addr = argc_parse(arg);
-	at_iperf_tcp_rx_start(g_at_handle, ip_addr, 5001);
-}
-
-static void do_ipus(const char *arg)
-{
-	char *ip_addr = NULL;
-
-	ip_addr = argc_parse(arg);
-	at_iperf_udp_rx_start(g_at_handle, ip_addr, 5001);
-}
-
-static void do_ipu(const char *arg)
-{
-	char *ip_addr = NULL;
-
-	ip_addr = argc_parse(arg);
+	if (argc <= 1) {
+		printf("Please input ip addr\r\n");
+		return -1;
+	}
+	ip_addr = argv[1];
 	at_iperf_udp_tx_start(g_at_handle, ip_addr, 5001);
+	return 0;
 }
 
-static void do_ipc(const char *arg)
+static int do_ipc(int argc, char *argv[])
 {
 	char *ip_addr = NULL;
 
-	ip_addr = argc_parse(arg);
+	if (argc <= 1) {
+		printf("Please input ip addr\r\n");
+		return -1;
+	}
+	ip_addr = argv[1];
 	at_iperf_tcp_tx_start(g_at_handle, ip_addr, 5001);
+	return 0;
 }
 
-static void do_at_iperf_stop(const char *arg)
+static int do_at_iperf_stop(int argc, char *argv[])
 {
 	at_iperf_stop(g_at_handle, 0);
+	return 0;
 }
 
-static void do_ota_start(const char *arg)
+static int do_ota_start(int argc, char *argv[])
 {
 	char *ip_addr = NULL;
 
-	ip_addr = argc_parse(arg);
+	if (argc <= 1) {
+		printf("Please input ip addr\r\n");
+		return -1;
+	}
+	ip_addr = argv[1];
 	at_ota_start(g_at_handle, ip_addr, 3365);
+	return 0;
 }
 
-static void do_ota_stop(const char *arg)
+static int do_ota_stop(int argc, char *argv[])
 {
 	at_ota_finish(g_at_handle);
+	return 0;
 }
 
-static void do_sleep(const char *arg)
+static int do_spi_dump(int argc, char *argv[])
 {
-	int ret;
-
-	printf("Requesting to sleep\r\n");
-	ret = power_manager_request_sleep(get_app_power_manager());
-	if (ret < 0)
-		printf("failed to request sleep, %d\r\n", ret);
+	spi_dump();
+	return 0;
 }
 
-static void do_wakeup(const char *arg)
+static int do_spi_show_tput(int argc, char *argv[])
 {
-	int ret;
+	int on = 0;
 
-	printf("Requesting to wakeup\r\n");
-	ret = power_manager_request_wakeup(get_app_power_manager());
-	if (ret < 0)
-		printf("failed to request wakeup, %d\r\n", ret);
+	if (argc >= 2)
+		on = !!atoi(argv[1]);
+
+	if (on)
+		spi_start_show_tput();
+	else
+		spi_stop_show_tput();
+	return 0;
 }
 
-static void do_mock_sleep_ack(const char *arg)
+static int do_spi_write_test(int argc, char *argv[])
 {
-	int ret;
+	int count = 1, len = 2048, mode = 0;
 
-	ret = power_manager_handle_sleep_ack(get_app_power_manager());
-	if (ret < 0)
-		printf("Failed to handle sleep ack, %d\r\n", ret);
+	if (argc >= 2)
+		mode = atoi(argv[1]);
+
+	if (argc >= 3) {
+		count = atoi(argv[2]);
+		if (!count)
+			count = 1;
+	}
+
+	if (argc >= 4) {
+		len = atoi(argv[3]);
+		if (!len)
+			len = 2048;
+	}
+
+	spi_write_test(mode, count, len);
+	return 0;
 }
 
-static void do_mock_wakeup_ack(const char *arg)
+static int do_spi_read_test(int argc, char *argv[])
 {
-	int ret;
+	int count = 1, len = 2048, mode = 0;
 
-	ret = power_manager_handle_wakeup_ack(get_app_power_manager());
-	if (ret < 0)
-		printf("Failed to handle wakeup ack, %d\r\n", ret);
+	if (argc >= 2)
+		mode = atoi(argv[1]);
+
+	if (argc >= 3) {
+		count = atoi(argv[2]);
+		if (!count)
+			count = 1;
+	}
+
+	if (argc >= 4) {
+		len = atoi(argv[3]);
+		if (!len)
+			len = 2048;
+	}
+
+	spi_read_test(mode, count, len);
+	return 0;
+}
+
+static int do_spi_rx_perf(int argc, char *argv[])
+{
+	int on;
+
+	if (argc < 2) {
+		printf("Usage: spi_rx_perf <0|1>\r\n");
+		return -2;
+	}
+
+	on = !!atoi(argv[1]);
+	if (on)
+		spi_start_rx_perf();
+	else
+		spi_stop_rx_perf();
+
+	return 0;
+}
+
+static int do_spi_tx_perf(int argc, char *argv[])
+{
+	int on;
+
+	if (argc < 2) {
+		printf("Usage: spi_tx_perf <0|1>\r\n");
+		return -2;
+	}
+
+	on = !!atoi(argv[1]);
+	if (on)
+		spi_start_tx_perf();
+	else
+		spi_stop_tx_perf();
+	return 0;
+}
+
+int do_ps(int argc, char *argv[])
+{
+    int interval_ms = 500;
+    int iterations = 1;
+
+    if (argc >= 2) {
+        interval_ms = atoi(argv[1]);
+        if (interval_ms <= 0) {
+            printf("Invalid interval, must be > 0\n");
+            return -1;
+        }
+    }
+    if (argc >= 3) {
+        iterations = atoi(argv[2]);
+        if (iterations <= 0) {
+            printf("Invalid iteration count, must be > 0\n");
+            return -1;
+        }
+    }
+
+    UBaseType_t task_count = uxTaskGetNumberOfTasks();
+    if (task_count == 0) {
+        printf("No tasks found.\n");
+        return -1;
+    }
+
+    TaskStatus_t *task_status_prev = (TaskStatus_t *)pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    if (task_status_prev == NULL) {
+        printf("Memory allocation failed for task_status_prev.\n");
+        return -1;
+    }
+
+    TaskStatus_t *task_status_curr = (TaskStatus_t *)pvPortMalloc(task_count * sizeof(TaskStatus_t));
+    if (task_status_curr == NULL) {
+        printf("Memory allocation failed for task_status_curr.\n");
+        vPortFree(task_status_prev);
+        return -1;
+    }
+
+    uint32_t total_runtime_prev = 0, total_runtime_curr = 0;
+    /* Sample at least once. */
+    uxTaskGetSystemState(task_status_prev, task_count, (size_t *)&total_runtime_prev);
+
+    for (int it = 0; it < iterations; ++it) {
+        vTaskDelay(pdMS_TO_TICKS(interval_ms));
+
+        uxTaskGetSystemState(task_status_curr, task_count, (size_t *)&total_runtime_curr);
+
+        int32_t total_runtime_diff = (int32_t)(total_runtime_curr - total_runtime_prev);
+        if (total_runtime_diff == 0)
+            total_runtime_diff = 1;
+
+        /* Print header. */
+        printf("\r\n\r\n %-16s %-8s %-10s %-10s %-10s\n",
+               "Task Name", "State", "Priority", "Stack", "CPU%");
+
+        for (UBaseType_t i = 0; i < task_count; ++i) {
+            TaskStatus_t *curr_task = &task_status_curr[i];
+
+            /* Since the task list may have changed, look for the match. */
+            TaskStatus_t *prev_task = NULL;
+            for (UBaseType_t j = 0; j < task_count; ++j) {
+                if (task_status_prev[j].xHandle == curr_task->xHandle) {
+                    prev_task = &task_status_prev[j];
+                    break;
+                }
+            }
+
+            /* This is a new task. */
+            if (!prev_task)
+                continue;
+
+            int32_t task_runtime_diff = (int32_t)(curr_task->ulRunTimeCounter - prev_task->ulRunTimeCounter);
+            float cpu_usage = ((float)task_runtime_diff / total_runtime_diff) * 100.0;
+
+            /* Print the task statistics. */
+            printf(" %-16s %-8s %-2lu/%-8lu %-10u %-10.2f\n",
+                   curr_task->pcTaskName,
+                   (curr_task->eCurrentState == eRunning) ? "Running" :
+                   (curr_task->eCurrentState == eReady) ? "Ready" :
+                   (curr_task->eCurrentState == eBlocked) ? "Blocked" :
+                   (curr_task->eCurrentState == eSuspended) ? "Suspended" :
+                   (curr_task->eCurrentState == eDeleted) ? "Deleted" : "Unknown",
+                   curr_task->uxBasePriority, curr_task->uxCurrentPriority,
+                   curr_task->usStackHighWaterMark,
+                   cpu_usage);
+        }
+
+        memcpy(task_status_prev, task_status_curr, task_count * sizeof(TaskStatus_t));
+        total_runtime_prev = total_runtime_curr;
+    }
+
+    vPortFree(task_status_prev);
+    vPortFree(task_status_curr);
+
+    return 0;
 }
 
 struct cmd_entry {
 	const char *name;
-	void (*func)(const char *arg);
+	const char *desc;
+	int (*func)(int argc, char *argv[]);
 };
+
+static int do_help(int argc, char *argv[]);
 
 static const struct cmd_entry cmds[] = {
-	{"ss_dump", do_ss_dump},
-	{"ss_tx_once", do_ss_tx_once},
-	{"ss_rx_once", do_ss_rx_once},
-	{"ss_tx_perf", do_ss_tx_perf},
-	{"ss_rx_perf", do_ss_rx_perf},
-	{"ips", do_ips},
-	{"ipus", do_ipus},
-	{"ipc", do_ipc},
-	{"ipu", do_ipu},
-	{"iperf_stop", do_at_iperf_stop},
-	{"ota_start", do_ota_start},
-	{"ota_stop", do_ota_stop},
-	{"wakeup", do_wakeup},
-	{"sleep", do_sleep},
-	{"mock_sleep_ack", do_mock_sleep_ack},
-	{"mock_wakeup_ack", do_mock_wakeup_ack},
+	{"help", "Show help menu", do_help},
+	{"ips", "", do_ips},
+	{"ipus", "", do_ipus},
+	{"ipc", "", do_ipc},
+	{"ipu", "", do_ipu},
+	{"iperf_stop", "", do_at_iperf_stop},
+	{"ota_start", "", do_ota_start},
+	{"ota_stop", "", do_ota_stop},
+	{"spi_dump", "Dump SPI transaction details", do_spi_dump},
+	{"spi_show_tput", "Start/Stop SPI throuput show", do_spi_show_tput},
+	{"spi_write_test", "SPI write test <mode 0/1 | packets | length>, e.g. spi_write_test 1 10", do_spi_write_test},
+	{"spi_read_test", "SPI read test <mode 0/1 | packets | length>, e.g. spi_read_test 1 10", do_spi_read_test},
+	{"spi_tx_perf", "Start/Stop SPI TX performance, spi_tx_perf <0 | 1>", do_spi_tx_perf},
+	{"spi_rx_perf", "Start/Stop SPI RX performance, spi_rx_perf <0 | 1>", do_spi_rx_perf},
+	{"ps", "Report information of the current processes, ps [interval_ms] [counter], ps 200 2", do_ps},
 };
 
-static int cli_handle_one(const char *argv)
+static int do_help(int argc, char *argv[])
 {
 	int i;
-    int cmd_len;
+
+	for (i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
+		printf("%-20s %s\r\n", cmds[i].name, cmds[i].desc);
+	}
+	return 0;
+}
+
+#define CONSOLE_AT_ENABLE 	1
+#define CONSOLE_CMD_MAX_LEN	512
+#define CONSOLE_CMD_MAX_ARGS 64
+#define CONSOLE_CMD_TASK_STACK_SIZE	(8 * 1024)
+#define HOSTCMD_KEYWORD "HOSTCMD"
+
+struct console_task_info {
+	const struct cmd_entry *entry;
+	char cmd[CONSOLE_CMD_MAX_LEN];
+};
+
+static void console_cmd_task_entry(void *arg)
+{
+	int off = 0, argc;
+	char *argv[CONSOLE_CMD_MAX_ARGS];
+	struct console_task_info *info = arg;
+
+	if (!info) {
+		printf("console task info is NULL?!\r\n");
+		goto out;
+	}
+
+	/* Re-parse... */
+	argc = arg_parse(info->cmd, argv);
+	if (argc <= 2) {
+		printf("The command is supposed to be {command} xxxx &\r\n");
+		goto out;
+	}
+
+	/* Remove the leading HOSTCMD keyword. */
+	if (!strncmp(argv[0], HOSTCMD_KEYWORD, strlen(HOSTCMD_KEYWORD))) {
+		argc--;
+		off++;
+	}
+
+	/* Remove the terminating & */
+	argc--;
+
+	if (info->entry && info->entry->func)
+		info->entry->func(argc, &argv[off]);
+
+out:
+	printf("command task %s exiting\r\n", info->entry->name);
+	vPortFree(info);
+	osThreadExit();
+}
+
+static int cli_handle_one(const char *cmdstr, int argc, char *argv[])
+{
+	int spawn = 0;
+	int cmd_len, i, ret = -2;
+
+	if (argc <= 0) {
+    	printf("Invalid shell input\r\n");
+    	return -1;
+    }
 
 	for (i = 0; i < sizeof(cmds) / sizeof(cmds[0]); i++) {
 		const struct cmd_entry *cmd = &cmds[i];
 
         cmd_len = strlen(cmd->name);
-		if ((!strncmp(argv, cmd->name, cmd_len)) && 
-            ((argv[cmd_len] == ' ') || (argv[cmd_len] == '\r') || (argv[cmd_len] == '\n'))) {
-			printf("executing command %s\r\n", argv);
-			if (cmd->func)
-				cmd->func(argv);
+		if (!strncmp(argv[0], cmd->name, cmd_len)) {
+			printf("executing command %s\r\n", argv[0]);
+			if (argc >= 2)
+				spawn = !strncmp(argv[argc - 1], "&", 1);
+
+			printf("spawn %d\r\n", spawn);
+			if (!spawn) {
+				if (cmd->func)
+					ret = cmd->func(argc, argv);
+			} else {
+				osThreadId_t task_handle;
+				struct console_task_info *info;
+
+				osThreadAttr_t task_attr = {
+				  .name = cmd->name,
+				  .priority = (osPriority_t) osPriorityRealtime6,
+				  .stack_size = CONSOLE_CMD_TASK_STACK_SIZE,
+				};
+
+				info = pvPortMalloc(sizeof(struct console_task_info));
+				if (!info) {
+					printf("No mem for new console task info\r\n");
+					break;
+				}
+
+				info->entry = cmd;
+				strncpy(info->cmd, cmdstr, sizeof(info->cmd) - 1);
+
+				task_handle = osThreadNew(console_cmd_task_entry, info, &task_attr);
+				if (!task_handle) {
+					printf("Failed to spawn new thread for command %s\r\n", cmd->name);
+					vPortFree(info);
+					ret = -3;
+				}
+				ret = 0;
+			}
+			break;
 		}
 	}
-	return 0;
+
+	if (ret == -2) {
+		printf("Unknown command '%s' input '%s'\r\n", argv[0], cmdstr);
+	}
+
+	return ret;
 }
 
 static int _console_to_at(const char *buf, uint32_t len)
@@ -451,25 +539,34 @@ static int _console_to_at(const char *buf, uint32_t len)
     return 0;
 }
 
-#define CONSOLE_AT_ENABLE 1
-#define HOSTCMD_KEYWORD "HOSTCMD "
-
 static int console_cli_run(const char *cmd)
 {
+	int argc;
+	char *argv[CONSOLE_CMD_MAX_ARGS];
+	char copy[CONSOLE_CMD_MAX_LEN];
+
+	strncpy(copy, cmd, sizeof(copy) - 1);
+	argc = arg_parse(copy, argv);
+	if (argc <= 0)
+		goto err_out;
+
 #if CONSOLE_AT_ENABLE
-	int off = 0;
+	if (!strncmp(HOSTCMD_KEYWORD, argv[0], strlen(HOSTCMD_KEYWORD))) {
+		if (argc > 1) {
+			return cli_handle_one(cmd, argc - 1, &argv[1]);
+		}
 
-	off = strlen(HOSTCMD_KEYWORD);
-    if (!strncmp(cmd, HOSTCMD_KEYWORD, off)) {
-        cmd = (char *)cmd + off;
-		cli_handle_one(cmd);
-        return 0;
-    }
+		goto err_out;
+	}
 
-    return _console_to_at(cmd, strlen(cmd));
+	return _console_to_at(cmd, strlen(cmd));
 #else
-    cli_handle_one(cmd);
+	return cli_handle_one(cmd, argc, argv);
 #endif
+
+err_out:
+	printf("Invalid console input '%s'\r\n", copy);
+	return -1;
 }
 
 static void uart_console_task(void *param)
@@ -480,8 +577,8 @@ static void uart_console_task(void *param)
 	} input_state;
 
 	size_t ret;
-	char buf[512] = {0};
-	char cmd[512];
+	char saved;
+	char buf[CONSOLE_CMD_MAX_LEN] = {0};
 	HAL_StatusTypeDef status;
 	unsigned int in = 0, out = 0;
 	input_state = CLI_INPUT_STATE_COMMON;
@@ -518,12 +615,21 @@ static void uart_console_task(void *param)
 				case CLI_INPUT_STATE_CR:
 					if (ch == '\n') {
 						/*
-						 * Copy the current command to buffer and make sure
-						 * it has a terminating NULL.
+						 * To assure that a command always has a terminating '\0',
+						 * save the pending character, replace it with '\0' and resume
+						 * it later.
 						 */
-						memcpy(cmd, buf, out);
-						cmd[out] = '\0';
-						console_cli_run(cmd);
+						saved = buf[out];
+						buf[out] = '\0';
+
+						/* Removing possible leading NULL data. */
+						int i;
+						for (i = 0; !buf[i] && i < out; i++);
+
+						console_cli_run(&buf[i]);
+
+						/* Resume the input buffer. */
+						buf[out] = saved;
 						/* Shift out the old command. */
 						memmove(buf, &buf[out], in - out);
 						in -= out;
@@ -564,6 +670,36 @@ void StartDefaultTask(void *argument);
 
 void MX_FREERTOS_Init(void); /* (MISRA C 2004 rule 8.1) */
 
+/* Hook prototypes */
+void configureTimerForRunTimeStats(void);
+unsigned long getRunTimeCounterValue(void);
+
+/* USER CODE BEGIN 1 */
+/* Functions needed when configGENERATE_RUN_TIME_STATS is on */
+__weak void configureTimerForRunTimeStats(void)
+{
+	dwt_enable();
+	dwt_cycle_counter_enable();
+	dwt_cycle_counter_reset();
+}
+
+__weak unsigned long getRunTimeCounterValue(void)
+{
+	return dwt_cycle_counter_read();
+}
+
+void trace_task_switched_out(void)
+{
+	//itm_printf("switch out %s", pcTaskGetName(NULL));
+}
+
+void trace_task_switched_in(void)
+{
+	//itm_printf("switch in %s", pcTaskGetName(NULL));
+}
+
+/* USER CODE END 1 */
+
 /**
   * @brief  FreeRTOS initialization
   * @param  None
@@ -576,13 +712,14 @@ void MX_FREERTOS_Init(void) {
 	osThreadAttr_t defaultTask_attributes = {
 	  .name = "defaultTask",
 	  .priority = (osPriority_t) osPriorityNormal,
-	  .stack_size = 128 * 4
+	  .stack_size = 1024 * 1,
 	};
 	osThreadAttr_t console_tsk_attr = {
 	  .name = "console",
-	  .priority = (osPriority_t) osPriorityRealtime7,
-	  .stack_size = 1024*4,
+	  .priority = (osPriority_t) osPriorityRealtime6,
+	  .stack_size = 1024 * 4,
 	};
+
 	uart_strm_buffer = xStreamBufferCreate(1024 * 3, 1);
 	if (!uart_strm_buffer)
 		printf("failed to create stream buffer for uart\r\n");
@@ -614,19 +751,14 @@ void MX_FREERTOS_Init(void) {
 	  while (1);
   }
 
+  ret = spi_transaction_init();
+  if (ret) {
+	  printf("failed to init spi transaction, %d\r\n", ret);
+	  while (1);
+  }
+
   g_at_handle = at_spisync_init();
 
-  ret = spi_cmd_processor_init();
-  if (ret < 0) {
-	  printf("Failed to init spi command processor, %d\r\n", ret);
-	  while (1);
-  }
-
-  ret = app_pm_init();
-  if (ret < 0) {
-	  printf("Failed to init power manager app\r\n");
-	  while (1);
-  }
   /* USER CODE END RTOS_THREADS */
 
   /* USER CODE BEGIN RTOS_EVENTS */
@@ -645,6 +777,7 @@ void StartDefaultTask(void *argument)
 {
   /* USER CODE BEGIN defaultTask */
   /* Infinite loop */
+
   for(;;)
   {
 	  HAL_GPIO_TogglePin(LED_RED_GPIO_Port, LED_RED_Pin);

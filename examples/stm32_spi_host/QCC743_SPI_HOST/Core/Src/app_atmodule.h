@@ -7,7 +7,6 @@
 #ifndef SRC_APP_ATMODULE_H_
 #define SRC_APP_ATMODULE_H_
 
-#include "spisync.h"
 #include "at_host.h"
 
 typedef struct ota_header {

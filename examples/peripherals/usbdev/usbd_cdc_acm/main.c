@@ -3,7 +3,7 @@
 #include "board.h"
 
 extern void cdc_acm_init(void);
-extern void cdc_acm_data_send_with_dtr_test(void);
+extern void cdc_acm_data_send_poll(void);
 
 int main(void)
 {
@@ -11,7 +11,7 @@ int main(void)
 
     cdc_acm_init();
     while (1) {
-        cdc_acm_data_send_with_dtr_test();
-        qcc74x_mtimer_delay_ms(500);
+        cdc_acm_data_send_poll();
+        qcc74x_mtimer_delay_us(2);
     }
 }

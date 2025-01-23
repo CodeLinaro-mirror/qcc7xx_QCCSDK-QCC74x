@@ -81,11 +81,11 @@ static const uint8_t hid_descriptor[] = {
     'U', 0x00,                  /* wcChar6 */
     'S', 0x00,                  /* wcChar7 */
     'B', 0x00,                  /* wcChar8 */
-    ' ', 0x00,                  /* wcChar9 */
+    '_', 0x00,                  /* wcChar9 */
     'H', 0x00,                  /* wcChar10 */
     'I', 0x00,                  /* wcChar11 */
     'D', 0x00,                  /* wcChar12 */
-    ' ', 0x00,                  /* wcChar13 */
+    '_', 0x00,                  /* wcChar13 */
     'D', 0x00,                  /* wcChar14 */
     'E', 0x00,                  /* wcChar15 */
     'M', 0x00,                  /* wcChar16 */
@@ -186,6 +186,7 @@ void usbd_event_handler(uint8_t event)
         case USBD_EVENT_SUSPEND:
             break;
         case USBD_EVENT_CONFIGURED:
+            USB_LOG_INFO("USB DEVICE CONFIGURED DONE!\r\n");
             break;
         case USBD_EVENT_SET_REMOTE_WAKEUP:
             break;

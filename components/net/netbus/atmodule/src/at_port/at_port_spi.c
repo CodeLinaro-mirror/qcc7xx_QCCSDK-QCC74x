@@ -13,6 +13,15 @@
 
 #include <at_main.h>
 
+#include <nxspi.h>
+
+#include "FreeRTOS.h"
+#include "timers.h"
+#include "task.h"
+#include "queue.h"
+#include "semphr.h"
+#include "qcc74x_gpio.h"
+
 #if 0
 #include <vfs.h>
 #include <device/vfs_uart.h>
@@ -20,7 +29,7 @@
 #include <hosal_uart.h>
 #endif
 
-#include <spisync.h>
+//#include <spisync.h>
 
 #define AT_PORT_DEVICE "/dev/ttyS1"
 #define AT_PORT_PRINTF printf
@@ -32,23 +41,15 @@ static uint8_t at_serial_stopbits = 1;
 static uint8_t at_serial_parity = 0;
 static uint8_t at_serial_flow_control = 0;
 
-extern spisync_t *at_spisync;
+//extern spisync_t *at_spisync;
 struct qcc74x_device_s *gpio;
 int at_port_init(void)
 {
 #if 0
-    int fd = -1;
-
-    fd = aos_open(AT_PORT_DEVICE, 0);
-    if (fd >= 0) {
-        at_serial_fd = fd;
-        return 0;
-    }
-    return -1;
-#else 
+    
     gpio = qcc74x_device_get_by_name("gpio");
 
-    qcc74x_gpio_init(gpio, GPIO_PIN_28, GPIO_OUTPUT | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_0);
+    qcc74x_gpio_init(gpio, GPIO_PIN_0, GPIO_OUTPUT | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_0);
 
     return 1;
 #endif
@@ -70,6 +71,7 @@ int at_port_deinit(void)
 
 int at_port_read_data(uint8_t*data, int len)
 {
+#if 0
     spisync_msg_t msg;
     int nBytes = 0;
 
@@ -96,20 +98,35 @@ int at_port_read_data(uint8_t*data, int len)
     }
 
     return nBytes;
+#else
+    int nBytes = 0;
+#if 1
+    nBytes = nxspi_read(data, len, portMAX_DELAY);
+#else
+    vTaskDelay(portMAX_DELAY);
+#endif
+#if 0
+    if (nBytes) {
+        printf("[AT_READ]:%d return %d-->", len, nBytes);
+        for (int i = 0; i < nBytes; i++) {
+            putchar(data[i]);
+        }
+        printf("\r\n");
+    }
+#endif
+    return nBytes;
+#endif
 }
 
 void at_port_debug_gpio_set(uint8_t val)
 {
-    qcc74x_gpio_reset(gpio, GPIO_PIN_28);
-    qcc74x_gpio_set(gpio, GPIO_PIN_28);
+    qcc74x_gpio_reset(gpio, GPIO_PIN_0);
+    qcc74x_gpio_set(gpio, GPIO_PIN_0);
 }
 
 #define AT_PORT_WRITE_TIMEOUT      (30000)// 30s
 int at_port_write_data(uint8_t *data, int len)
 {
-    int msg_len;
-    spisync_msg_t msg;
-
     if (at->fakeoutput) {
         //printf("[AT_WRITE]:%d-->", len);
         for (int i = 0; i < len; i++) {
@@ -120,6 +137,10 @@ int at_port_write_data(uint8_t *data, int len)
     if (at->fakeoutput) {
         return len;
     }
+#if 0
+    int msg_len;
+    spisync_msg_t msg;
+
     if (!data) {
     	return 0;
     }
@@ -137,6 +158,19 @@ int at_port_write_data(uint8_t *data, int len)
         return msg_len;
     }
     return 0;
+#else
+#if 0
+        for (int i = 0; i < len; i++) {
+            putchar(data[i]);
+        }
+#endif
+#if 1
+    return nxspi_write(data, len, portMAX_DELAY);
+#else
+    vTaskDelay(portMAX_DELAY);
+    return len;
+#endif
+#endif
 }
 
 int at_port_para_set(int baudrate, uint8_t databits, uint8_t stopbits, uint8_t parity, uint8_t flow_control)

@@ -31,6 +31,7 @@
 #include "qcc74x_adc.h"
 #include "at_fs.h"
 #include <sys/fcntl.h>
+#include <at_main.h>
 
 #define AT_FS_TYPE_LFS        0 // default littlefs
 
@@ -839,7 +840,81 @@ static int at_query_part(int argc, const char **argv)
 #define OTA_BUFFER_LEN (4096)
 static at_ota_handle_t g_ota_handle = NULL;
 static int g_ota_recv_total = 0;
+static int g_ota_recv_cnt   = 0;
 static int g_ota_start = 0;
+
+struct ota_buf {
+    uint32_t len;
+    uint8_t buf[0];
+};
+
+static int ota_start_process(int id, void *arg)
+{
+    int ota = (int)arg;
+
+    if (ota == 0 && g_ota_handle) {
+        at_ota_abort(g_ota_handle);
+        g_ota_handle = NULL;
+        g_ota_recv_total = 0;
+    }
+    return 0;
+}
+
+static int ota_trans_process(int id, void *arg)
+{
+    struct ota_buf *buffer = (uint8_t *)arg;
+    int head_offset = 0;
+
+    if (!g_ota_handle) {
+        g_ota_handle = at_ota_start((at_ota_header_t *)buffer->buf);
+        head_offset = sizeof(at_ota_header_t);
+    }
+
+    if (!g_ota_handle) {
+        goto _fail;
+    }
+
+    if (at_ota_update(g_ota_handle, g_ota_recv_total, buffer->buf + head_offset, buffer->len - head_offset) != 0) {
+        at_ota_abort(g_ota_handle);
+        goto _fail;
+    }
+
+    if (0 == g_ota_recv_total) {
+        g_ota_recv_cnt = 1;
+    } else {
+        g_ota_recv_cnt++;
+    }
+    g_ota_recv_total += (buffer->len - head_offset);
+
+    printf("OTA-%d, l:%d, boff:%08X-%d, t:%d/%d, H:%02X:%02X:%02X:%02X\r\n",
+            g_ota_recv_cnt, buffer->len,
+            g_ota_recv_total+512, g_ota_recv_total+512,
+            g_ota_recv_total, g_ota_handle->file_size,
+            buffer[0], buffer[1], buffer[2], buffer[3]);
+    vPortFree(buffer);
+    return 0;
+
+_fail:
+    vPortFree(buffer);
+    g_ota_handle = NULL;
+    g_ota_recv_total = 0;
+    return 0;
+}
+
+static int ota_finish_process(int id, void *arg)
+{
+    printf("ota_recv_total:%d \r\n", g_ota_recv_total);
+    g_ota_recv_total = 0;
+
+    if (at_ota_finish(g_ota_handle, 1, 0) != 0) {
+        at_ota_abort(g_ota_handle);
+        g_ota_handle = NULL;
+        return 0;
+    }
+    vTaskDelay(pdMS_TO_TICKS(100));
+    qcc74x_sys_reset_por();
+    return 0;
+}
 
 static int at_query_ota_start(int argc, const char **argv)
 {
@@ -856,22 +931,22 @@ static int at_setup_ota_start(int argc, const char **argv)
     if (ota != 0 && ota != 1 ) {
         return AT_RESULT_CODE_ERROR;
     }
-    if (ota == 0 && g_ota_handle) {
-        at_ota_abort(g_ota_handle);
-        g_ota_handle = NULL;
-        g_ota_recv_total = 0;
-    } 
+
+    struct at_workq wq = {
+        .pfunc = ota_start_process,
+        .arg = (void *)ota,
+    };
+    at_workq_send(AT_EVENT_OTA, &wq, portMAX_DELAY);
+
     g_ota_start = ota;
 
     return AT_RESULT_CODE_OK;
 }
-
 static int at_setup_ota_send(int argc, const char **argv)
 {
     int ret = 0;
     int len, recv_size = 0;
-    uint8_t *buffer;
-    int head_offset = 0;
+    struct ota_buf *buffer;
 
     AT_CMD_PARSE_NUMBER(0, &len);
 
@@ -884,28 +959,25 @@ static int at_setup_ota_send(int argc, const char **argv)
         return AT_RESULT_CODE_FAIL;
     }
 
-    buffer = pvPortMalloc(len);
+    buffer = pvPortMalloc(sizeof(struct ota_buf) + len);
     if (!buffer) {
         return AT_RESULT_CODE_FAIL;
     }
-    memset(buffer, 0, len);
+    memset(buffer, 0, sizeof(struct ota_buf) + len);
 
-    at_response_result(AT_RESULT_CODE_OK);
-    AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
+    at_response_string("%s%s", AT_CMD_MSG_OK, AT_CMD_MSG_WAIT_DATA);
 
     while(recv_size < len) {
-        recv_size += AT_CMD_DATA_RECV(buffer + recv_size, len - recv_size);
+        recv_size += AT_CMD_DATA_RECV(buffer->buf + recv_size, len - recv_size);
     }
     at_response_string("Recv %d bytes\r\n", recv_size);
 
-    if (!g_ota_handle) {
-        g_ota_handle = at_ota_start((at_ota_header_t *)buffer);
-        head_offset = sizeof(at_ota_header_t);
-    }
-
-    if (!g_ota_handle) {
-        goto _fail;
-    }
+    buffer->len = recv_size;
+    struct at_workq wq = {
+        .pfunc = ota_trans_process,
+        .arg = buffer,
+    };
+    at_workq_send(AT_EVENT_OTA, &wq, portMAX_DELAY);
 
     if (len == recv_size) {
         ret = AT_RESULT_CODE_SEND_OK;
@@ -913,20 +985,7 @@ static int at_setup_ota_send(int argc, const char **argv)
         ret = AT_RESULT_CODE_SEND_FAIL;
     }
 
-    if (at_ota_update(g_ota_handle, g_ota_recv_total, buffer + head_offset, recv_size - head_offset) != 0) {
-        at_ota_abort(g_ota_handle);
-        goto _fail;
-    }
-    g_ota_recv_total += (recv_size - head_offset);
-    printf("ota recv_size:%d\r\n", g_ota_recv_total);
-    vPortFree(buffer);
     return ret;
-
-_fail:
-    vPortFree(buffer);
-    g_ota_handle = NULL;
-    g_ota_recv_total = 0;
-    return AT_RESULT_CODE_FAIL;
 }
 
 static int at_setup_ota_finish_reset(int argc, const char **argv)
@@ -934,17 +993,13 @@ static int at_setup_ota_finish_reset(int argc, const char **argv)
     if (!g_ota_handle) {
         return AT_RESULT_CODE_ERROR;
     }
-    printf("ota_recv_total:%d \r\n", g_ota_recv_total);
-    g_ota_recv_total = 0;
 
-    if (at_ota_finish(g_ota_handle, 1, 0) != 0) {
-        at_ota_abort(g_ota_handle);
-        g_ota_handle = NULL;
-        return AT_RESULT_CODE_ERROR;
-    }
-    at_response_result(AT_RESULT_CODE_OK);
-    vTaskDelay(pdMS_TO_TICKS(100));
-    qcc74x_sys_reset_por();
+    struct at_workq wq = {
+        .pfunc = ota_finish_process,
+        .arg = NULL,
+    };
+    at_workq_send(0, &wq, portMAX_DELAY);
+
     return AT_RESULT_CODE_OK;
 }
 

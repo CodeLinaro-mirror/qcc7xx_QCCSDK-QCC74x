@@ -12,7 +12,14 @@ The hardware wiring diagram between the STM32 HOST and QCC74X is shown in the fi
 
 If you are using the QCC743/QCC744 development board, please connect the jumpers as follows：
 
-![connect.png](assets/connect-20240719112357-bevu52y.png)
+| opt | qcc74x     | stm32      |
+|---------------|---------------|---------------|
+| CLOCK | GPIO29  | PA5  |
+| MISO | GPIO30  | PA6  |
+| MOSI | GPIO27  | PA7  |
+| IRQ | GPIO20  | PE13  |
+| CS(Wakeup) | GPIO28  | PD14  |
+
 
 #### Compile
 
@@ -102,9 +109,9 @@ AT+PWR=2              // Standby mode.
 1. Reset the demo board.
 2. Execute the command `AT+SLWKIO=16,0` in serial port tool.
 3. Execute the command `AT+PWR=2` in serial port tool.
-4. Execute the command `HOSTCMD wakeup 28` in serial port tool.
+4. Execute the any command in serial port tool.
 
-NOTE:Currently, edge wake-up is not supported. Edge awakening will be supported in the future.
+NOTE:The current implementation uses a five-wire SPI low-power solution, so the wake-up method is not configurable and only supports high-level wake-up.
 
 #### Testing Timer Wakeup from standby mode.
 
@@ -284,117 +291,30 @@ Ensure that the PC and qcc74x are connected to the same router.
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
    ```
 
-
 # SPISync Brief Design
 
 ## Design Background
 
 Many customers desire an SPI-based communication solution with high throughput. Our analysis revealed that during SPI communication, the CS control signal consumes a significant amount of time on the SPI bus during high throughput. Therefore, a solution that fully utilizes the SPI link bandwidth is needed.
 
-## Solution Architecture Diagram
+## Spi communication protocol
 
-​![image](assets/image-20240703140622-xrofbuw.png)​
+​![image](assets/master_tx.png)​
+​![image](assets/master_tx.png)​
 
-## Software Flowchart
-
-​![spisync.drawio (1)](assets/spisync.drawio%201-20240802111203-lmmz0vk.png)​
-
-## Modules Involved in the Solution
-
-* ramsync
-  From the master's perspective:
-
-  * The ramsync module is responsible for receiving the slave's payload S1234, ultimately ensuring that the data in payload M1234 is the same.
-  * The ramsync module is responsible for sending the master's payload B1234, ultimately ensuring that the data in payload A1234 is the same.
-
-  From the slave's perspective:
-
-  * The ramsync module is responsible for sending the slave's payload S1234, ultimately ensuring that the data in payload M1234 is the same.
-  * The ramsync module is responsible for receiving the master's payload B1234, ultimately ensuring that the data in payload A1234 is the same.
-* spisync
-  Responsible for providing a streambuffer structure for reading and writing externally, and internally for moving payload data to the streambuffer or moving the streambuffer to the payload.
-
-## Note:
-
-To send different types of data through spisync, we have categorized them as follows:
-
-* Type 0: Stream type, used for AT communication between spi\_master and spi\_slave.
-* Type 1: Stream type, reserved for user use.
-* Type 2: Stream type, reserved for user use.
-
-Our purpose for this categorization is:
-
-Spisync implements flow control on each channel, ensuring that different types of channels are not blocked by the blockage of other channels.
-
-## Communication Anomalies
-
-* Host anomalies: Based on the data status returned by the slave, if an anomaly is detected, the current communication is immediately stopped. First, trigger the slave, then restart low_sync.
-* Slave anomalies: The slave can only detect its own anomalies and has no right to reset. The actual reset timing is upon receiving the trigger signal.
-
-Reasons for anomalies:
-
-* The master and slave operate independently, and typically one starts running before the other, which can easily cause misalignment in the SPI clock cycle.
-* Occasional signal interference leading to some bits being received incorrectly.
-* Signal interference causing clock desynchronization between the master and slave.
-* Disconnected wires causing some bits to be received incorrectly.
-
-Without handling the misalignment of received bits synchronously, communication anomalies cannot be resolved.
-
-Anomaly Classification:
-
-|Classification Number|Anomaly Description|
-| ---------------------| --------------------------------------------------------------------------------------------------------------------------------------|
-|1|Master receives incorrectly, slave receives correctly. Master can detect this error through tag sanity check.|
-|2|Master receives correctly, slave receives incorrectly. Master cannot detect this error actively; it needs notification from the slave.|
-|3|Both master and slave receive incorrectly. Same as 1, the master can actively detect this error.|
-
-Anomaly Handling Process:
-
-1. Regardless of whether one or both sides encounter anomalies, both master and slave need to resynchronize, with the operation initiated by the master.
-2. The master notifies the slave of the resynchronization process by sending a bitstream with a specific pattern, lasting for 100ms.
-3. The master stops SPI DMA transmission and waits for 100ms. After detecting the anomaly pattern, the slave waits for 100ms before reinitializing.
-4. The master restarts SPI DMA transmission.
-
-​![image2024-3-4_15-1-22](assets/image2024-3-4_15-1-22-20240703144310-z850fsv.png)​
-
-## ‍Analysis of the Advantages and Disadvantages of the Current Scheme
-
-### Advantages:
-
-* **Native Support for Data Loss Prevention Due to Flash Read/Write Operations**:
-
-  * Prevents data loss when the SoC performs local flash erase/write operations.
-* **High Bandwidth Utilization with iperf**:
-
-  * iperf can essentially maximize the bus bandwidth.
-* **GPIO Savings**:
-
-  * For non-low-power scenarios, only MOSI/MISO/CLOCK pins are required. This saves the espMasterToSlavePin and SlaveToMasterPin compared to the ESP solution.
-  * For low-power scenarios, only MosiPin, MisoPin, ClockPin, and SlaveToMasterPin are required. This saves the MasterToSlavePin compared to the ESP solution.
-
-### Disadvantages:
-
-* **Delay for Small Data Packets**:
-
-  * If the slot count for spisync is set to 4 and the clock is 20M, sending a message will have a maximum delay of 603us\*4\=2.4ms.
-* **Lack of Aggregation Functionality**:
-
-  * The current application does not perform data aggregation. In the future, we will add this functionality to effectively handle multiple small packets. For example, if there are 5 "OK\\r\\n" data packets, they can be aggregated into one packet and sent to the other end at once.
+## Spi State machine
+​![image](assets/statemachine_1.png)​
+​![image](assets/statemachine_2.png)​
 
 ## Performance and Configuration
 
 The following are the SPI performance data corresponding to different stream\_buffer configurations, provided for reference only:
 
-|TXSLOT count|RXSLOTcount|TX_STREAMBUF count|RX_STREAMBUF count|20M SPI_M_TX |20M SPI_M_RX|40M SPI_M_TX|40M SPI_M_RX|RAM(byte)|
-| ------------------------------| ------------------------------| ------------------------------| -------------------------------| -----------------------------------------------------------| -----------------------------------------------------------| -------------------------------| ------------------------------------------------------------| -----------|
-|6|6|10|10|18Mbps|15Mbps|22Mbps|21Mbps|32*1564|
-|4|4|10|10|19Mbps|12-19Mbps|22Mbps|21Mbps|28*1564|
-|2|2|10|10|9.5Mbps|9.5Mbps|18Mbps|18Mbps|24*1564|
-|2|2|8|8|9.5Mbps|9.5Mbps|18Mbps|16Mbps|20*1564|
-|2|2|6|6|9.5Mbps|9.5Mbps|18Mbps|18Mbps|16*1564|
-|2|2|4|4|9.5Mbps|9.5Mbps|18Mbps|18Mbps|12*1564|
-|2|2|2|2|7.3Mbps|6.5Mbps|12Mbps<br />|18Mbps|8*1564|
-|2|2|1|1|4.8Mbps|3.2Mbps|7.3Mbps|6.3Mbps|6*1564|
+|TCP-TX(Mbps)|UDP-TX(Mbps)|TCP-RX(Mbps)|UDP-RX(Mbps)|
+| -----------| -----------| -----------| -----------|
+|12.8|12.9|10.8|11.4|
+
+
 
 ### Memory Involved in the Solution
 
@@ -464,7 +384,7 @@ After connecting to an AP, the Qcc74x can interact with the AP and enter power s
 | Command Name     | Description           |
 |------------------|-----------------------|
 | AT+PWR=2         | Enter low power mode  |
-| AT+SLWKIO=16,0   | Set IO wakeup         |
+| AT+SLWKIO=28,0   | Set IO wakeup         |
 | AT+SLWKTIMER=0,5000 | Set timer wakeup    |
 | AT+SLWKDTIM=10   | Set DTIM              |
 
@@ -520,16 +440,6 @@ b. Confirm if any tasks are waking up frequently. Enable debug log in `tickless.
 c. Confirm if there is frequent traffic interaction.
 d. Enable debug log in `tickless.c` to identify any events or reasons preventing sleep.
 
-## 7. SPI Sync Protocol with Low Power
-
-The diagram below illustrates the low-power architecture for host and slave:
-
-1.The host and slave can wake each other up via GPIO.
-2.State management for both the host and slave.
-3.Wake-up and acknowledgment procedures for the host and slave.
-
-![spi_lowpower.png](./pic/spi_lowpower.png)
-
 ### Qcc743 Sleep And wakeup Timing
 
 The QCC743 receives a beacon indicating that the AP has buffered packets, and then the QCC743 wakes up. It takes approximately 4ms to wake up and enter active mode. It then spends another 1.5ms sending null data to inform the AP that the QCC743 has exited low power mode and is ready to receive the buffered packets. The wake-up time lasts approximately 10ms or more, depending on the current network environment and whether the AP sends the packets to the QCC743 in a timely manner. After about 15ms, the QCC743 sends null data to inform the AP that it is going to sleep, and then it enters PDS15 mode. It will wake up every 1024ms (DTIM10) to receive beacons. Each beacon reception takes approximately 3ms.
@@ -578,15 +488,6 @@ This chapter provides a comprehensive guide for configuring and testing the Targ
 
 ---
 
-## Testing KPIs
-With a wakeup interval of 32.768 seconds, the results are as follows:
-- **Service Period (SP):** 12.8 ms
-  **Power Consumption:** 168 μA
-- **Service Period (SP):** 30 ms
-  **Power Consumption:** 206 μA
-
----
-
 ## Testing Procedure
 1. **Enable Configuration:**
    - Enable `CONFIG_USE_LPAPP` in the firmware.
@@ -594,11 +495,11 @@ With a wakeup interval of 32.768 seconds, the results are as follows:
 2. **Compile and Flash Firmware:**
    - Use appropriate tools to compile and flash the firmware onto the board.
 3. **Connect to Access Point (AP):**
-   - Establish a connection to a TWT-compatible router (e.g., TP-Link AX5400).
+   - Establish a connection to a TWT-compatible router (e.g., ROG AX11000).
 4. **Setup TWT on QCC743:**
    - Execute the following command:
      ```shell
-     wifi_mgmr_sta_twt_setup -s 1 -t 0 -e 16 -n 120 -m 500
+     wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
      ```
 5. **Activate TWT:**
    - Enter the command:
@@ -617,24 +518,20 @@ wifi_mgmr_sta_twt_setup -s 1 -t 1 -e <WakeIntervalExponent> -n <WakeDuration> -m
 ```
 - **Flow type (t):** Only support unannounce twt.
 - **Service Period (SP):** Determines the duration the device remains awake.
-- **Wake Interval Exponent:** Specifies the wake interval (e.g., 16 for 32.768 seconds).
-- **Wake Duration (n):** Minimum wake duration in milliseconds (e.g., 120 for 30.72 ms SP).
+- **Wake Interval Exponent:** Specifies the wake interval. 
+- **Wake Duration (n):** Minimum wake duration in milliseconds.
 - **Wake Interval Mantissa (m):** Mantissa value for precise interval adjustments.
 
 ### Example Commands(hostless):
-1. **SP = 12.8 ms, Wake Interval = 32.768 seconds:**
+1. **SP = 12.8 ms, Wake Interval = 8.192 seconds:**
    ```shell
-   wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 16 -n 50 -m 500
-   ```
-2. **SP = 30.72 ms, Wake Interval = 32.768 seconds:**
-   ```shell
-   wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 16 -n 120 -m 500
+   wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
    ```
 
 ### Host-Side Command:
 The following host-side command corresponds to the TWT setup:
 ```plaintext
-AT+TWT_PARAM=1,0,16,100,500
+AT+TWT_PARAM=1,1,13,128,1000
 AT+TWT_SLEEP
 ```
 
@@ -658,16 +555,6 @@ AT+TWT_SLEEP
 2. **TCP/IP Thread Impact:**
    - The current firmware includes a periodic TCP/IP thread, contributing to power consumption.
    - A power-optimized firmware version will be released soon.
-
----
-
-## Verification
-- After enabling TWT, confirm that wake intervals and service periods are negotiated correctly with the AP.
-- At each interval:
-  1. The AP sends a trigger frame.
-  2. QCC743 responds with a QoS null frame.
-- **Packet Capture Configuration:**
-  - Additional configuration on the packet capture PC is required to verify QoS null frames.
 
 ---
 

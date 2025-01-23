@@ -117,6 +117,26 @@ static int at_stop_keepalive_cmd(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+static int at_start_arp_send_cmd(int argc, const char **argv)
+{
+    int period;
+
+    AT_CMD_PARSE_NUMBER(0, &period);
+
+    int app_pm_create_arp_announce_timer(uint32_t seconds);
+    app_pm_create_arp_announce_timer(period);
+
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_stop_arp_send_cmd(int argc, const char **argv)
+{
+    int app_pm_delete_arp_announce_timer(void);
+    app_pm_delete_arp_announce_timer();
+
+    return AT_RESULT_CODE_OK;
+}
+
 static int at_twt_param_cmd(int argc, const char **argv)
 {
     int s, t, e, n, m;
@@ -149,6 +169,8 @@ static const at_cmd_struct at_pwr_cmd[] = {
     {"+SLWKTIMER", NULL, NULL, at_wakeup_timer_cmd, NULL, 2, 2},
     {"+START_KEEPALIVE", NULL, NULL, at_start_keepalive_cmd, NULL, 1, 1},
     {"+STOP_KEEPALIVE", NULL, NULL, NULL, at_stop_keepalive_cmd, 0, 0},
+    {"+START_ARP", NULL, NULL, at_start_arp_send_cmd, NULL, 1, 1},
+    {"+STOP_ARP", NULL, NULL, NULL, at_stop_arp_send_cmd, 0, 0},
     {"+TWT_PARAM", NULL, NULL, at_twt_param_cmd, NULL, 5, 5},
     {"+TWT_SLEEP", NULL, NULL, NULL, at_twt_sleep_cmd, 0, 0},
 };

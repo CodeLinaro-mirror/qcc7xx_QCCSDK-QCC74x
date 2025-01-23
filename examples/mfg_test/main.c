@@ -1145,8 +1145,10 @@ void uart_isr(int irq, void *arg)
     uint16_t uart_rx_count = 0;
 
     uint32_t intstatus = qcc74x_uart_get_intstatus(uartx);
+    #if 0
     uartx = qcc74x_device_get_by_name("uart0");
-
+    #endif
+    #if 0
     if (intstatus & UART_INTSTS_RX_FIFO) {
         while (qcc74x_uart_rxavailable(uartx)) {
             uart_rxbuf[uart_rx_count++] = qcc74x_uart_getchar(uartx);
@@ -1154,13 +1156,22 @@ void uart_isr(int irq, void *arg)
 
         mfg_deal_raw_input(uart_rxbuf, uart_rx_count, 1);
     }
+    #endif
 
     if (intstatus & UART_INTSTS_RTO) {
         qcc74x_uart_int_clear(uartx, UART_INTCLR_RTO);
+    #if 0
         while (qcc74x_uart_rxavailable(uartx)) {
             uart_rxbuf[uart_rx_count++] = qcc74x_uart_getchar(uartx);
         }
 
+        mfg_deal_raw_input(uart_rxbuf, uart_rx_count, 1);
+    #endif
+    }
+    while (qcc74x_uart_rxavailable(uartx)) {
+        uart_rxbuf[uart_rx_count++] = qcc74x_uart_getchar(uartx);
+    }
+    if (uart_rx_count){
         mfg_deal_raw_input(uart_rxbuf, uart_rx_count, 1);
     }
 }
@@ -1288,155 +1299,6 @@ void _dump_media_ver(void)
 }
 
 
-static TaskHandle_t rc32k_coarse_trim_task_hd = NULL;
-static TaskHandle_t xtal32k_check_entry_task_hd = NULL;
-
-// volatile uint8_t xtal32k_ready_flag = 0;
-
-static void xtal32k_check_entry_task(void *pvParameters)
-{
-    uint32_t xtal32_regulator_flag = 0;
-
-    uint64_t timeout_start;
-
-    uint32_t retry_cnt = 0;
-
-    uint64_t rtc_cnt, rtc_record_us, rtc_now_us;
-    uint64_t mtimer_record_us, mtimer_now_us;
-
-    uint32_t rtc_us, mtimer_us;
-    int32_t diff_us;
-
-    uint32_t success_flag = 0;
-
-    vTaskDelay(10);
-
-    timeout_start = CPU_Get_MTimer_Counter();
-    printf("xtal32k_check_entry task enable, freq_mtimer must be 1MHz!\r\n");
-
-    GLB_GPIO_Cfg_Type gpioCfg = {
-        .gpioPin = GLB_GPIO_PIN_0,
-        .gpioFun = GPIO_FUN_ANALOG,
-        .gpioMode = GPIO_MODE_ANALOG,
-        .pullType = GPIO_PULL_NONE,
-        .drive = 1,
-        .smtCtrl = 1
-    };
-    gpioCfg.gpioPin = 16;
-    GLB_GPIO_Init(&gpioCfg);
-    gpioCfg.gpioPin = 17;
-    GLB_GPIO_Init(&gpioCfg);
-
-    /* power on */
-    HBN_Set_Xtal_32K_Inverter_Amplify_Strength(3);
-    HBN_Power_On_Xtal_32K();
-
-    printf("xtal32k_check: delay 100 ms\r\n");
-    vTaskDelay(500);
-
-    // if(rc32k_coarse_trim_task_hd){
-    //     printf("xtal32k_check: wait rc32k_coarse_trim finish\r\n");
-    //     ulTaskNotifyTake(NULL, portMAX_DELAY);
-    // }
-
-    printf("xtal32k_check: start check\r\n");
-
-    HBN_32K_Sel(1);
-    HBN_Enable_RTC_Counter();
-    vTaskDelay(2);
-
-    success_flag = 0;
-
-    while(1){
-        retry_cnt += 1;
-
-        /* disable irq */
-        __disable_irq();
-
-        mtimer_record_us = CPU_Get_MTimer_Counter();
-        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
-
-        /* enable irq */
-        __enable_irq();
-
-        rtc_record_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
-
-        /* delay */
-        vTaskDelay(10);
-
-         /* disable irq */
-        __disable_irq();
-
-        mtimer_now_us = CPU_Get_MTimer_Counter();
-        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
-
-        /* enable irq */
-        __enable_irq();
-
-        rtc_now_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
-
-        /* calculate */
-        rtc_us = (uint32_t)(rtc_now_us - rtc_record_us);
-        mtimer_us = (uint32_t)(mtimer_now_us - mtimer_record_us);
-        diff_us = rtc_us - mtimer_us;
-
-        mfg_print("xtal32k_check: mtimer_us:%d, rtc_us:%d\r\n", mtimer_us, rtc_us);
-
-        if(diff_us < -100 || diff_us > 100){
-            /* continue */
-            mfg_print("xtal32k_check: retry_cnt:%d, diff_us:%d, continue...\r\n", retry_cnt, diff_us);
-            vTaskDelay(10);
-        }else{
-            /* finish */
-            mfg_print("xtal32k_check: retry_cnt:%d, diff_us:%d, finish!\r\n", retry_cnt, diff_us);
-            success_flag = 1;
-            break;
-        }
-
-        /* 1sec, set xtal regulator */
-        if((xtal32_regulator_flag == 0) && (CPU_Get_MTimer_Counter() - timeout_start > 1000*1000)){
-            mfg_print("xtal32K_check: reset xtal32k regulator\r\n");
-            xtal32_regulator_flag = 1;
-
-            HBN_32K_Sel(0);
-            HBN_Power_Off_Xtal_32K();
-
-            vTaskDelay(10);
-
-            HBN_Set_Xtal_32K_Regulator(3);
-            HBN_Power_On_Xtal_32K();
-            HBN_32K_Sel(1);
-        }
-
-        if(CPU_Get_MTimer_Counter() - timeout_start > 3 * 1000 * 1000){
-            success_flag = 0;
-            break;
-        }
-    }
-
-    if(success_flag){
-        mfg_print("xtal32k_check: success!, total time:%dms\r\n", (int)(CPU_Get_MTimer_Counter() - timeout_start) / 1000);
-
-        /* GPIO17 no pull */
-        *((volatile uint32_t *)0x2000F014) &= ~(1 << 16);
-
-        mfg_print("select xtal32k\r\n");
-
-    }else{
-        mfg_print("xtal32k_check: failure!, total time:%dms\r\n", (int)(CPU_Get_MTimer_Counter() - timeout_start) / 1000);
-        mfg_print("xtal32k_check: select rc32k, and xtal32k poweroff \r\n");
-        HBN_32K_Sel(0);
-        HBN_Power_Off_Xtal_32K();
-    }
-
-    /* */
-    // mfg_print("xtal32k_check: set lp_32k ready!\r\n");
-    // qcc74x_lp_set_32k_clock_ready(1);
-    // xtal32k_ready_flag = 1;
-
-    // mfg_print("xtal32k_check task: vTaskDelete\r\n");
-    vTaskDelete(NULL);
-}
 
 void main()
 {
@@ -1544,12 +1406,6 @@ void main()
 
     xEventGroupMFG = xEventGroupCreate();
 
-#ifdef CONFIG_XTAL_CHECK_EN
-    static StackType_t qcc74x_mfg_xtal32k_check_stack[512];
-    /* auto check xtal32k, only test */
-    puts("[OS] Create xtal32k_check_entry task...\r\n");
-    xTaskCreateStatic(xtal32k_check_entry_task, (char*)"xtal32k_check_entry", 512, NULL, 20, qcc74x_mfg_xtal32k_check_stack, &xtal32k_check_entry_task_hd);
-#endif
 
     uart_gpio_sample_init();
     xEventGroupSetBits( xEventGroupMFG, (1 << 1) );

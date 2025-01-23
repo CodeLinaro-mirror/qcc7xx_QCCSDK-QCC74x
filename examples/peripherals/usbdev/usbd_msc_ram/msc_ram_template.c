@@ -53,11 +53,11 @@ const uint8_t msc_ram_descriptor[] = {
     'U', 0x00,                  /* wcChar6 */
     'S', 0x00,                  /* wcChar7 */
     'B', 0x00,                  /* wcChar8 */
-    ' ', 0x00,                  /* wcChar9 */
+    '_', 0x00,                  /* wcChar9 */
     'M', 0x00,                  /* wcChar10 */
     'S', 0x00,                  /* wcChar11 */
     'C', 0x00,                  /* wcChar12 */
-    ' ', 0x00,                  /* wcChar13 */
+    '_', 0x00,                  /* wcChar13 */
     'D', 0x00,                  /* wcChar14 */
     'E', 0x00,                  /* wcChar15 */
     'M', 0x00,                  /* wcChar16 */
@@ -109,6 +109,7 @@ void usbd_event_handler(uint8_t event)
         case USBD_EVENT_SUSPEND:
             break;
         case USBD_EVENT_CONFIGURED:
+            USB_LOG_INFO("USB DEVICE CONFIGURED DONE!\r\n");
             break;
         case USBD_EVENT_SET_REMOTE_WAKEUP:
             break;
@@ -158,7 +159,7 @@ _retry:
 
 #else
 #define BLOCK_SIZE  512
-#define BLOCK_COUNT 10
+#define BLOCK_COUNT 128
 
 typedef struct
 {
@@ -169,7 +170,7 @@ BLOCK_TYPE mass_block[BLOCK_COUNT];
 
 void usbd_msc_get_cap(uint8_t lun, uint32_t *block_num, uint16_t *block_size)
 {
-    *block_num = 100000; //Pretend having so many buffer,not has actually.
+    *block_num = BLOCK_COUNT; //Pretend having so many buffer,not has actually.
     *block_size = BLOCK_SIZE;
 }
 int usbd_msc_sector_read(uint32_t sector, uint8_t *buffer, uint32_t length)

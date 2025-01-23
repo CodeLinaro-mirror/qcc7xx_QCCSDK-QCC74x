@@ -13,7 +13,7 @@
 
 static const osThreadAttr_t _rx_task_attr = {
   .name = "at_rx",
-  .priority = (osPriority_t) osPriorityRealtime7,
+  .priority = (osPriority_t) osPriorityRealtime6,
   .stack_size = 4096
 };
 
@@ -61,20 +61,41 @@ struct _fount_list {
 
 static void at_cmd_find(at_host_handle_t handle, const char *cmd_name, int len, struct _fount_list *found_list, uint8_t list_num)
 {
-	int i, list = 0;
+	int i, j, list = 0;
 	char *cmd;
 	at_response_t *found_cmd = NULL;
 
 	memset(found_list, 0, sizeof(struct _fount_list) * list_num);
 
-	for (i = 0; i < handle->at_resp_nums; i++) {
-		if ((cmd = strnstr(cmd_name, handle->at_resp_cmd[i]->cmd, len)) != NULL) {
-			found_list[list].cmd = handle->at_resp_cmd[i];
-			found_list[list].found_ptr = cmd;
-			found_list[list].len = len - (cmd - cmd_name);
-			list++;
+#if 0
+	for (j = 0; j < len; j++) {
+		for (i = 0; i < handle->at_resp_nums; i++) {
+			cmd = handle->at_resp_cmd[i]->cmd;
+			if (strncmp(cmd_name+j, cmd, strlen(cmd)) == 0) {
+				found_list[list].cmd = handle->at_resp_cmd[i];
+				found_list[list].found_ptr = cmd_name + j;
+				list++;
+				found_list[list].found_ptr = cmd_name + len;
+				//printf("found %s\r\n", handle->at_resp_cmd[i]->cmd);
+			}
 		}
 	}
+	for (list = 0; list < handle->at_resp_nums - 1; list++) {
+		if (found_list[list].found_ptr) {
+			found_list[list].len = found_list[list+1].found_ptr - found_list[list].found_ptr;
+		}
+	}
+#else
+    for (list = 0; list < handle->at_resp_nums; list++) {
+		if ((cmd = strnstr(cmd_name, handle->at_resp_cmd[list]->cmd, strlen(handle->at_resp_cmd[list]->cmd))) != NULL) {
+            found_list[list].cmd = handle->at_resp_cmd[list];
+			found_list[list].found_ptr = cmd;
+            found_list[list].len = len - (cmd - cmd_name);
+			list++;
+            break;
+        }
+	}
+#endif
 }
 
 static int _at_read(at_host_handle_t handle, uint8_t *buf, uint32_t len)
@@ -94,7 +115,7 @@ static void __at_rx_task(void *arg)
 {
 	int ret;
 	at_host_handle_t handle = (at_host_handle_t)arg;
-	static char evt_head[2048];
+	static char evt_head[5*1024];
 	struct _fount_list found_list[10];
 
 	printf("at rx start\r\n");
@@ -128,7 +149,7 @@ static int at_resp_ok(at_host_handle_t at, const char *cmd, int len)
 
 static int at_resp_wait_data(at_host_handle_t at, const char *cmd, int len)
 {
-	osEventFlagsSet(at->evt, AT_HOST_RESP_EVT_WAIT_DATA);
+	osEventFlagsSet(at->evt, AT_HOST_RESP_EVT_WAIT_DATA|AT_HOST_RESP_EVT_OK);
 	//printf("at_resp_wait_data\r\n");
 	return 0;
 }
@@ -160,7 +181,7 @@ static int at_resp_ciprecvdata(at_host_handle_t at, const char *cmd, int len)
 	uint8_t *data_buf = NULL, *wptr;
 	int frame_len, data_len = 0, recv_len = 0;
 	at_host_msg_t msg;
-
+	AT_HOST_DEBUG_POINT();
     sscanf(cmd, "+CIPRECVDATA:%d,", &data_len);
 
 	if (!strstr(cmd, ",")) {
@@ -168,9 +189,10 @@ static int at_resp_ciprecvdata(at_host_handle_t at, const char *cmd, int len)
 	}
 
 	if (data_len == 0) {
+		osEventFlagsClear(at->evt, AT_HOST_RESP_EVT_IPD);
 		goto _end;
 	}
-
+	AT_HOST_DEBUG_POINT();
 	data_buf = pvPortCalloc(data_len + 2, 1);
 	if (!data_buf) {
 		printf("malloc fail len:%d\r\n", data_len);
@@ -186,7 +208,7 @@ static int at_resp_ciprecvdata(at_host_handle_t at, const char *cmd, int len)
 		memcpy(data_buf, cmd + head_len, ret);
 		wptr = data_buf + ret;
 	}
-
+	AT_HOST_DEBUG_POINT();
 	len = ret;
 	while (len < data_len + 2) {
 		recv_len = _at_read(at, data_buf + len, data_len + 2 - len);
@@ -194,7 +216,7 @@ static int at_resp_ciprecvdata(at_host_handle_t at, const char *cmd, int len)
 			len += recv_len;
 		}
 	}
-
+	AT_HOST_DEBUG_POINT();
 	if (len + head_len > frame_len) {
 		printf("frame len:%d len:%d\r\n", frame_len, len);
 	}
@@ -202,7 +224,7 @@ static int at_resp_ciprecvdata(at_host_handle_t at, const char *cmd, int len)
 	if (data_buf[data_len] == '\r' && data_buf[data_len + 1] == '\n') {
 
 	} else {
-		printf("frame err tail %s\r\n", &data_buf[data_len]);
+		//printf("frame tail %s\r\n", &data_buf[data_len]);
 		//assert(0);
 	}
 _end:
@@ -228,11 +250,8 @@ static int at_resp_ipd(at_host_handle_t at, const char *cmd, int len)
 	uint8_t head_len = 0;
 	uint8_t *data_buf = NULL;
 	int frame_len, data_len = 0, recv_len = 0;
-	char ipd_buf[20] = {0};
-
-	memcpy(ipd_buf, cmd, len);
-
-    sscanf(ipd_buf, "+IPD:%d,%d", &linkid, &data_len);
+    
+    sscanf(cmd, "+IPD:%d,%d", &linkid, &data_len);
 
     if (at->recv_mode == AT_NET_RECV_MODE_ACTIVE) {
 
@@ -269,6 +288,7 @@ static int at_resp_ipd(at_host_handle_t at, const char *cmd, int len)
 #endif
     } else {
     	data_buf = NULL;
+        osEventFlagsSet(at->evt, AT_HOST_RESP_EVT_IPD);
     }
 
     at->recv_len_totle += data_len;
@@ -283,6 +303,7 @@ int at_host_recvmode_set(at_host_handle_t at, uint8_t mode)
 {
 	at_host_printf(at, AT_HOST_RESP_EVT_OK, 0, "AT+CIPRECVMODE=%d\r\n", mode);
 	at->recv_mode = mode;
+	return 0;
 }
 
 int at_host_recvdata(at_host_handle_t at, int linkid, uint8_t *buf, uint32_t buf_size, uint32_t timeout)
@@ -290,18 +311,27 @@ int at_host_recvdata(at_host_handle_t at, int linkid, uint8_t *buf, uint32_t buf
 	at_host_msg_t msg;
 	int ret = 0;
 
-	at_host_printf(at, 0, 0, "AT+CIPRECVDATA=%d,%d\r\n", linkid, buf_size);
+	if (at->last_recvdata_len == 0) {
+		if (!(at_host_wait(at, AT_HOST_RESP_EVT_IPD, 1000) & AT_HOST_RESP_EVT_IPD)) {
+			return -1;
+		}
+	}
 
+	AT_HOST_DEBUG_POINT();
+	at_host_printf(at, 0, timeout, "AT+CIPRECVDATA=%d,%d\r\n", linkid, buf_size);
+	AT_HOST_DEBUG_POINT();
 	if (osMessageQueueGet(at->queue, &msg, 0, timeout) != 0) {
 		return -1;
 	}
+	AT_HOST_DEBUG_POINT();
 	//at_host_wait(at, AT_HOST_RESP_EVT_OK, 1000);
-
-	//at_host_wait(at, AT_HOST_RESP_EVT_OK, 1000);
+	//AT_HOST_DEBUG_POINT();
 	if (msg.msg_len) {
 		ret = buf_size > msg.msg_len ? msg.msg_len : buf_size;
 		memcpy(buf, msg.msg_buf, ret);
 	}
+	at->last_recvdata_len = msg.msg_len;
+
 	if (msg.msg_buf) {
 		vPortFree(msg.msg_buf);
 	}
@@ -311,10 +341,11 @@ int at_host_recvdata(at_host_handle_t at, int linkid, uint8_t *buf, uint32_t buf
 int at_host_wait(at_host_handle_t at, int wait_evt, uint32_t timeout)
 {
 	int rflags = osEventFlagsWait(at->evt, wait_evt, osFlagsWaitAll, timeout);
-    if (rflags >= osErrorISR && rflags <= osOK) {
-        return 0;
-    }
-    return rflags; 
+
+	if (rflags >= osErrorISR && rflags <= osOK) {
+		return 0;
+	}
+	return rflags;
 }
 
 int at_host_send(at_host_handle_t at, int wait_evt, uint8_t *data, int len, uint32_t timeout)
@@ -326,7 +357,7 @@ int at_host_send(at_host_handle_t at, int wait_evt, uint8_t *data, int len, uint
 		ret = at->ops->f_write_data(at->arg, data, len);
 	}
 
-	//at_gpio_debug();
+	//AT_HOST_DEBUG_POINT();
 
 	if (wait_evt) {
 		if (!(at_host_wait(at, wait_evt, timeout) & wait_evt)) {
@@ -334,6 +365,11 @@ int at_host_send(at_host_handle_t at, int wait_evt, uint8_t *data, int len, uint
 		}
 	}
 	return ret;
+}
+
+int at_host_read(at_host_handle_t at, uint8_t *buf, uint32_t buf_size)
+{
+	return at->ops->f_read_data(at->arg, buf, buf_size);
 }
 
 int at_host_printf(at_host_handle_t at, int wait_evt, uint32_t timeout, const char *fmt, ...)
@@ -351,7 +387,7 @@ int at_host_printf(at_host_handle_t at, int wait_evt, uint32_t timeout, const ch
 	if (at_host_send(at, wait_evt, buf, len, timeout) < 0) {
 		ret = -1;
 	}
-	//at_gpio_debug();
+	//AT_HOST_DEBUG_POINT();
 	return ret;
 }
 
@@ -400,10 +436,10 @@ int at_host_response_register(at_host_handle_t at, const at_response_t *cmd, int
 }
 
 static const at_response_t at_response_cmd[] = {
+	{"\r\nOK\r\n\r\n>", at_resp_wait_data},
 	{"\r\nOK\r\n", at_resp_ok},
 	//{"\r\n+CIP", at_resp_ips},
 	{"+IPD", at_resp_ipd},
-	{"\r\n>", at_resp_wait_data},
 	{"\r\nSEND OK\r\n", at_resp_send_ok},
 	{"+CIPRECVDATA:", at_resp_ciprecvdata},
 	{"Recv ", at_resp_recv_btyes},
@@ -438,6 +474,7 @@ at_host_handle_t at_host_init(const struct at_host_drv *ops, void *arg)
 		return NULL;
 	}
 
+	handle->last_recvdata_len = 0;
 	at_host_response_register(handle, at_response_cmd, sizeof(at_response_cmd)/sizeof(at_response_cmd[0]));
 
 	return handle;

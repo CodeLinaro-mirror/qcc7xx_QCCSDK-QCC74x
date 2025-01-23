@@ -2474,6 +2474,61 @@ char * pcTaskGetName( TaskHandle_t xTaskToQuery ) /*lint !e971 Unqualified char 
 
 #if ( INCLUDE_xTaskGetHandle == 1 )
 
+    TaskHandle_t xTaskGetHandleFromISR( const char * pcNameToQuery )
+    {
+        UBaseType_t uxQueue = configMAX_PRIORITIES;
+        TCB_t * pxTCB;
+
+        /* Task names will be truncated to configMAX_TASK_NAME_LEN - 1 bytes. */
+        configASSERT( strlen( pcNameToQuery ) < configMAX_TASK_NAME_LEN );
+
+        /* Search the ready lists. */
+        do
+        {
+            uxQueue--;
+            pxTCB = prvSearchForNameWithinSingleList( ( List_t * ) &( pxReadyTasksLists[ uxQueue ] ), pcNameToQuery );
+
+            if( pxTCB != NULL )
+            {
+                /* Found the handle. */
+                break;
+            }
+        } while( uxQueue > ( UBaseType_t ) tskIDLE_PRIORITY ); /*lint !e961 MISRA exception as the casts are only redundant for some ports. */
+
+        /* Search the delayed lists. */
+        if( pxTCB == NULL )
+        {
+            pxTCB = prvSearchForNameWithinSingleList( ( List_t * ) pxDelayedTaskList, pcNameToQuery );
+        }
+
+        if( pxTCB == NULL )
+        {
+            pxTCB = prvSearchForNameWithinSingleList( ( List_t * ) pxOverflowDelayedTaskList, pcNameToQuery );
+        }
+
+        #if ( INCLUDE_vTaskSuspend == 1 )
+        {
+            if( pxTCB == NULL )
+            {
+                /* Search the suspended list. */
+                pxTCB = prvSearchForNameWithinSingleList( &xSuspendedTaskList, pcNameToQuery );
+            }
+        }
+        #endif
+
+        #if ( INCLUDE_vTaskDelete == 1 )
+        {
+            if( pxTCB == NULL )
+            {
+                /* Search the deleted list. */
+                pxTCB = prvSearchForNameWithinSingleList( &xTasksWaitingTermination, pcNameToQuery );
+            }
+        }
+        #endif
+
+        return pxTCB;
+    }
+
     TaskHandle_t xTaskGetHandle( const char * pcNameToQuery ) /*lint !e971 Unqualified char types are allowed for strings and single characters only. */
     {
         UBaseType_t uxQueue = configMAX_PRIORITIES;
@@ -5585,10 +5640,9 @@ uint8_t * pcTaskGetVendorFlags(TaskHandle_t tsk)
     return &(((TCB_t*)tsk)->vendor_flags);
 }
 
-void vTaskHandleForeach(foreach_handler_cb cb)
+void vTaskHandleForeachFromISR(foreach_handler_cb cb)
 {
     UBaseType_t uxQueue = configMAX_PRIORITIES;
-    vTaskSuspendAll();
     {
         /* Fill in an TaskStatus_t structure with information on each
          * task in the Ready state. */
@@ -5614,7 +5668,6 @@ void vTaskHandleForeach(foreach_handler_cb cb)
         #endif
 
     }
-    ( void ) xTaskResumeAll();
 }
 #endif
 

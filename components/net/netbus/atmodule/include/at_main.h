@@ -63,6 +63,16 @@ typedef struct {
     at_func stop_func;
 } at_function_ops;
 
+typedef void (*at_work_handler_t)(int eventid, void *);
+
+struct at_workq {
+    at_work_handler_t pfunc;
+    void *arg;
+#define AT_EVENT_OTA            (10)
+#define AT_EVENT_SOCKET_CLOSE   (11)
+    uint16_t eventid;
+};
+
 struct at_struct {
     int initialized;
     int echo;
@@ -103,6 +113,10 @@ int at_module_func(char *cmd, int (*resp_func) (uint8_t *data, int len));
 int at_output_redirect_register(int (*output_redirect) (void));
 
 int at_output_is_redirect();
+
+int at_workq_send(int eventid, struct at_workq *q, int timeout);
+
+int at_workq_dowork(int eventid, int timeout);
 
 #ifdef __cplusplus
 }

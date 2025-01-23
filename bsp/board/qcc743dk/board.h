@@ -30,4 +30,13 @@ void board_recovery(void);
 void cmd_io_test(char *buf, int len, int argc, char **argv);
 void cmd_acomp_test(char *buf, int len, int argc, char **argv);
 #endif
+
+#ifdef CONFIG_ANTENNA_CONTROL
+#define ANTENNA_CTRL_IMPLEMENTED
+
+int board_antenna_num_get(void);
+int board_antenna_init(void);
+int board_antenna_set(uint8_t antenna_id);
+#endif
+
 #endif

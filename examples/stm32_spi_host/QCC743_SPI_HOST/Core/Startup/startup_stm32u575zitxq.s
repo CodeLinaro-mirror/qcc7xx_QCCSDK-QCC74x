@@ -62,6 +62,8 @@ Reset_Handler:
   ldr   sp, =_estack    /* set stack pointer */
 /* Call the clock system initialization function.*/
   bl  SystemInit
+  /* Do start_load if you need to run the program in RAM. */
+  #bl  start_load
 
 /* Copy the data segment initializers from flash to SRAM */
   movs	r1, #0

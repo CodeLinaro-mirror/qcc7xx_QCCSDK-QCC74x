@@ -43,7 +43,8 @@ sdk_library_add_sources(src/at_pwr/at_pwr_cmd.c)
 
 sdk_library_add_sources(src/at_port/at_port_littlefs.c)
 sdk_library_add_sources_ifdef(CONFIG_SPISYNC src/at_port/at_port_spi.c)
+sdk_library_add_sources_ifdef(CONFIG_NXSPI src/at_port/at_port_spi.c)
 sdk_library_add_sources_ifdef(CONFIG_ATUART src/at_port/at_port_uart.c)
 
 sdk_add_compile_definitions(-DCONFIG_ATMOUDLE=1)
-sdk_add_compile_definitions(-DCONFIG_AT_FAST_OTA=1)
+#sdk_add_compile_definitions(-DCONFIG_AT_FAST_OTA=1)

@@ -26,6 +26,7 @@
 #include "at_ble_main.h"
 
 #define AT_BLE_CMD_PRINTF printf
+#define AT_BLE_SCAN_DEBUG_OUTPUT 0
 
 static int get_mac_from_string(char *string, uint8_t mac[6])
 {
@@ -204,6 +205,9 @@ static int at_ble_scan_callback(uint8_t addr_type, uint8_t *addr, int8_t rssi, u
             scan_rsp_data,
             addr_type);
     AT_CMD_RESPONSE(ble_scan_result);
+    #if AT_BLE_SCAN_DEBUG_OUTPUT
+    AT_BLE_CMD_PRINTF(ble_scan_result);
+    #endif
     return 0;
 }
 

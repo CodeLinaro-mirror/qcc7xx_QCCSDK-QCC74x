@@ -23,7 +23,7 @@
 #define DNS_MAX_SERVERS               3
 #define LWIP_NETIF_HOSTNAME           1
 #define TCPIP_MBOX_SIZE               64
-#define TCPIP_THREAD_STACKSIZE        1024
+#define TCPIP_THREAD_STACKSIZE        512
 #define TCPIP_THREAD_PRIO             28
 
 #define DEFAULT_THREAD_STACKSIZE      1024
@@ -50,17 +50,20 @@
 #define IP_REASS_MAX_PBUFS            (2 * CONFIG_MAC_RXQ_DEPTH - 2)
 
 #define MEMP_NUM_NETBUF               28
-#define MEMP_NUM_UDP_PCB              8
-#define MEMP_NUM_TCP_PCB              8
-#define MEMP_NUM_TCP_PCB_LISTEN       2
-#define MEMP_NUM_NETCONN              (MEMP_NUM_TCP_PCB + MEMP_NUM_UDP_PCB + MEMP_NUM_TCP_PCB_LISTEN)
+#define MEMP_NUM_ALTCP_PCB            2
+#define MEMP_NUM_UDP_PCB              6
+#define MEMP_NUM_TCP_PCB              6
+#define MEMP_NUM_TCP_PCB_LISTEN       1
+#define MEMP_NUM_NETCONN              (MEMP_NUM_TCP_PCB + MEMP_NUM_TCP_PCB_LISTEN)
 #define MEMP_NUM_REASSDATA            LWIP_MIN((IP_REASS_MAX_PBUFS), 5)
 
 #define MAC_TXQ_DEPTH                 CONFIG_MAC_TXQ_DEPTH
 #define MAC_RXQ_DEPTH                 CONFIG_MAC_RXQ_DEPTH
 
+//#define TCP_OOSEQ_MAX_PBUFS           MAC_RXQ_DEPTH
+
 #define TCP_MSS                       (1500 - 40)
-#define TCP_WND                       (2 * MAC_RXQ_DEPTH * TCP_MSS)
+#define TCP_WND                       ((2 * MAC_RXQ_DEPTH) * TCP_MSS)
 #define TCP_SND_BUF                   (4 * MAC_TXQ_DEPTH * TCP_MSS)
 
 #define TCP_QUEUE_OOSEQ               1
@@ -131,9 +134,5 @@ extern int *__errno(void);
 #define LWIP_SUPPORT_CUSTOM_PBUF      1
 #define LWIP_NETIF_TX_SINGLE_PBUF 1
 #define LWIP_RAND()                                      ((u32_t)random())
-
-#ifdef CONFIG_LWIP_LP
-#define LWIP_DECLARE_MEMORY_ALIGNED(variable_name, size) u8_t variable_name[LWIP_MEM_ALIGN_BUFFER(size)]
-#endif 
 
 #endif /* LWIP_HDR_LWIPOPTS_H__ */

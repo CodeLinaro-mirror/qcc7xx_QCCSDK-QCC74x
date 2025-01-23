@@ -1068,9 +1068,308 @@ uint16_t get_power_value(uint8_t power)
     return 0;
 }
 
+#ifdef CONFIG_XTAL_SELECT_EN
+
+void modify_bit(uint32_t *reg_addr, uint8_t bit_position, uint8_t bit_value) {
+    if (bit_value) {
+        *reg_addr |= (1U << bit_position);
+    } else {
+        *reg_addr &= ~(1U << bit_position);
+    }
+}
+
+static void xtal32k_input(void)
+{
+    modify_bit(0x2000F204, 19, 0x1);
+    modify_bit(0x2000F204, 21, 0x1);
+    modify_bit(0x2000F204, 2, 0x1);
+    modify_bit(0x2000F204, 10, 0);
+    modify_bit(0x2000F204, 9, 0);
+    modify_bit(0x2000F204, 17, 0x0);
+}
 
 
+static TaskHandle_t xtal32k_select_task_hd = NULL;
+static StackType_t qcc74x_mfg_xtal32k_select_stack[512];
+static uint32_t xtal_reg_val = 0;
+// volatile uint8_t xtal32k_ready_flag = 0;
 
+/**********************************************************
+    xtal32k check task func
+ **********************************************************/
+static int xtal32k_check_entry_task(int crystal_flag)
+{
+    uint32_t xtal32_regulator_flag = 0;
+
+    uint64_t timeout_start;
+
+    uint32_t retry_cnt = 0;
+
+    uint64_t rtc_cnt, rtc_record_us, rtc_now_us;
+    uint32_t rtc_cnt_low, rtc_cnt_high;
+    uint64_t mtimer_record_us, mtimer_now_us;
+
+    uint32_t rtc_us, mtimer_us;
+    int32_t diff_us;
+
+    uint32_t success_flag = 0;
+
+    int ret = 0;
+
+    /* TODO */
+    // qcc74x_lp_set_32k_clock_ready(0);
+
+    vTaskDelay(10);
+    printf("xtal32k_check_entry task enable, freq_mtimer must be 1MHz!\r\n");
+
+    GLB_GPIO_Cfg_Type gpioCfg = {
+        .gpioPin = GLB_GPIO_PIN_0,
+        .gpioFun = GPIO_FUN_ANALOG,
+        .gpioMode = GPIO_MODE_ANALOG,
+        .pullType = GPIO_PULL_NONE,
+        .drive = 1,
+        .smtCtrl = 1
+    };
+
+    if (crystal_flag) {
+        gpioCfg.gpioPin = 16;
+        GLB_GPIO_Init(&gpioCfg);
+        printf("use passive crystal.\r\n");
+    } else {
+        printf("use active crystal.\r\n");
+    }
+
+    gpioCfg.gpioPin = 17;
+    GLB_GPIO_Init(&gpioCfg);
+    HBN_Clear_RTC_Counter();
+
+    if (crystal_flag) {
+        // *(uint32_t*)(0x2000F204) = xtal_reg_val;
+        /* power on */
+        HBN_Set_Xtal_32K_Inverter_Amplify_Strength(3);
+        HBN_Power_On_Xtal_32K();
+    } else {
+        xtal32k_input();
+    }
+
+    timeout_start = qcc74x_mtimer_get_time_us();
+
+    printf("xtal32k_check: delay 100 ms\r\n");
+    vTaskDelay(500);
+
+
+    printf("xtal32k_check: start check\r\n");
+
+    HBN_32K_Sel(1);
+    HBN_Enable_RTC_Counter();
+    vTaskDelay(2);
+
+    while(1){
+        retry_cnt += 1;
+
+        /* disable irq */
+        __disable_irq();
+
+        mtimer_record_us = qcc74x_mtimer_get_time_us();
+        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
+        // HBN_Get_RTC_Timer_Val(&rtc_cnt_low, &rtc_cnt_high);
+        // rtc_cnt = ((uint64_t)rtc_cnt_high << 32) | rtc_cnt_low;
+        // printf("xtal32k_check: record rtc_cnt_high:%ld, rtc_cnt_low:%ld\r\n", rtc_cnt_high,rtc_cnt_low);
+        // printf("xtal32k_check: record rtc_cnt:%lld \r\n", rtc_cnt);
+        /* enable irq */
+        __enable_irq();
+
+        rtc_record_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
+
+        /* delay */
+        vTaskDelay(10);
+
+         /* disable irq */
+        __disable_irq();
+
+        mtimer_now_us = qcc74x_mtimer_get_time_us();
+        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
+        // HBN_Get_RTC_Timer_Val(&rtc_cnt_low, &rtc_cnt_high);
+        // rtc_cnt = ((uint64_t)rtc_cnt_high << 32) | rtc_cnt_low;
+        // printf("xtal32k_check: now rtc_cnt_high:%ld, rtc_cnt_low:%ld\r\n", rtc_cnt_high,rtc_cnt_low);
+        // printf("xtal32k_check: now rtc_cnt:%lld \r\n", rtc_cnt);
+        /* enable irq */
+        __enable_irq();
+
+        rtc_now_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
+
+        /* calculate */
+        rtc_us = (uint32_t)(rtc_now_us - rtc_record_us);
+        mtimer_us = (uint32_t)(mtimer_now_us - mtimer_record_us);
+        diff_us = rtc_us - mtimer_us;
+        
+        // printf("xtal32k_check: rtc_now_us:%lld, rtc_record_us:%lld\r\n", rtc_now_us, rtc_record_us);
+        // printf("xtal32k_check: mtimer_now_us:%lld, mtimer_record_us:%lld\r\n", mtimer_now_us, mtimer_record_us);
+        printf("xtal32k_check: mtimer_us:%ld, rtc_us:%ld\r\n", mtimer_us, rtc_us);
+
+        if(diff_us < -100 || diff_us > 100){
+            /* continue */
+            printf("xtal32k_check: retry_cnt:%d, diff_us:%d, continue...\r\n", retry_cnt, diff_us);
+            vTaskDelay(10);
+        }else{
+            /* finish */
+            printf("xtal32k_check: retry_cnt:%d, diff_us:%d, finish!\r\n", retry_cnt, diff_us);
+            success_flag = 1;
+            break;
+        }
+
+        /* 1sec, set xtal regulator */
+        if((xtal32_regulator_flag == 0) && (qcc74x_mtimer_get_time_us() - timeout_start > 1000*1000)){
+            printf("xtal32K_check: reset xtal32k regulator\r\n");
+            xtal32_regulator_flag = 1;
+
+            HBN_32K_Sel(0);
+            HBN_Power_Off_Xtal_32K();
+
+            vTaskDelay(10);
+
+            HBN_Set_Xtal_32K_Regulator(3);
+            HBN_Power_On_Xtal_32K();
+            HBN_32K_Sel(1);
+        }
+
+        if(qcc74x_mtimer_get_time_us() - timeout_start > 3 * 1000 * 1000){
+            success_flag = 0;
+            break;
+        }
+    }
+
+    if(success_flag){
+        printf("xtal32k_check: success!, total time:%dms\r\n", (int)(qcc74x_mtimer_get_time_us() - timeout_start) / 1000);
+
+        /* GPIO17 no pull */
+        *((volatile uint32_t *)0x2000F014) &= ~(1 << 16);
+
+        ret = 1;
+        printf("select xtal32k\r\n");
+
+    }else{
+        printf("xtal32k_check: failure!, total time:%dms\r\n", (int)(qcc74x_mtimer_get_time_us() - timeout_start) / 1000);
+        printf("xtal32k_check: select rc32k, and xtal32k poweroff \r\n");
+        HBN_32K_Sel(0);
+        HBN_Power_Off_Xtal_32K();
+    }
+
+    /* TODO */
+    // printf("xtal32k_check: set lp_32k ready!\r\n");
+    // qcc74x_lp_set_32k_clock_ready(1); 
+
+    return ret;
+}
+
+
+#define BASE_ADDRESS 0x2000f000
+#define OFFSET 0x204
+
+void modify_register_bits_incremental(int increment)
+{
+    volatile uint32_t *reg_address = (volatile uint32_t *)(BASE_ADDRESS + OFFSET);
+
+    uint32_t mask = (0x3F << 11);
+    uint32_t current_value = *reg_address;
+    uint32_t target_bits = (current_value & mask) >> 11;
+
+    /*
+    printf("Before change:\r\n");
+    printf("  Register value (full): 0x%08X\r\n", current_value);
+    printf("  bit11 to bit16 value: 0x%X\r\n", target_bits);
+    */
+
+    target_bits = (int32_t)(target_bits) + increment;
+    if (target_bits > 0x3F) {
+        target_bits = 0x3F;
+    } else if (target_bits < 0) {
+        target_bits = 0;
+    }
+
+    current_value = (current_value & ~mask) | (target_bits << 11);
+    *reg_address = current_value;
+    current_value = *reg_address;
+    target_bits = (current_value & mask) >> 11;
+
+    /*
+    printf("After change:\r\n");
+    printf("  Register value (full): 0x%08X\r\n", current_value);
+    printf("  bit11 to bit16 value: 0x%X\r\n", target_bits);
+    */
+}
+
+static void xtal32k_calibration(void)
+{
+    uint32_t retry_cnt = 5;
+    uint64_t timeout_start;
+
+    uint64_t rtc_cnt, rtc_record_us, rtc_now_us;
+    uint64_t mtimer_record_us, mtimer_now_us;
+
+    uint32_t rtc_us, mtimer_us;
+    int32_t diff_us;
+
+    /* TODO */
+    // qcc74x_lp_set_32k_clock_ready(0);
+
+    while (retry_cnt) {
+        retry_cnt--;
+
+        __disable_irq();
+        mtimer_record_us = qcc74x_mtimer_get_time_us();
+        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
+        __enable_irq();
+
+        rtc_record_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
+
+        vTaskDelay(1000);
+
+        __disable_irq();
+        mtimer_now_us = qcc74x_mtimer_get_time_us();
+        HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_cnt, (uint32_t *)&rtc_cnt + 1);
+        __enable_irq();
+
+        rtc_now_us = QCC74x_PDS_CNT_TO_US(rtc_cnt);
+
+        rtc_us = (uint32_t)(rtc_now_us - rtc_record_us);
+        mtimer_us = (uint32_t)(mtimer_now_us - mtimer_record_us);
+        diff_us = rtc_us - mtimer_us;
+
+        if(diff_us < 0){
+            modify_register_bits_incremental(-8);
+        }else if (diff_us > 25){
+            modify_register_bits_incremental(8);
+        } else {
+            printf("xtal32k_check: mtimer_us:%ld, rtc_us:%ld minus:%ld\r\n", mtimer_us, rtc_us, diff_us);
+            break;
+        }
+
+        printf("xtal32k_check: mtimer_us:%ld, rtc_us:%ld minus:%ld\r\n", mtimer_us, rtc_us, diff_us);
+    }
+    /* TODO */
+    // qcc74x_lp_set_32k_clock_ready(1);
+}
+
+static void xtal32k_select_task(void *pvParameters)
+{
+
+    xtal_reg_val = *(uint32_t*)(0x2000F204);
+    if (xtal32k_check_entry_task(1)) {
+        // calibration xtal32k
+        // printf("xtal32k_calibration\r\n");
+        // xtal32k_calibration();
+
+    } else {
+        xtal32k_check_entry_task(0);
+    }
+
+    printf("xtal32k_select_task: vTaskDelete\r\n");
+    xtal32k_select_task_hd = NULL;
+    vTaskDelete(NULL);
+}
+
+#endif
 
 int32_t mfg_cmd_input(uint8_t *data, uint16_t len, int from_isr)
 {
@@ -1255,6 +1554,18 @@ int32_t mfg_cmd_pre_deal(uint8_t *data)
         mfg_print("Exit 802.15.4 test\r\n");
         return 0;
     }
+
+    else if(arch_memcmp((char *)data,"xtal32k_select",sizeof("xtal32k_select")-1)==0){
+        #ifdef CONFIG_XTAL_SELECT_EN
+        /* auto select xtal32k */
+        vTaskEnterCritical();
+        mfg_print("Create xtal32k_select_task ...\r\n");
+        xTaskCreateStatic(xtal32k_select_task, (char*)"xtal32k_select_task", 512, NULL, 20, qcc74x_mfg_xtal32k_select_stack, &xtal32k_select_task_hd);
+        vTaskExitCritical();
+        return 0;
+        #endif
+    }
+
 
     return -1;
 }

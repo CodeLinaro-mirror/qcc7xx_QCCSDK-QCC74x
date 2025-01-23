@@ -761,6 +761,8 @@ void wifi_sta_info_cmd(int argc, char **argv)
     fhost_print(RTOS_TASK_NULL, "  11ax(he160): ");
     _print_sta_pwr(12, power_table.pwr_11ax_he160);
 #endif
+    fhost_print(RTOS_TASK_NULL, "  last rx rate: format:%s,mcs:%u \r\n", export_stats_get_rx_format(), export_stats_get_rx_mcs());
+    fhost_print(RTOS_TASK_NULL, "  last tx rate: format:%s,mcs:%u \r\n", export_stats_get_tx_format(), export_stats_get_tx_mcs());
     fhost_print(RTOS_TASK_NULL, "================================================================\r\n");
 }
 
@@ -1092,6 +1094,10 @@ SHELL_CMD_EXPORT_ALIAS(cmd_csidma_force_ftm, csidma_force_ftm, csidma force ftm)
 #endif
 #ifdef CONFIG_MAT
 SHELL_CMD_EXPORT_ALIAS(cmd_mat, mat, show MAT information);
+#endif
+#ifdef CONFIG_ANTDIV_STATIC
+SHELL_CMD_EXPORT_ALIAS(wifi_antenna_scan_cmd, wifi_antenna_scan, wifi antenna scan);
+SHELL_CMD_EXPORT_ALIAS(wifi_antenna_scan_connect_cmd, wifi_antenna_connect, wifi antenna scan connect);
 #endif
 
 int qcc74x_wifi6_cli_init(void)

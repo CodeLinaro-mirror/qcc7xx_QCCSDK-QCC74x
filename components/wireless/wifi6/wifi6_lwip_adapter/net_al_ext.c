@@ -558,9 +558,9 @@ void net_al_ext_dhcp_connect(void)
 #if !LWIP_TCPIP_CORE_LOCKING
     #error To do add netif msg call
 #endif
-    net_if_disable_arp_for_us(net_if);
     if (wifiMgmr.sta_connect_param.use_dhcp) {
 #if LWIP_QUICK_CONNECT
+        net_if_disable_arp_for_us(net_if);
         if (wifiMgmr.sta_connect_param.quick_connect) {
             net_quick_dhcp_restore(net_if);
         }

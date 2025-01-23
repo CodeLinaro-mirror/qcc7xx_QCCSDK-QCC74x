@@ -511,7 +511,7 @@ int at_cmd_input(uint8_t *data, int32_t len)
                 at->device_ops.write_data((uint8_t *)AT_CMD_MSG_ERROR, strlen(AT_CMD_MSG_ERROR));
             }
             else {
-                AT_DEBUG_POINT(0);
+                //AT_DEBUG_POINT(0);
                 find = 1;
                 break;
             }

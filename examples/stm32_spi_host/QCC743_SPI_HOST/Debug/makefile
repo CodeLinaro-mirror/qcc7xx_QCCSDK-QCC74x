@@ -1,6 +1,6 @@
 ################################################################################
 # Automatically-generated file. Do not edit!
-# Toolchain: GNU Tools for STM32 (11.3.rel1)
+# Toolchain: GNU Tools for STM32 (12.3.rel1)
 ################################################################################
 
 -include ../makefile.init
@@ -9,8 +9,6 @@ RM := rm -rf
 
 # All of the sources participating in the build are defined here
 -include sources.mk
--include spisync/src/port/subdir.mk
--include spisync/src/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/MemMang/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/portable/GCC/ARM_CM33_NTZ/non_secure/subdir.mk
 -include Middlewares/Third_Party/FreeRTOS/Source/CMSIS_RTOS_V2/subdir.mk
@@ -66,8 +64,8 @@ all: main-build
 main-build: QCC743_SPI_HOST.elf secondary-outputs
 
 # Tool invocations
-QCC743_SPI_HOST.elf QCC743_SPI_HOST.map: $(OBJS) $(USER_OBJS) E:\dev\qc_sdk\examples\stm32_spi_host\QCC743_SPI_HOST\STM32U575ZITXQ_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
-	arm-none-eabi-gcc -o "QCC743_SPI_HOST.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m33 -T"E:\dev\qc_sdk\examples\stm32_spi_host\QCC743_SPI_HOST\STM32U575ZITXQ_FLASH.ld" --specs=nosys.specs -Wl,-Map="QCC743_SPI_HOST.map" -Wl,--gc-sections -static --specs=nano.specs -mfpu=fpv5-sp-d16 -mfloat-abi=hard -mthumb -u _printf_float -Wl,--start-group -lc -lm -Wl,--end-group
+QCC743_SPI_HOST.elf QCC743_SPI_HOST.map: $(OBJS) $(USER_OBJS) ../STM32U575ZITXQ_FLASH.ld makefile objects.list $(OPTIONAL_TOOL_DEPS)
+	arm-none-eabi-gcc -o "QCC743_SPI_HOST.elf" @"objects.list" $(USER_OBJS) $(LIBS) -mcpu=cortex-m33 -T"../STM32U575ZITXQ_FLASH.ld" --specs=nosys.specs -Wl,-Map="QCC743_SPI_HOST.map" -Wl,--gc-sections -static  -mfpu=fpv5-sp-d16 -mfloat-abi=hard -mthumb -Wl,--start-group -lc -lm -Wl,--end-group
 	@echo 'Finished building target: $@'
 	@echo ' '
 

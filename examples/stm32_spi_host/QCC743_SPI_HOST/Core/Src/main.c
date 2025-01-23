@@ -24,7 +24,10 @@
 /* USER CODE BEGIN Includes */
 #include <stdio.h>
 #include <string.h>
+#include <stdarg.h>
 #include <FreeRTOS.h>
+#include "dwt.h"
+#include "spi.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -82,6 +85,92 @@ int fputc(int c, FILE *stream)
 }
 #endif
 
+void itm_printf(const char *format, ...)
+{
+    char buffer[128];
+    va_list args;
+
+    va_start(args, format);
+    vsnprintf(buffer, sizeof(buffer), format, args);
+    va_end(args);
+
+    for (char *ptr = buffer; *ptr != '\0'; ptr++)
+        ITM_SendChar(*ptr);
+}
+
+void *memcpy(void *dest, const void *src, unsigned int len)
+{
+	__asm__ volatile (
+	    /* Initialize local variables. */
+	    "mov r0, %[dest]              \n"
+	    "mov r1, %[src]               \n"
+	    "mov r2, %[len]               \n"
+
+	    /* Nothing to do if length is 0. */
+	    "cmp r2, #0                   \n"
+	    "beq 6f                       \n"
+
+	    /* Handle unaligned destination address. */
+	    "ands r3, r0, #3              \n"
+	    "beq 2f                       \n"
+
+	    /* Byte copy until the destination address is aligned. */
+	    "1:                           \n"
+	    "ldrb r3, [r1], #1            \n"
+	    "strb r3, [r0], #1            \n"
+	    "subs r2, r2, #1              \n"
+	    "beq 6f                       \n"
+	    "ands r3, r0, #3              \n"
+	    "bne 1b                       \n"
+
+	    /* Now handle word copy if length >= 4 */
+	    "2:                           \n"
+	    "cmp r2, #4                   \n"
+	    "blt 4f                       \n"
+
+	    "3:                           \n"
+	    "ldr r3, [r1], #4             \n"
+	    "str r3, [r0], #4             \n"
+	    "subs r2, r2, #4              \n"
+	    "cmp r2, #4                   \n"
+	    "bge 3b                       \n"
+
+	    /* Handle remaining bytes (if any). */
+	    "4:                           \n"
+	    "ands r3, r2, #3              \n"
+	    "beq 6f                       \n"
+	    "5:                           \n"
+	    "ldrb r3, [r1], #1            \n"
+	    "strb r3, [r0], #1            \n"
+	    "subs r2, r2, #1              \n"
+	    "bne 5b                       \n"
+
+	    /* Done. */
+	    "6:                           \n"
+	    :
+	    : [dest] "r" (dest), [src] "r" (src), [len] "r" (len)
+	    : "r0", "r1", "r2", "r3", "memory"
+	);
+
+	return dest;
+}
+
+void HAL_GPIO_EXTI_Rising_Callback(uint16_t pin)
+{
+	//printf("%s pin %d\r\n", __func__, pin);
+	if (pin == SPI_SLAVE_DATA_RDY_Pin) {
+		spi_on_txn_data_ready();
+	}
+}
+
+void HAL_GPIO_EXTI_Falling_Callback(uint16_t pin)
+{
+	//printf("%s pin %d\r\n", __func__, pin);
+	if (pin == SPI_SLAVE_DATA_RDY_Pin) {
+		spi_on_header_ack();
+	}
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -103,11 +192,11 @@ int main(void)
 
   /* USER CODE END Init */
 
-  /* Configure the system clock */
-  SystemClock_Config();
-
   /* Configure the System Power */
   SystemPower_Config();
+
+  /* Configure the system clock */
+  SystemClock_Config();
 
   /* USER CODE BEGIN SysInit */
 
@@ -398,7 +487,7 @@ static void MX_USART1_UART_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart1) != HAL_OK)
+  if (HAL_UARTEx_EnableFifoMode(&huart1) != HAL_OK)
   {
     Error_Handler();
   }
@@ -422,29 +511,22 @@ static void MX_GPIO_Init(void)
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
-  __HAL_RCC_GPIOG_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOG_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOA, GPIO_PIN_4, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(QCC74X_LP_WAKEUP_GPIO_Port, QCC74X_LP_WAKEUP_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
-  HAL_GPIO_WritePin(GPIOG, QCC74X_LP_WAKEUP_Pin|LED_RED_Pin, GPIO_PIN_RESET);
+  HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_GREEN_GPIO_Port, LED_GREEN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOB, UCPD_DBn_Pin|LED_BLUE_Pin, GPIO_PIN_RESET);
-  
-  HAL_GPIO_WritePin(GPIOD, GPIO_PIN_7, GPIO_PIN_RESET);
-
-  /*Configure GPIO pin : USER_BUTTON_Pin */
-  GPIO_InitStruct.Pin = USER_BUTTON_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(USER_BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : VBUS_SENSE_Pin */
   GPIO_InitStruct.Pin = VBUS_SENSE_Pin;
@@ -452,25 +534,11 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(VBUS_SENSE_GPIO_Port, &GPIO_InitStruct);
 
-  /*Configure GPIO pin : PA4 */
-  GPIO_InitStruct.Pin = GPIO_PIN_4;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOA, &GPIO_InitStruct);
-
   /*Configure GPIO pin : SPI_SLAVE_DATA_RDY_Pin */
   GPIO_InitStruct.Pin = SPI_SLAVE_DATA_RDY_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(SPI_SLAVE_DATA_RDY_GPIO_Port, &GPIO_InitStruct);
-
-  /*Configure GPIO pin : QCC74X_LP_WAKEUP_Pin */
-  GPIO_InitStruct.Pin = QCC74X_LP_WAKEUP_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_NOPULL;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(QCC74X_LP_WAKEUP_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : UCPD_FLT_Pin */
   GPIO_InitStruct.Pin = UCPD_FLT_Pin;
@@ -483,6 +551,13 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Mode = GPIO_MODE_ANALOG;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(UCPD1_CC2_GPIO_Port, &GPIO_InitStruct);
+
+  /*Configure GPIO pin : QCC74X_LP_WAKEUP_Pin */
+  GPIO_InitStruct.Pin = QCC74X_LP_WAKEUP_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(QCC74X_LP_WAKEUP_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_RED_Pin */
   GPIO_InitStruct.Pin = LED_RED_Pin;
@@ -526,16 +601,9 @@ static void MX_GPIO_Init(void)
   GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_HIGH;
   HAL_GPIO_Init(LED_BLUE_GPIO_Port, &GPIO_InitStruct);
 
-  GPIO_InitStruct.Pin = GPIO_PIN_7;
-  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
-  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
-  HAL_GPIO_Init(GPIOD, &GPIO_InitStruct);
-
-
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI0_IRQn, 5, 0);
-  HAL_NVIC_EnableIRQ(EXTI0_IRQn);
+  HAL_NVIC_SetPriority(EXTI13_IRQn, 5, 0);
+  HAL_NVIC_EnableIRQ(EXTI13_IRQn);
 
 /* USER CODE BEGIN MX_GPIO_Init_2 */
 /* USER CODE END MX_GPIO_Init_2 */

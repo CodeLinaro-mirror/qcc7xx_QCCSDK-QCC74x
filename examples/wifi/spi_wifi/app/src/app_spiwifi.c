@@ -21,9 +21,6 @@
 #define WIFI_STACK_SIZE  (1536)
 #define TASK_PRIORITY_FW (16)
 
-extern void app_atmoudle_init(void);
-TaskHandle_t wifi_fw_task;
-
 int app_spiwifi_init(void)
 {
     /* RF param init */
@@ -47,12 +44,6 @@ int app_spiwifi_init(void)
     /* Enable easyflash(littlefs) */
     qcc74x_mtd_init();
     easyflash_init();
- 
-    /* AT moudle start */
-    app_atmoudle_init();
-   
-    /* Start Wifi_FW */
-    xTaskCreate(wifi_main, (char *)"fw", WIFI_STACK_SIZE, NULL, TASK_PRIORITY_FW, &wifi_fw_task);
 
     return 0;
 }

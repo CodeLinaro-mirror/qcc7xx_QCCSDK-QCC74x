@@ -291,6 +291,8 @@ static int test_tcp_keepalive(int argc, char **argv)
         return -1;
     }
 
+    printf("Connect tcp server success.\r\n");
+
     /*---Get "Hello?"---*/
     memset(buffer, 'A', sizeof(buffer) - 1);
 
