@@ -19,14 +19,14 @@
             xtal = <36 36 0 60 60>;
             pwr_mode = "bf";//B: only use power offset in EFUSE; b: use power offset in EFUSE with incremental mode; F: only use power offset in Flash; f: use power offset in Flash with incremental mode
             pwr_table_11b        = <20 20 20 20>;//1Mbps 2Mbps 5.5Mbps 11Mbps
-            pwr_table_11g        = <18 18 18 18 18 18 16 16>; //6Mbps 9Mbps 12Mbps 18MBps 24Mbps 36Mbps 48Mbps 54Mbps
-            pwr_table_11n_ht20  = <18 18 18 18 18 16 15 15>; //MCS0~MCS7
-            pwr_table_11n_ht40  = <18 18 18 18 18 16 15 14>; //MCS0~MCS7
+            pwr_table_11g        = <20 20 20 20 19 19 18 18>; //6Mbps 9Mbps 12Mbps 18MBps 24Mbps 36Mbps 48Mbps 54Mbps
+            pwr_table_11n_ht20  = <19 19 19 18 18 18 17 17>; //MCS0~MCS7
+            pwr_table_11n_ht40  = <18 18 18 18 18 17 16 16>; //MCS0~MCS7
             pwr_table_11ac_vht20 = <18 18 18 18 18 16 15 15 15 14>; //MSC0~MSC9
             pwr_table_11ac_vht40 = <18 18 18 18 18 16 15 14 14 13>; //MSC0~MSC9
             pwr_table_11ac_vht80 = <18 18 18 18 18 15 14 13 13 12>; //MSC0~MSC9
-            pwr_table_11ax_he20  = <18 18 18 18 18 16 15 15 15 14 13 13>; //MSC0~MSC11
-            pwr_table_11ax_he40  = <18 18 18 18 18 16 15 14 14 13 12 12>; //MSC0~MSC11
+            pwr_table_11ax_he20  = <19 19 19 18 18 16 15 16 16 16 13 13>; //MSC0~MSC11
+            pwr_table_11ax_he40  = <19 19 19 18 18 16 16 15 15 15 12 12>; //MSC0~MSC11
             pwr_table_11ax_he80  = <18 18 18 18 18 15 14 13 13 12 11 11>; //MSC0~MSC11
             pwr_table_11ax_he160 = <18 18 18 18 18 15 14 13 12 11 10 10>; //MSC0~MSC11
 
