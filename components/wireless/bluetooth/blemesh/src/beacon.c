@@ -414,7 +414,7 @@ static bool net_beacon_send(struct bt_mesh_subnet *sub, struct bt_mesh_beacon *b
 	
 	err = beacon_create(sub, &adv->b);
 
-	/* Add by bouffallalab */
+	/* Add by qcc4x */
 #if defined(CONFIG_BT_MESH_PTS) || defined(CONFIG_AUTO_PTS)
 	static u32_t pts_cnt = 0;
 	if(beacon_create == private_beacon_create){

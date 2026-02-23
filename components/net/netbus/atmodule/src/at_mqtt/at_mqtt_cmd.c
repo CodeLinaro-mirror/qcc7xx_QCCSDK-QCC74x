@@ -26,8 +26,9 @@
 #include "mbedtls/debug.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
-#include "mbedtls/net.h"
+#include "mbedtls/net_sockets.h"
 #include "at_net_ssl.h"
+#include "at_net_main.h"
 #include "at_fs.h"
 
 #define AT_MQTT_LINK_MAX      (1)
@@ -206,7 +207,7 @@ static int initserver_tls(ssl_param_t **ctx, const char* addr, const char* port,
 
     at_load_file(at_mqtt_config->ssl_conf.ca_file, &ssl_param.ca_cert, &ssl_param.ca_cert_len);
     at_load_file(at_mqtt_config->ssl_conf.cert_file, &ssl_param.own_cert, &ssl_param.own_cert_len);
-    at_load_file(at_mqtt_config->ssl_conf.key_file, &ssl_param.private_cert, &ssl_param.private_cert_len);
+    at_net_ssl_load_file_decrypt(at_mqtt_config->ssl_conf.key_file, &ssl_param.private_cert, &ssl_param.private_cert_len);
     ssl_param.alpn = (char **)alpn;
     ssl_param.alpn_num = alpn_num;
     ssl_param.sni = (char *)sni;
@@ -1379,6 +1380,7 @@ static const at_cmd_struct at_mqtt_cmd[] = {
     {"+MQTTSUB", NULL, at_query_cmd_mqttsub, at_setup_cmd_mqttsub, NULL, 3, 3},
     {"+MQTTUNSUB", NULL, NULL, at_setup_cmd_mqttunsub, NULL, 2, 2},
     {"+MQTTCLEAN", NULL, NULL, at_setup_cmd_mqttclean, NULL, 1, 1},
+    {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
 int at_mqtt_init()

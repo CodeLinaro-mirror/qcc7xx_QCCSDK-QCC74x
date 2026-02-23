@@ -55,7 +55,7 @@
 #include "lwipopts.h"
 #endif
 #include "lwip/debug.h"
-
+#include "fcntl.h"
 /**
  * @defgroup lwip_opts Options (lwipopts.h)
  * @ingroup lwip

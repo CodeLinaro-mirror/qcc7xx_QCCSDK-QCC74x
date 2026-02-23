@@ -1063,6 +1063,12 @@ SHELL_CMD_EXPORT_ALIAS(wifi_disable_autoreconnect_cmd, wifi_sta_autoconnect_disa
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_on_cmd, wifi_sta_ps_on, wifi sta powersave mode on);
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_off_cmd, wifi_sta_ps_off, wifi sta powersave mode off);
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_set_cmd, wifi_sta_ps_set, wifi sta powersave mode set parameters);
+#if NX_COEX_POWERSAVE
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_enable, wifi_coex_enable, Enable WiFi/BLE coexistence mode);
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_disable, wifi_coex_disable, Disable WiFi/BLE coexistence mode);
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_duty_set, wifi_coex_duty_set, Set WiFi/BLE coexistence duty cycle (10-90ms));
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_status_get, wifi_coex_status, Get WiFi/BLE coexistence status);
+#endif // NX_COEX_POWERSAVE
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_info_cmd, wifi_sta_info, wifi sta info);
 SHELL_CMD_EXPORT_ALIAS(wifi_ap_sta_list_get_cmd, wifi_sta_list, get sta list in AP mode);
 SHELL_CMD_EXPORT_ALIAS(wifi_ap_sta_delete_cmd, wifi_sta_del, delete one sta in AP mode);
@@ -1092,6 +1098,7 @@ SHELL_CMD_EXPORT_ALIAS(cmd_wifi_wps_pbc, wps_pbc, Start wps pbc for sta);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_stats, wifi_stats, Get/Clear stats for wifi);
 SHELL_CMD_EXPORT_ALIAS(cmd_rc, rc, Print the Rate Control Table);
 SHELL_CMD_EXPORT_ALIAS(cmd_rate, rate, set g_fw_rate);
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_rate_config, wifi_rate_config, Configure WiFi rate using wifi_mgmr_rate_config API);
 SHELL_CMD_EXPORT_ALIAS(cmd_non_pref_chan, non_pref_chan, set non_pref_chan);
 SHELL_CMD_EXPORT_ALIAS(cmd_non_pref_chan_notify, non_pref_chan_notify, notify non_pref_chan change);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_mgmr_sta_twt_setup, wifi_mgmr_sta_twt_setup, Setup WiFi Manager STA TWT functionality);

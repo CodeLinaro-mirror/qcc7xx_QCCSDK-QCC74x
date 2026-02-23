@@ -55,7 +55,8 @@ static int connect_https(struct http_client *client,
 
     	ssl_param.private_cert = client_key_pem;
     	ssl_param.private_cert_len = client_key_len;
-
+        /* for mbedtls3 set hostname */
+        ssl_param.sni = "localhost_1";
     	https = https_wrapper_connect(client->host, client->port, &ssl_param);
     }
     return (int)https;

@@ -38,6 +38,8 @@ extern "C" {
 #define BLE_GATT_PERM_WRITE 0x02
 
 #define AT_CONFIG_KEY_BLE_NAME         		"BLENAME"
+#define AT_CONFIG_KEY_BLE_AES_IV         	"BLEAESIV"
+#define AT_CONFIG_KEY_BLE_AES_LTK         	"BLEAESLTK"
 
 typedef enum {
     BLE_DISABLE = 0,
@@ -98,6 +100,8 @@ typedef struct {
 #if defined (CONFIG_BT_DIS_SERVER)
     int ble_dis_init;
 #endif
+    uint8_t aes_iv[16];
+    bool aes_enable;
 }ble_config;
 
 extern ble_config *at_ble_config;
@@ -107,6 +111,8 @@ int at_ble_config_init(void);
 int at_ble_config_save(const char *key);
 
 int at_ble_config_default(void);
+
+int at_ble_generate_aes_iv(void);
 
 #ifdef __cplusplus
 }

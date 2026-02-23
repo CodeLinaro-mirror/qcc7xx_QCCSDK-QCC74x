@@ -399,7 +399,7 @@ void otrAppProcess(ot_system_event_t sevent);
  * @return None
  *
 *******************************************************************************/
-#define OT_APP_NOTIFY_ISR(ebit)             otrNotifyEvent(ebit & OT_SYSTEM_EVENT_APP)
+#define OT_APP_NOTIFY_ISR(ebit)             otrNotifyEvent(ebit & OT_SYSTEM_EVENT_APP_MASK)
 
 
 /****************************************************************************//**
@@ -412,7 +412,7 @@ void otrAppProcess(ot_system_event_t sevent);
  * @return None
  *
 *******************************************************************************/
-#define OT_APP_NOTIFY(ebit)                 otrNotifyEvent(ebit & OT_SYSTEM_EVENT_APP)
+#define OT_APP_NOTIFY(ebit)                 otrNotifyEvent(ebit & OT_SYSTEM_EVENT_APP_MASK)
 
 /****************************************************************************//**
  * @brief  An interface for nxspi to notify rxd ready.

@@ -33,7 +33,7 @@
 #include "p2p/p2p.h"
 #include "p2p_supplicant.h"
 #include "wps_supplicant.h"
-
+#include "fhost_wpa.h"
 
 #ifndef WPS_PIN_SCAN_IGNORE_SEL_REG
 #define WPS_PIN_SCAN_IGNORE_SEL_REG 3
@@ -601,6 +601,56 @@ static int wpa_supplicant_wps_cred(void *ctx,
 	 */
 	wpa_s->after_wps = 5;
 	wpa_s->wps_freq = wpa_s->assoc_freq;
+
+	/*
+	 * Send WPS credential to wifi manager via event notification
+	 * This allows the wifi manager to save SSID and password for auto-reconnect
+	 */
+	wpa_printf(MSG_INFO, "[WPS-FHOST] Sending WPS credential to wifi manager");
+	wpa_printf(MSG_DEBUG, "[WPS-FHOST] SSID: %.*s (len=%u)",
+		   (int)cred->ssid_len, cred->ssid, (unsigned int)cred->ssid_len);
+	wpa_printf(MSG_DEBUG, "[WPS-FHOST] Key length: %u", (unsigned int)cred->key_len);
+	wpa_printf(MSG_DEBUG, "[WPS-FHOST] Auth Type: 0x%x, Encr Type: 0x%x",
+		   cred->auth_type, cred->encr_type);
+
+	fhost_wpa_wps_cred_data_t wps_cred;
+	size_t ssid_len = cred->ssid_len;
+	size_t key_len = cred->key_len;
+
+	memset(&wps_cred, 0, sizeof(wps_cred));
+
+	/* Copy SSID */
+	if (ssid_len > sizeof(wps_cred.ssid) - 1) {
+		wpa_printf(MSG_ERROR, "[WPS-FHOST] SSID too long: %u, truncating",
+			   (unsigned int)ssid_len);
+		ssid_len = sizeof(wps_cred.ssid) - 1;
+	}
+	os_memcpy(wps_cred.ssid, cred->ssid, ssid_len);
+	wps_cred.ssid[ssid_len] = '\0';
+	wps_cred.ssid_len = ssid_len;
+
+	/* Copy Key */
+	if (key_len > sizeof(wps_cred.key) - 1) {
+		wpa_printf(MSG_ERROR, "[WPS-FHOST] Key too long: %u, truncating",
+			   (unsigned int)key_len);
+		key_len = sizeof(wps_cred.key) - 1;
+	}
+	os_memcpy(wps_cred.key, cred->key, key_len);
+	wps_cred.key[key_len] = '\0';
+	wps_cred.key_len = key_len;
+
+	/* Copy MAC address */
+	os_memcpy(wps_cred.mac_addr, cred->mac_addr, ETH_ALEN);
+
+	/* Copy auth and encryption types */
+	wps_cred.auth_type = cred->auth_type;
+	wps_cred.encr_type = cred->encr_type;
+
+	wpa_printf(MSG_INFO, "[WPS-FHOST] Sending FHOST_WPA_WPS_CRED_RECEIVED event");
+	/* Send event to wifi manager - use MGMR_VIF_STA (0) for STA interface */
+	fhost_wpa_send_event(FHOST_WPA_WPS_CRED_RECEIVED, &wps_cred,
+			     sizeof(wps_cred), 0); /* MGMR_VIF_STA = 0 */
+	wpa_printf(MSG_INFO, "[WPS-FHOST] WPS credential sent successfully");
 
 	return 0;
 }

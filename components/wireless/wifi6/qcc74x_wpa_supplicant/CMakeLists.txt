@@ -134,6 +134,9 @@ sdk_add_compile_definitions(-DCONFIG_USE_MBEDTLS)
 sdk_add_compile_definitions(-DCONFIG_NO_STDOUT_DEBUG)
 #sdk_add_compile_definitions(-DCONFIG_WPA_LOG_LEVEL=MSG_EXCESSIVE)
 #MSG_EXCESSIVE, MSG_MSGDUMP, MSG_DEBUG, MSG_INFO, MSG_WARNING, MSG_ERROR
+if(CONFIG_MBEDTLS_V3)
+    sdk_add_compile_definitions(-DCONFIG_MBEDTLS_V3)
+endif()
 
 if(CONFIG_MBEDTLS_AES_USE_HW
    AND CONFIG_MBEDTLS_BIGNUM_USE_HW

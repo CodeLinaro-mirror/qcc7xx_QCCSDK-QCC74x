@@ -234,8 +234,6 @@ static int twt_flows_check(uint8_t id)
     // Get TWT status using WiFi manager function
     ret = wifi_mgmr_sta_twt_statusget(twt_confs, &twt_num);
 
-    printf("twt num:%d\r\n", twt_num);
-
     if (ret != 0) {
         return -1;
     }
@@ -288,12 +286,12 @@ static int at_twt_teardown_cmd(int argc, const char **argv)
         }
         AT_CMD_PARSE_NUMBER(2, &flow_id);
         ret = twt_flows_check(flow_id);
-        if (ret) { 
+        if (ret) {
             AT_CMD_PRINTF("Error: <twt_flow_id> must be in 0-7.\r\n");
             return AT_RESULT_CODE_ERROR;
         }
     } else {
-        flow_id = 0; 
+        flow_id = 0;
     }
 
     AT_CMD_PRINTF("TWT Teardown: neg_type=%d, all_twt=%d", neg_type, all_twt);
@@ -452,6 +450,72 @@ static int at_lp_interval_get_cmd(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+#if NX_COEX_POWERSAVE
+static int at_setup_cmd_cwcoexduty(int argc, const char **argv)
+{
+    int active_ms = 0;
+
+    AT_CMD_PARSE_NUMBER(0, &active_ms);
+
+    // Use new coexistence interface
+    if (wifi_mgmr_sta_coex_duty_set((uint8_t)active_ms) != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_query_cmd_cwcoexduty(int argc, const char **argv)
+{
+    int duty_ms = wifi_mgmr_sta_coex_duty_get();
+
+    if (duty_ms < 0) {
+        // Query failed - WiFi not ready or command error
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+
+    // Format response: +CWCOEXDUTY:<duty_ms>
+    at_response_string("+CWCOEXDUTY:%d\r\n", duty_ms);
+
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_setup_cmd_cwcoexen(int argc, const char **argv)
+{
+    int enable = 0;
+    int ret = 0;
+
+    AT_CMD_PARSE_NUMBER(0, &enable);
+
+    if (enable != 0 && enable != 1) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    if (enable) {
+        wifi_mgmr_sta_coex_enable();
+    } else {
+        wifi_mgmr_sta_coex_disable();
+    }
+
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_query_cmd_cwcoexen(int argc, const char **argv)
+{
+    // Query the coex status from firmware
+    int status = wifi_mgmr_sta_coex_status_get();
+
+    // If error (e.g., WiFi not ready), report as disabled
+    if (status < 0) {
+        status = 0;
+    }
+
+    at_response_string("+CWCOEXEN:%d\r\n", status);
+
+    return AT_RESULT_CODE_OK;
+}
+#endif // NX_COEX_POWERSAVE
+
 static const at_cmd_struct at_pwr_cmd[] = {
     {"+PWR", NULL, NULL, at_pwr_cmd_pwrmode, NULL, 1, 3},
     {"+SLWKDTIM", NULL, NULL, at_dtim_cmd, NULL, 1, 1},
@@ -474,6 +538,11 @@ static const at_cmd_struct at_pwr_cmd[] = {
     {"+PWR_CLEAR", NULL, NULL, NULL, at_pwr_clear_cmd, 0, 0},
     {"+PWR_GET", NULL, NULL, NULL, at_pwr_get_cmd, 0, 0},
     {"+LP_INTERVAL_GET", NULL, NULL, NULL, at_lp_interval_get_cmd, 0, 0},
+#if NX_COEX_POWERSAVE
+    {"+CWCOEXDUTY", NULL, at_query_cmd_cwcoexduty, at_setup_cmd_cwcoexduty, NULL, 1, 1},
+    {"+CWCOEXEN", NULL, at_query_cmd_cwcoexen, at_setup_cmd_cwcoexen, NULL, 1, 1},
+#endif // NX_COEX_POWERSAVE
+    {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
 bool at_pwr_cmd_regist(void)

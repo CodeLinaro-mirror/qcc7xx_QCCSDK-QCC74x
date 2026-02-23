@@ -522,6 +522,19 @@ int wifi_mgmr_state_get(void);
 int wifi_mgmr_sta_rssi_get(int *rssi);
 
 /**
+ * wifi_mgmr_sta_rssi_update_from_lpfw
+ * Update STA RSSI value from low power firmware (LPFW)
+ * This function is called by LPFW to update the beacon RSSI value
+ * during power save mode for better signal quality tracking
+ * param:
+ *  rssi : RSSI value in dBm (valid range: -90 to 5)
+ * return:
+ *  0 : Success
+ *  -1 : Invalid RSSI value (out of range)
+ */
+int wifi_mgmr_sta_rssi_update_from_lpfw(int rssi);
+
+/**
  * wifi_mgmr_sta_channel_get
  * get sta mode channel
  * param:
@@ -858,7 +871,17 @@ int wifi_mgmr_sta_autoconnect_disable(void);
  *  -1 : Failed
  *  Others is Failed
  */
-int wifi_mgmr_sta_wps_pbc(uint8_t auth);
+int wifi_mgmr_sta_wps_pbc(uint8_t auth, uint8_t use_dhcp);
+
+/**
+ * wifi_mgmr_sta_wps_stop
+ * Stop sta wps
+ * return:
+ *  0 : Success
+ *  -1 : Failed
+ *  Others is Failed
+ */
+int wifi_mgmr_sta_wps_stop(void);
 
 /**
  * wifi_mgmr_sta_non_pref_chan_set - Set the non-preferred channel list for Wi-Fi management
@@ -908,9 +931,9 @@ int wifi_mgmr_sta_ps_enter(void);
 int wifi_mgmr_sta_ps_exit(void);
 /**
  * wifi_mgmr_sta_ps_active_time
- * set ps active time  
+ * set ps active time
  * param:
- *      ms: time for active time ,unit: ms 
+ *      ms: time for active time ,unit: ms
  * return:
  *  0 : Success
  *  -1 : Failed
@@ -918,6 +941,64 @@ int wifi_mgmr_sta_ps_exit(void);
  */
 
 int wifi_mgmr_sta_ps_active_time(uint32_t ms);
+
+#if NX_COEX_POWERSAVE
+/**
+ * @brief Enable WiFi/BLE coexistence
+ *
+ * This function enables time-sharing mechanism between WiFi and BLE.
+ * WiFi will work in periodic active/sleep mode according to the configured duty cycle.
+ *
+ * BLE RF usage time = 102.4 ms − 12 ms (receive beacon) − active_ms
+ *
+ * @return 0 on success, negative error code on failure
+ */
+int wifi_mgmr_sta_coex_enable(void);
+
+/**
+ * @brief Disable WiFi/BLE coexistence
+ *
+ * This function disables time-sharing mechanism between WiFi and BLE.
+ *
+ * @return 0 on success, negative error code on failure
+ */
+int wifi_mgmr_sta_coex_disable(void);
+
+/**
+ * @brief Set WiFi duty cycle for coexistence
+ *
+ * Configure the WiFi active time in a 100ms period.
+ * For example, if active_ms=30, WiFi will be active for 30ms and sleep for 70ms
+ * in each 100ms period, allowing BLE to use the 70ms sleep time.
+ *
+ * @param active_ms WiFi active time in milliseconds (valid range: 10-90)
+ *
+ * @return 0 on success, -1 if parameter is out of range
+ */
+int wifi_mgmr_sta_coex_duty_set(uint8_t active_ms);
+
+/**
+ * @brief Get current coexistence duty cycle
+ *
+ * Queries the current WiFi active time (duty cycle) configured for WiFi/BLE
+ * coexistence. The value is managed by the power save module and persists
+ * regardless of whether coex is currently enabled.
+ *
+ * @return WiFi active time in milliseconds (10-90), or -1 on error
+ */
+int wifi_mgmr_sta_coex_duty_get(void);
+
+/**
+ * @brief Get coexistence status from firmware
+ *
+ * Queries the actual coex status from firmware via CFGRWNX command.
+ * This reflects whether coex is currently active in the WiFi stack.
+ *
+ * @return 1 if coexistence is enabled, 0 if disabled, -1 on error
+ */
+int wifi_mgmr_sta_coex_status_get(void);
+
+#endif // NX_COEX_POWERSAVE
 
 /**
  * @brief Set up WiFi Manager STA TWT (Target Wake Time) functionality
@@ -943,17 +1024,17 @@ int wifi_mgmr_sta_twt_teardown(twt_teardown_params_struct_t *twt_teardown_params
 
 /**
  *  @brief Get the current Target Wake Time (TWT) session status for STA mode
- *  
- *  This function retrieves the current TWT session configuration parameters and 
+ *
+ *  This function retrieves the current TWT session configuration parameters and
  *  the number of active TWT sessions from the Wi-Fi station.
- *  
- *  @param[out] conf     Pointer to the TWT configuration structure where the 
+ *
+ *  @param[out] conf     Pointer to the TWT configuration structure where the
  *                       current TWT parameters will be stored. Must be allocated
  *                       by the caller.
  *  @param[out] twt_num  Pointer to a buffer where the number of active TWT sessions
- *                       will be written. Valid range: 0 (no active sessions) to 
+ *                       will be written. Valid range: 0 (no active sessions) to
  *                       maximum supported TWT sessions.
- *  
+ *
  *  @return 0 on success, non-zero error code on failure:
  *          - Other implementation-specific error codes
  */
@@ -961,7 +1042,7 @@ int wifi_mgmr_sta_twt_statusget(struct twt_status_info *conf, uint8_t *twt_num);
 
 /**
  *  @brief Get the current ap twt ability.
- *  
+ *
  *  @return 1 support twt, 0  not support twt:
  *          -1 get fail.
  */
@@ -969,14 +1050,14 @@ int wifi_mgmr_twt_support(void);
 
 /**
  *  @brief Get twt flows.
- *  
+ *
  *  @return twt flows
  */
 int wifi_mgmr_sta_twt_flow_get(void);
 
 /**
  *  @brief Get the current ap dtim.
- *  
+ *
  *  @return 1 support twt, 0  not support twt:
  *          -1 get fail.
  */
@@ -1199,7 +1280,7 @@ int wifi_mgmr_rf_pwr_on(void);
  * set rf auto off
  * return:
  *  0 : Success
- *  -1 : Failed 
+ *  -1 : Failed
  */
 int wifi_mgmr_rf_pwr_check(void);
 
@@ -1220,16 +1301,23 @@ int wifi_mgmr_rf_pwr_check(void);
 int wifi_mgmr_rate_config(uint16_t fixed_rate_cfg);
 
 /**
- * wifi_mgmr_coex_enable
- * Enable or disable wifi coex
+ * wifi_mgmr_rate_config_sta
+ * param: fixed_rate_cfg
+ *
+ * return:
+ *  0 : Success
+ *  -1 : Failed
+ *  Others is Failed
+ *0xFFFF: disable fixed rate
  */
-void wifi_mgmr_coex_enable(bool en);
+int wifi_mgmr_rate_config_sta(uint16_t fixed_rate_cfg);
+
 #endif
 
 /**
  * wifi_mgmr_set_ht40_enable
  * Toggle state of HT40 mode
- * Attention: configuration takes effect only 
+ * Attention: configuration takes effect only
  *            before the initiation of the WiFi task.
  * param:
  *  value : 1 = enable; 0 = disable
@@ -1327,15 +1415,35 @@ int8_t wifi_mgmr_adhoc_set_rate(uint8_t rate);
 uint8_t wifi_mgmr_adhoc_get_rate();
 
 /**
- * wifi_mgmr_adoc_set_rts_thrshold
- * Set/ RTS threshold
+ * wifi_mgmr_adhoc_set_rts_thrshold
+ * Set RTS threshold for adhoc mode
+ *
+ * The RTS threshold determines the retransmission count for long and short packets.
+ * This setting determine whether to perform RTS/CTS handshaking based on
+ * the length of the packet before data transmission .
+ *
+ * @param rts_thrshold: RTS threshold value in bytes
+ *           Valid range: 0-2347 (IEEE 802.11 standard maximum)
+ *           Default value: 2347 bytes
+ *           0: Disable RTS threshold
+ * @return: 0 on success, negative value on error
  */
-int8_t wifi_mgmr_adhoc_set_rts_thrshold(uint8_t rts_thrshold);
+int8_t wifi_mgmr_adhoc_set_rts_thrshold(uint16_t rts_thrshold);
+
 /**
- * wifi_mgmr_adoc_get_rts_thrshold
- * Get RTS threshold
+ * wifi_mgmr_adhoc_get_rts_thrshold
+ * Get current RTS threshold for adhoc mode
+ *
+ * The RTS threshold determines the retransmission count for long and short packets.
+ * This setting determine whether to perform RTS/CTS handshaking based on
+ * the length of the packet before data transmission .
+ *
+ * @return: Current RTS threshold value in bytes
+ *     Range: 0-2347 (IEEE 802.11 standard maximum)
+ *     Default: 2347 bytes
+ *     0: RTS threshold disabled
  */
-uint8_t wifi_mgmr_adhoc_get_rts_thrshold();
+uint16_t wifi_mgmr_adhoc_get_rts_thrshold(void);
 
 /**
  * wifi_mgmr_adoc_set_tx_power
@@ -1353,7 +1461,7 @@ int8_t wifi_mgmr_adhoc_set_tx_power(int8_t tx_power);
  * wifi_mgmr_adoc_get_tx_power
  * Get Tx power
  */
-int8_t wifi_mgmr_adhoc_get_tx_power();
+int8_t wifi_mgmr_adhoc_get_tx_power(void);
 
 /**
  * wifi_mgmr_adoc_set_retry_limit
@@ -1390,8 +1498,19 @@ int wifi_mgmr_adhoc_start(const wifi_mgmr_adhoc_start_params_t *config);
 int wifi_mgmr_adhoc_stop(void);
 /**
  * wifi_sta_ipv6_enable
- * Enable or disable ipv6 
+ * Enable or disable ipv6
  */
 #ifdef CFG_IPV6
 int wifi_sta_ipv6_enable(int enable);
 #endif
+
+/**
+ * wifi_mgmr_wps_event_register
+ * Register WPS credential event callback to receive and save SSID/password from WPS
+ *
+ * This function should be called during wifi manager initialization to enable
+ * automatic saving of WPS credentials for auto-reconnect functionality.
+ *
+ * return: 0 on success, -1 on error
+ */
+int wifi_mgmr_wps_event_register(void);

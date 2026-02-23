@@ -73,6 +73,9 @@ struct_func_dcl(mm_remain_on_channel_exp_ind, uint16_t, freq);
 struct_func_dcl(mm_p2p_vif_ps_change_ind, uint8_t, vif_index);
 struct_func_dcl(mm_p2p_vif_ps_change_ind, uint8_t, ps_state);
 
+struct_func_dcl(mm_flow_cntrl_change_ind, uint8_t, vif_index);
+struct_func_dcl(mm_flow_cntrl_change_ind, uint8_t, enable);
+
 struct_func_dcl(mesh_path_update_ind, uint8_t, vif_idx);
 struct_func_dcl(mesh_path_update_ind, uint8_t, path_idx);
 struct_func_dcl(mesh_path_update_ind, bool, delete);
@@ -170,7 +173,7 @@ struct_func_dcl(mm_raw_send_start_req, bool, adhoc);
 struct_func_dcl(mm_raw_send_start_req, struct mac_addr *, ra);
 struct_func_dcl(mm_raw_send_start_req, struct mac_addr *, ta);
 struct_func_dcl(mm_raw_send_start_req, uint8_t, rate);
-struct_func_dcl(mm_raw_send_start_req, uint8_t, rts_thrshold);
+struct_func_dcl(mm_raw_send_start_req, uint16_t, rts_thrshold);
 struct_func_dcl(mm_raw_send_start_req, uint8_t, retry_limit);
 struct_func_dcl(mm_raw_send_start_req, int8_t, tx_power);
 struct_func_dcl(mm_raw_send_start_req, void*, cb_cfm);
@@ -400,3 +403,22 @@ struct_func_dcl(me_get_remaining_tx_cfm, uint8_t, tx1_cnt);
 struct_func_dcl(me_get_remaining_tx_cfm, uint8_t, tx2_cnt);
 struct_func_dcl(me_get_remaining_tx_cfm, uint8_t, tx3_cnt);
 struct_func_len(me_get_remaining_tx_cfm);
+
+// ME_GET_COEX_STATUS_REQ - no parameters needed
+struct_func_len(me_get_coex_status_req);
+
+// ME_GET_COEX_STATUS_CFM
+struct_func_dcl(me_get_coex_status_cfm, uint8_t, status);  // 0=disabled, 1=enabled
+struct_func_len(me_get_coex_status_cfm);
+
+// ME_GET_COEX_DUTY_REQ - no parameters needed
+struct_func_len(me_get_coex_duty_req);
+
+// ME_GET_COEX_DUTY_CFM
+struct_func_dcl(me_get_coex_duty_cfm, uint8_t, duty_ms);  // WiFi active time 10-90ms
+struct_func_len(me_get_coex_duty_cfm);
+
+struct mm_set_coex_mode_req
+{
+    bool enabled;
+};

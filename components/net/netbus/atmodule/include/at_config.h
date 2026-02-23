@@ -21,6 +21,14 @@ int at_config_read(const char *key, void *config, int len);
 
 int at_config_write(const char *key, void *config, int len);
 
+int at_config_delete(const char *key);
+
+int at_config_write_with_id(const char *key, int id, void *config, int len);
+
+int at_config_read_with_id(const char *key, int id, void *config, int len);
+
+int at_config_delete_with_id(const char *key, int id);
+
 #ifdef __cplusplus
 }
 #endif

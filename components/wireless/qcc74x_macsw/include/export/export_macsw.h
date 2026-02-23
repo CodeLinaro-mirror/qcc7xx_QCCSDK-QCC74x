@@ -22,6 +22,7 @@ uint8_t mac_vif_get_sta_ap_id(void *macif);
 uint16_t mac_vif_get_bcn_int(void *macvif);
 void mac_vif_get_channel(void *macvif, struct mac_chan_op* chan);
 void mac_vif_get_sta_status(void *macvif, struct mac_addr *bssid, uint16_t *aid, int8_t *rssi);
+void mac_vif_set_sta_rssi(void *macif, int8_t rssi);
 struct co_list *mac_vif_get_sta_list(void *macif);
 int mac_vif_get_key_info_len(void *macif);
 struct key_info_tag *mac_vif_get_key(void *macif, int key_idx);
@@ -120,6 +121,8 @@ int macif_kmsg_push(int msg_id, int task_id, void *param, int param_len);
 int macif_kmsg_push_t(int msg_id, int task_id, int nb_msg, ...);
 void macif_rx_buf_ind(void);
 void macif_tx_data_ind(int queue_idx);
+void macif_coex_tx_pause_set(uint8_t vif_index, bool tx_paused);
+bool macif_coex_tx_is_paused(void);
 void time_init(uint32_t sec, uint32_t usec);
 
 bool mfp_is_robust_frame(uint16_t frame_cntl, uint8_t action);
@@ -247,7 +250,7 @@ struct mm_raw_send_start_req
     /// Tx rate
     uint8_t rate;
     /// RTS thrshold
-    uint8_t rts_thrshold;
+    uint16_t rts_thrshold;
     /// Tx retry limit
     uint8_t retry_limit;
     /// Tx power

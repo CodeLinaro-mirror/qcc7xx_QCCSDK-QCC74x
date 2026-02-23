@@ -69,3 +69,5 @@
     struct_func_alloc_def(me_get_edca_cfm);
     struct_func_alloc_def(me_get_stats_cfm);
     struct_func_alloc_def(me_get_remaining_tx_cfm);
+    struct_func_alloc_def(me_get_coex_status_cfm);
+    struct_func_alloc_def(me_get_coex_duty_cfm);

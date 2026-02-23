@@ -1636,7 +1636,7 @@ int bt_mesh_net_decode(struct net_buf_simple *data, enum bt_mesh_net_if net_if,
 
 	if (!net_find_and_decrypt(data->data, data->len, rx, buf)) {
 #if defined(CONFIG_BT_MESH_PTS) || defined(CONFIG_AUTO_PTS)
-		/* Comment by boufflalo */
+		/* Comment by qcc74x */
 		//BT_PTS("[PTS] Fail to decrypt packet");
 #endif
 
@@ -1644,7 +1644,7 @@ int bt_mesh_net_decode(struct net_buf_simple *data, enum bt_mesh_net_if net_if,
 		return -ENOENT;
 	}
 #if defined(CONFIG_BT_MESH_PTS) || defined(CONFIG_AUTO_PTS)
-	/* Comment by boufflalo */
+	/* Comment by qcc74x */
 	BT_PTS("[PTS] NID[%x]\n", NID(data->data));
 #endif
 

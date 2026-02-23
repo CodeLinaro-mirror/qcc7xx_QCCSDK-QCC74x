@@ -103,6 +103,16 @@ int at_lwip_heap_free_size(void);
 
 int at_net_poll_start(int interval_ms);
 
+int at_net_ssl_enc_storage_init(void);
+
+int at_net_ssl_save_file_encrypt(const char *path);
+
+int at_net_ssl_load_file_decrypt(const char *path, char **buf, int *len);
+
+int at_net_ssl_verify_credential_file(const char *path);
+
+int at_net_ssl_verify_cert_key_pair(const char *cert_path, const char *key_path);
+
 #ifdef __cplusplus
 }
 #endif

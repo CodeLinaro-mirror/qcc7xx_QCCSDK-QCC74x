@@ -174,7 +174,6 @@ void hostapd_config_defaults_bss(struct hostapd_bss_config *bss)
 #endif /* CONFIG_PASN */
 }
 
-
 struct hostapd_config * hostapd_config_defaults(void)
 {
 #define ecw2cw(ecw) ((1 << (ecw)) - 1)
@@ -204,6 +203,8 @@ struct hostapd_config * hostapd_config_defaults(void)
 
 	conf = os_zalloc(sizeof(*conf));
 	bss = os_zalloc(sizeof(*bss));
+
+
 	if (conf == NULL || bss == NULL) {
 		wpa_printf(MSG_ERROR, "Failed to allocate memory for "
 			   "configuration data.");
@@ -211,7 +212,12 @@ struct hostapd_config * hostapd_config_defaults(void)
 		os_free(bss);
 		return NULL;
 	}
+
+	extern struct hostapd_bss_acl_config g_bss_acl_conf;
+	memcpy(&bss->mac_acl_disable, &g_bss_acl_conf, sizeof(struct hostapd_bss_acl_config));
+
 	conf->bss = os_calloc(1, sizeof(struct hostapd_bss_config *));
+
 	if (conf->bss == NULL) {
 		os_free(conf);
 		os_free(bss);
@@ -787,8 +793,8 @@ void hostapd_config_free_bss(struct hostapd_bss_config *conf)
 
 	os_free(conf->eap_req_id_text);
 	os_free(conf->erp_domain);
-	os_free(conf->accept_mac);
-	os_free(conf->deny_mac);
+	//os_free(conf->accept_mac);
+	//os_free(conf->deny_mac);
 	os_free(conf->nas_identifier);
 	if (conf->radius) {
 		hostapd_config_free_radius(conf->radius->auth_servers,

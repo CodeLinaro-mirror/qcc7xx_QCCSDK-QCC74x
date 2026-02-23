@@ -28,7 +28,7 @@
 #include "mbedtls/debug.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
-#include "mbedtls/net.h"
+#include "mbedtls/net_sockets.h"
 #include "at_net_ssl.h"
 
 #define AT_NET_SSL_PRINTF printf
@@ -229,7 +229,11 @@ void *mbedtls_ssl_connect(int fd, const ssl_conn_param_t *param)
     }
 
     if (param->private_cert && param->private_cert_len > 0) {
+#ifdef CONFIG_MBEDTLS_V3
+        ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)param->private_cert, param->private_cert_len, NULL, 0, NULL, NULL);
+#else
         ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)param->private_cert, param->private_cert_len, NULL, 0);
+#endif
         if (ret != 0) {
             AT_NET_SSL_PRINTF("[MBEDTLS] ssl connect: x509 parse failed- 0x%x\r\n", -ret);
             goto ERROR;
@@ -383,7 +387,8 @@ static const unsigned char default_server_key[] =
 "-----END RSA PRIVATE KEY-----\n";
 
 void *mbedtls_ssl_accept(int fd, const char *ca_cert, int ca_cert_len,
-					 const char *srv_cert, int srv_cert_len, const char *private_cert, int private_cert_len)
+                     const char *srv_cert, int srv_cert_len, const char *private_cert, int private_cert_len,
+                     const char *ssl_psk, int ssl_psk_len, const char *ssl_pskhint, int ssl_pskhint_len)
 {
     int ret;
     ssl_param_t *ssl_param = NULL;
@@ -405,7 +410,8 @@ void *mbedtls_ssl_accept(int fd, const char *ca_cert, int ca_cert_len,
         return NULL;
     }
 
-    if (!srv_cert || srv_cert_len <= 0 || !private_cert || private_cert_len <= 0) {
+    if ((!srv_cert || srv_cert_len <= 0 || !private_cert || private_cert_len <= 0) &&
+        (!ssl_psk || ssl_psk_len <= 0 || !ssl_pskhint || ssl_pskhint_len <= 0)) {
         srv_cert = (const char *)default_server_crt;
         srv_cert_len = sizeof(default_server_crt);
         private_cert = (const char *)default_server_key;
@@ -449,7 +455,11 @@ void *mbedtls_ssl_accept(int fd, const char *ca_cert, int ca_cert_len,
     }
 
     if (private_cert && private_cert_len > 0) {
+#ifdef CONFIG_MBEDTLS_V3
+        ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)private_cert, private_cert_len, NULL, 0, NULL, NULL);
+#else
         ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)private_cert, private_cert_len, NULL, 0);
+#endif
         if (ret != 0) {
             AT_NET_SSL_PRINTF("[MBEDTLS] ssl accept: x509 parse failed- 0x%x\r\n", -ret);
             goto ERROR;
@@ -474,6 +484,10 @@ void *mbedtls_ssl_accept(int fd, const char *ca_cert, int ca_cert_len,
     }
     if (srv_cert && srv_cert_len > 0 && private_cert && private_cert_len > 0)
         mbedtls_ssl_conf_own_cert(&ssl_param->conf, &ssl_param->owncert, &ssl_param->pkey);
+
+    if (ssl_psk && ssl_psk_len > 0 && ssl_pskhint && ssl_pskhint_len > 0) {
+        mbedtls_ssl_conf_psk(&ssl_param->conf,ssl_psk, ssl_psk_len, ssl_pskhint, ssl_pskhint_len);
+    }
 
     mbedtls_ssl_conf_rng(&ssl_param->conf, ssl_random, NULL);
 #if defined(MBEDTLS_DEBUG_C)
@@ -654,3 +668,63 @@ int mbedtls_ssl_close(void *ssl)
     return 0;
 }
 
+int mbedtls_ssl_verify_credential(const char *data, int len)
+{
+    mbedtls_x509_crt crt;
+    mbedtls_pk_context pk;
+
+    mbedtls_x509_crt_init(&crt);
+    if (mbedtls_x509_crt_parse(&crt, (const unsigned char *)data, (size_t)len) == 0) {
+        mbedtls_x509_crt_free(&crt);
+        return 0;
+    }
+    mbedtls_x509_crt_free(&crt);
+
+    mbedtls_pk_init(&pk);
+#ifdef CONFIG_MBEDTLS_V3
+    if (mbedtls_pk_parse_key(&pk, (const unsigned char *)data, (size_t)len, NULL, 0, ssl_random, NULL) == 0) {
+#else
+    if (mbedtls_pk_parse_key(&pk, (const unsigned char *)data, (size_t)len, NULL, 0) == 0) {
+#endif
+        mbedtls_pk_free(&pk);
+        return 0;
+    }
+    mbedtls_pk_free(&pk);
+
+    return -1;
+}
+
+int mbedtls_ssl_verify_cert_key_match(const char *cert_data, int cert_len, const char *key_data, int key_len)
+{
+    int ret = -1;
+    mbedtls_x509_crt crt;
+    mbedtls_pk_context pk;
+
+    mbedtls_x509_crt_init(&crt);
+    mbedtls_pk_init(&pk);
+
+    if (mbedtls_x509_crt_parse(&crt, (const unsigned char *)cert_data, (size_t)cert_len) != 0) {
+        goto exit;
+    }
+
+#ifdef CONFIG_MBEDTLS_V3
+    if (mbedtls_pk_parse_key(&pk, (const unsigned char *)key_data, (size_t)key_len, NULL, 0, ssl_random, NULL) != 0) {
+#else
+    if (mbedtls_pk_parse_key(&pk, (const unsigned char *)key_data, (size_t)key_len, NULL, 0) != 0) {
+#endif
+        goto exit;
+    }
+
+#ifdef CONFIG_MBEDTLS_V3
+    if (mbedtls_pk_check_pair(&crt.pk, &pk, ssl_random, NULL) == 0) {
+#else
+    if (mbedtls_pk_check_pair(&crt.pk, &pk) == 0) {
+#endif
+        ret = 0;
+    }
+
+exit:
+    mbedtls_x509_crt_free(&crt);
+    mbedtls_pk_free(&pk);
+    return ret;
+}

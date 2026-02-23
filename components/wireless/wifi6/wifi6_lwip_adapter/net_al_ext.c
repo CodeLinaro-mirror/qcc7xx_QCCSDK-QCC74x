@@ -5,6 +5,10 @@
 #include "wifi_mgmr_ext.h"
 #include "wifi_mgmr.h"
 
+#if NX_COEX_POWERSAVE
+#include "coexm.h"
+#endif
+
 #include "lwip/netifapi.h"
 #include "lwip/api.h"
 #include "lwip/dns.h"
@@ -108,6 +112,7 @@ static uint32_t stop_dhcpc;
 static int net_dhcp_start(net_al_if_t net_if)
 {
     #if LWIP_IPV4 && LWIP_DHCP
+
     if (netifapi_dhcp_start(net_if) ==  ERR_OK)
         return 0;
     #endif //LWIP_IPV4 && LWIP_DHCP
@@ -190,12 +195,21 @@ static int fhost_dhcp_stop(net_al_if_t net_if)
 static int fhost_dhcp_start(net_al_if_t net_if, uint32_t to_ms)
 {
     uint32_t start_ms;
+    bool coex_prot_acquired = false;
+    int ret = 0;
+
+    #if NX_COEX_POWERSAVE
+    if (wifi_mgmr_sta_coex_status_get()) {
+        coex_prot_acquired = (coex_protect_acquire(COEX_PROT_DHCP) == 0);
+    }
+    #endif
 
     // Run DHCP client
     if (net_dhcp_start(net_if))
     {
         printf("Failed to start DHCP");
-        return DHCPC_START_FAILED;
+        ret = DHCPC_START_FAILED;
+        goto out;
     }
 
     start_ms = rtos_now(false);
@@ -209,17 +223,26 @@ static int fhost_dhcp_start(net_al_if_t net_if, uint32_t to_ms)
 
     if (stop_dhcpc) {
         fhost_dhcp_stop(net_if);
-        return DHCPC_START_ABORT;
+        ret = DHCPC_START_ABORT;
+        goto out;
     }
 
     if (net_dhcp_address_obtained(net_if))
     {
         printf("DHCP start timeout");
         fhost_dhcp_stop(net_if);
-        return DHCPC_START_TIMEOUT;
+        ret = DHCPC_START_TIMEOUT;
+        goto out;
     }
 
-    return 0;
+out:
+    #if NX_COEX_POWERSAVE
+    if (coex_prot_acquired) {
+        (void)coex_protect_release(COEX_PROT_DHCP);
+    }
+    #endif
+
+    return ret;
 }
 
 int net_al_ext_set_vif_ip(int fvif_idx, struct net_al_ext_ip_addr_cfg *cfg)
@@ -400,7 +423,7 @@ static int wifi_sta_dhcpc_start(uint8_t fhost_vif_idx)
         show_ip(fhost_vif_idx);
         PLATFORM_HOOK(prevent_sleep, PSM_EVENT_CONNECT, 0);
         if(wifi_mgmr_sta_connect_params_get() & LOW_RATE_CONNECT) {
-            wifi_mgmr_rate_config(0xFFFF);
+            wifi_mgmr_rate_config_sta(0xFFFF);
         }
     }
     return 0;
@@ -591,6 +614,11 @@ int net_al_set_ipv6_enable(int enable)
 
 }
 
+static void wifi_mgmr_rate_fix_cancel(void *arg1, uint32_t arg2)
+{
+    wifi_mgmr_rate_config_sta(0xFFFF);
+}
+
 void net_al_ext_dhcp_connect(void)
 {
     net_al_if_t net_if = fhost_to_net_if(MGMR_VIF_STA);
@@ -610,6 +638,10 @@ void net_al_ext_dhcp_connect(void)
             printf("start dhcping ... \r\n");
             rtos_task_create(fhost_wpa_connected_task, "fhost_wpa_connected_task",
                              WPA_CONNECTED_TASK, 512, NULL, fhost_wpa_priority, NULL);
+        }
+    } else {
+        if(wifi_mgmr_sta_connect_params_get() & LOW_RATE_CONNECT) {
+            rtos_pend_function_call(wifi_mgmr_rate_fix_cancel, NULL, 0);
         }
     }
 
@@ -640,13 +672,25 @@ void net_al_ext_netif_status_callback(struct netif *netif)
 {
     static ip4_addr_t old_addr;
 
+    if (!is_sta_netif(netif))
+        return;
+
     printf("[lwip] netif status callback\r\n");
     if (ip4_addr_eq((&old_addr), netif_ip4_addr(netif)) == 0) {
         if (ip4_addr_isany(netif_ip4_addr(netif))) {
             platform_post_event(EV_WIFI, CODE_WIFI_ON_LOST_IP);
         } else if (netif_is_flag_set(netif, NETIF_FLAG_UP)){
             platform_post_event(EV_WIFI, CODE_WIFI_ON_GOT_IP);
-            wifi_mgmr_sta_ps_change();
+
+            #if NX_POWERSAVE
+            // Re-enable Wi-Fi PS mode for coex time-division on reconnect
+            if (ps_is_coex_mode()) {
+                wifi_mgmr_sta_ps_enter();
+            } else
+            #endif
+            {
+                wifi_mgmr_sta_ps_change();
+            }
         }
     }
 

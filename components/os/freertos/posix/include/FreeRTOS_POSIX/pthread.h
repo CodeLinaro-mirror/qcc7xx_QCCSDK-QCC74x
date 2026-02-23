@@ -522,6 +522,40 @@ int pthread_setschedparam( pthread_t thread,
                            int policy,
                            const struct sched_param * param );
 
+/**
+ * @brief Set name of a thread.
+ *
+ * @see https://man7.org/linux/man-pages/man3/pthread_setname_np.3.html
+ *
+ * @param[in] thread The thread whose name is to be set.
+ * @param[in] name The name to set. The name is truncated to configMAX_TASK_NAME_LEN-1 characters.
+ *
+ * @retval 0 - Upon successful completion.
+ * @retval ERANGE - The length of the string specified by name exceeds the allowed limit.
+ *
+ * @note This is a non-POSIX extension function.
+ */
+int pthread_setname_np( pthread_t thread,
+                        const char * name );
+
+/**
+ * @brief Get name of a thread.
+ *
+ * @see https://man7.org/linux/man-pages/man3/pthread_getname_np.3.html
+ *
+ * @param[in] thread The thread whose name is to be retrieved.
+ * @param[out] name Buffer to store the thread name.
+ * @param[in] len Length of the buffer.
+ *
+ * @retval 0 - Upon successful completion.
+ * @retval ERANGE - The buffer specified by name and len is too small to hold the thread name.
+ *
+ * @note This is a non-POSIX extension function.
+ */
+int pthread_getname_np( pthread_t thread,
+                        char * name,
+                        size_t len );
+
 #ifdef __cplusplus
 }
 #endif

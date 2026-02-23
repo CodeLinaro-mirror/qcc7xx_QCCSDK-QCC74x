@@ -13,7 +13,9 @@
 #include <qcc74x_irq.h>
 #include <qcc74x_mtimer.h>
 #include <board.h>
+#ifdef LP_APP
 #include <qcc74x_lp.h>
+#endif
 #include <qcc743_pm.h>
 #include <qcc74x_uart.h>
 #include <qcc743_glb.h>
@@ -24,6 +26,17 @@
 #include <board_rf.h>
 #include <shell.h>
 #include <qcc743_glb.h>
+
+/* Default values for PM_PDS_LDO_LEVEL when not using LP_APP */
+#ifndef PM_PDS_LDO_LEVEL_SOC_DEFAULT
+#define PM_PDS_LDO_LEVEL_SOC_DEFAULT 11
+#endif
+#ifndef PM_PDS_LDO_LEVEL_RT_DEFAULT
+#define PM_PDS_LDO_LEVEL_RT_DEFAULT 10
+#endif
+#ifndef PM_PDS_LDO_LEVEL_AON_DEFAULT
+#define PM_PDS_LDO_LEVEL_AON_DEFAULT 10
+#endif
 
 extern int enable_tickless;
 
@@ -143,7 +156,7 @@ static int lp_enter(void *arg)
     return 0;
 }
 
-#ifdef CONFIG_SHELL
+#if defined(CONFIG_SHELL) && defined(LP_APP)
 int cmd_wifi_lp(int argc, char **argv)
 {
     int ret = 0;
@@ -352,8 +365,9 @@ SHELL_CMD_EXPORT_ALIAS(cmd_tickless, tickless, cmd tickless);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_lp, wifi_lp_test, wifi low power test);
 SHELL_CMD_EXPORT_ALIAS(test_tcp_keepalive, lpfw_tcp_keepalive, tcp keepalive test);
 SHELL_CMD_EXPORT_ALIAS(cmd_io_dbg, io_debug, cmd io_debug);
-#endif
+#endif /* CONFIG_SHELL && LP_APP */
 
+#ifdef LP_APP
 static TaskHandle_t rc32k_coarse_trim_task_hd = NULL;
 static TaskHandle_t xtal32k_check_entry_task_hd = NULL;
 
@@ -667,6 +681,7 @@ void app_pm_enter_pds15(void)
 
     enable_tickless = 1;
 }
+#endif /* LP_APP */
 
 int app_pm_init(void)
 {
@@ -684,7 +699,6 @@ int app_pm_init(void)
     qcc74x_lp_init();
 #endif
     qcc74x_lp_sys_callback_register(lp_enter, NULL, lp_exit, NULL);
-#endif
 
     /* coarse trim rc32k */
     puts("[OS] Create rc32k_coarse_trim task...\r\n");
@@ -695,6 +709,7 @@ int app_pm_init(void)
     puts("[OS] Create xtal32k_check_entry task...\r\n");
     xTaskCreate(xtal32k_check_entry_task, (char*)"xtal32k_check_entry", 512, NULL, 31, &xtal32k_check_entry_task_hd);
 #endif
+#endif /* LP_APP */
 
-    return;
+    return 0;
 }

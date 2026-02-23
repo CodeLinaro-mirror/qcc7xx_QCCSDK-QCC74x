@@ -2218,7 +2218,7 @@ int bt_mesh_cfg_mod_pub_va_set(u16_t net_idx, u16_t addr, u16_t elem_addr,
 			   pub, status);
 }
 
-/* Added by boufffalo */
+/* Add by qcc4x */
 int bt_mesh_cfg_mod_pub_va_set_vnd(u16_t net_idx, u16_t addr, u16_t elem_addr,
 				const u8_t label[16], u16_t mod_id, u16_t cid,
 				struct bt_mesh_cfg_mod_pub *pub, u8_t *status)

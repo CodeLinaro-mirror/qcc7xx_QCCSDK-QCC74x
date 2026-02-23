@@ -41,6 +41,10 @@
 #define MBEDTLS_CIPHER_MODE_CTR
 
 #define MBEDTLS_HAVE_TIME
+#ifdef CONFIG_MBEDTLS_V3
+#define MBEDTLS_PLATFORM_MS_TIME_ALT
+#endif
+
 #define MBEDTLS_CIPHER_PADDING_PKCS7
 #define MBEDTLS_CIPHER_PADDING_ZEROS
 #define MBEDTLS_REMOVE_ARC4_CIPHERSUITES
@@ -174,6 +178,8 @@
 #include "mbedtls/config_psa.h"
 #endif
 
+#ifndef CONFIG_MBEDTLS_V3
 #include "mbedtls/check_config.h"
+#endif
 
 #endif /* MBEDTLS_CONFIG_H */

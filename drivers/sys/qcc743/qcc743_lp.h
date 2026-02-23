@@ -232,6 +232,7 @@ typedef struct {
     int32_t bcn_loss_level;
     int32_t bcn_loss_loop_start;
     int32_t bcn_loss_level_max;
+    int8_t  bcn_target_level;
 
     /* rtc32k_trim */
     uint8_t rc32k_auto_cal_en;
@@ -303,6 +304,7 @@ typedef struct {
     uint8_t bcmc_dtim_mode;
     uint8_t dtim_num;
     uint8_t dtim_origin;
+    int8_t  bcn_target_level;
     uint32_t mtimer_timeout_mini_us;
     uint32_t mtimer_timeout_max_us;
 

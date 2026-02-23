@@ -71,6 +71,13 @@ enum fhost_wpa_event {
      * - data_value: None
      */
     FHOST_WPA_INTERFACE_REMOVED,
+    /**
+     * Per interface event
+     * - desc: WPS credential received (contains SSID and password)
+     * - data_type: fhost_wpa_wps_cred_data_t
+     * - data_value: Pointer to WPS credential data
+     */
+    FHOST_WPA_WPS_CRED_RECEIVED,
 
     FHOST_WPA_LAST,
 };
@@ -106,6 +113,20 @@ enum fhost_vif_raw_state {
 	FHOST_VIF_GROUP_HANDSHAKE,
 	FHOST_VIF_COMPLETED
 };
+
+/**
+ * WPS credential data structure
+ * Used to pass SSID and password from WPS to wifi manager
+ */
+typedef struct fhost_wpa_wps_cred_data {
+    char ssid[33];       ///< SSID (null-terminated)
+    uint8_t ssid_len;    ///< SSID length
+    char key[65];        ///< Password/Key (null-terminated)
+    uint8_t key_len;     ///< Key length
+    uint8_t mac_addr[6]; ///< AP MAC address
+    uint16_t auth_type;  ///< Authentication type
+    uint16_t encr_type;  ///< Encryption type
+} fhost_wpa_wps_cred_data_t;
 
 /// WPA network configuration flags
 #define FHOST_WPA_SSID_PREFER_WPA2_TO_WPA3 (1 << 0)

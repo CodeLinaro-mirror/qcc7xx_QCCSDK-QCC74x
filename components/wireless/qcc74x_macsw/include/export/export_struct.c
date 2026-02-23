@@ -127,6 +127,8 @@ struct_func_get_def(sm_status_ind, uint8_t, vif_idx)
 
     struct_func_get_def(mm_p2p_vif_ps_change_ind, uint8_t, vif_index)
     struct_func_get_def(mm_p2p_vif_ps_change_ind, uint8_t, ps_state)
+    struct_func_get_def(mm_flow_cntrl_change_ind, uint8_t, vif_index)
+    struct_func_get_def(mm_flow_cntrl_change_ind, uint8_t, enable)
 
 #if RW_MESH_EN
     struct_func_get_def(mesh_path_update_ind, uint8_t, vif_idx)
@@ -241,7 +243,7 @@ struct_func_set_def(scanu_start_req, uint8_t, ssid_cnt)
     struct_func_set_def(mm_raw_send_start_req, struct mac_addr *, ra);
     struct_func_set_def(mm_raw_send_start_req, struct mac_addr *, ta);
     struct_func_set_def(mm_raw_send_start_req, uint8_t, rate);
-    struct_func_set_def(mm_raw_send_start_req, uint8_t, rts_thrshold);
+    struct_func_set_def(mm_raw_send_start_req, uint16_t, rts_thrshold);
     struct_func_set_def(mm_raw_send_start_req, uint8_t, retry_limit);
     struct_func_set_def(mm_raw_send_start_req, int8_t, tx_power);
     struct_func_set_def(mm_raw_send_start_req, void*, cb_cfm);
@@ -461,6 +463,12 @@ void mm_start_req_set_tx_timeout(void *pa, uint16_t array[], int len)
     struct_func_get_def(me_get_remaining_tx_cfm, uint8_t, tx2_cnt)
     struct_func_get_def(me_get_remaining_tx_cfm, uint8_t, tx3_cnt)
     struct_func_len(me_get_remaining_tx_cfm)
+
+    struct_func_get_def(me_get_coex_status_cfm, uint8_t, status)
+    struct_func_len(me_get_coex_status_cfm)
+
+    struct_func_get_def(me_get_coex_duty_cfm, uint8_t, duty_ms)
+    struct_func_len(me_get_coex_duty_cfm)
 
 #if NX_TWT
     struct_func_set_def(twt_setup_req, uint8_t, vif_idx);

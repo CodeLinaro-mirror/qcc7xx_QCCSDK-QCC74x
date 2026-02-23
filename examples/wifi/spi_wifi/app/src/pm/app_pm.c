@@ -45,6 +45,7 @@
 
 #define APP_PM_IELD_TASK_STACK_SIZE (384)
 
+#ifdef LP_APP
 void vApplicationGetIdleTaskMemory(StaticTask_t **ppxIdleTaskTCBBuffer, StackType_t **ppxIdleTaskStackBuffer, uint32_t *pulIdleTaskStackSize)
 {
     /* If the buffers to be provided to the Idle task are declared inside this
@@ -111,7 +112,7 @@ static void set_cpu_bclk_80M_and_gate_clk(void)
 static int lp_exit(void *arg)
 {
     BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-    extern TaskHandle_t rxl_process_task_hd; 
+    extern TaskHandle_t rxl_process_task_hd;
     int wakeup_reason;
 
     nxspi_ps_exit(NULL);
@@ -222,7 +223,7 @@ int lp_set_wakeup_by_io(uint8_t io, uint8_t mode)
     if ((io != 16 && io != 28) || (mode !=0 && mode != 1)) {
         printf("[PM] Error: only support gpio 16, 28 and mode 0/1\r\n");
         return -1;
-    } 
+    }
 
     if (io == 16) {
         lp_wake_io_cfg.io_16_ie = QCC74x_LP_IO_INPUT_ENABLE;
@@ -256,10 +257,10 @@ int lp_delete_wakeup_by_io(uint8_t io)
     if (io != 16 && io != 28) {
         printf("[PM] Error: only support gpio 16, 28 and mode 0/1\r\n");
         return -1;
-    } 
+    }
 
     lp_wake_io_cfg.io_wakeup_unmask &= ~((uint64_t)1 << io);
-    
+
     return 0;
 }
 
@@ -297,8 +298,8 @@ void app_arp_send(void)
     LOCK_TCPIP_CORE();
     do {
         ip_addr_t src_ip = netif_default->ip_addr;
-        ip_addr_t dest_ip;                        
-        ip_addr_copy(dest_ip, src_ip);            
+        ip_addr_t dest_ip;
+        ip_addr_copy(dest_ip, src_ip);
         err_t result = etharp_request(netif_default, &dest_ip);
 
         if (result != ERR_OK) {
@@ -315,7 +316,7 @@ static void arp_send(TimerHandle_t xTimer) {
 }
 
 int app_pm_create_arp_announce_timer(uint32_t seconds)
-{   
+{
     if (xArpTimer) {
         printf("[PM] Error: ARP timer already exists\r\n");
         return -1;
@@ -410,7 +411,7 @@ void createAndStartTimer(const char* timerName, TickType_t timerPeriod)
 static qcc74x_lp_hbn_fw_cfg_t hbn_test_cfg={
     //.hbn_sleep_cnt = (32768 * ms) / 1000,
     .hbn_sleep_cnt = 0,
-    .hbn_level=0, 
+    .hbn_level=0,
 };
 
 static uint32_t lp_timerouts_ms;
@@ -425,8 +426,8 @@ int app_lp_timer_config(int mode, uint32_t ms)
         printf("config lp level fail:%d\r\n", mode);
 
         return -1;
-    } 
-    
+    }
+
     return 0;
 }
 
@@ -524,7 +525,7 @@ int app_pm_twt_param_set(int s, int t, int e, int n, int m)
     param.setup_type = s;
     param.flow_type = t;
     param.wake_int_exp = e;
-    param.wake_dur_unit = 0; 
+    param.wake_dur_unit = 0;
     param.min_twt_wake_dur = n;
     param.wake_int_mantissa = m;
 
@@ -598,7 +599,7 @@ int qcc74x_pm_app_check(void)
     pbufc_check = pm_pbufc_check();
 
     if (!spi_check && !pbufc_check) {
-        return 0; 
+        return 0;
     }
 
     return 1;
@@ -645,7 +646,7 @@ int app_pm_init(void)
 
     HBN_Enable_RTC_Counter();
     pm_rc32k_auto_cal_init();
-    
+
     pm_sys_init();
 
 #ifdef LP_APP
@@ -660,3 +661,5 @@ int app_pm_init(void)
 
     return 0;
 }
+
+#endif

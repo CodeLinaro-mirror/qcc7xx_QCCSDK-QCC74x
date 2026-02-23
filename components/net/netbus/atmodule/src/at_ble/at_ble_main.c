@@ -15,7 +15,6 @@
 #include <FreeRTOS.h>
 #include <task.h>
 #include <queue.h>
-#include <semphr.h>
 #include "at_pal.h"
 
 #include "conn.h"
@@ -135,25 +134,15 @@ struct ble_srv_data
 };
 
 static struct ble_srv_data *g_ble_srv_data = NULL;
-static SemaphoreHandle_t g_ble_data_mutex = NULL;
-
-#define BLE_LOCK() do { \
-    if (g_ble_data_mutex) xSemaphoreTake(g_ble_data_mutex, portMAX_DELAY); \
-} while(0)
-
-#define BLE_UNLOCK() do { \
-    if (g_ble_data_mutex) xSemaphoreGive(g_ble_data_mutex); \
-} while(0)
 
 static void ble_gatts_srv_clean(void)
 {
-    BLE_LOCK();
     if (g_ble_srv_data != NULL) {
         memset(g_ble_srv_data, 0, sizeof(struct ble_srv_data) * BLE_SRV_MAX_NUM);
         at_free(g_ble_srv_data);
         g_ble_srv_data = NULL;
     }
-    BLE_UNLOCK();
+
 }
 
 static struct ble_conn_data *ble_conn_data_get_by_idx(int idx)
@@ -350,23 +339,18 @@ static void ble_connected(struct bt_conn *conn, u8_t err)
     } else if (conn->role == BT_CONN_ROLE_SLAVE) {
         bt_addr_le_t* remote_addr = NULL;
         remote_addr = bt_conn_get_dst(conn);
-        BLE_LOCK();
         for(int i = 0; i < BLE_CONN_MAX_NUM; i++)
         {
             if(!at_ble_is_connected(i))
             {
                 ble_conn_data_set(i, BT_CONN_ROLE_SLAVE,remote_addr->a.val, remote_addr->type, conn, BT_GAP_INIT_CONN_INT_MIN, BT_GAP_INIT_CONN_INT_MIN,BT_GAP_INIT_CONN_INT_MIN, BLE_CONN_STATE_CONNECTED);
-                BLE_UNLOCK();
                 break;
             }
                
         }
         struct ble_conn_data *conn_data = ble_conn_data_get_by_conn(conn);
         if (!conn_data)
-        {
-            BLE_UNLOCK();
             return;
-        }
         at_response_string("+BLE:CONNECTED:%d,\"%02x:%02x:%02x:%02x:%02x:%02x\",%d\r\n",
                         conn_data->idx,
                         remote_addr->a.val[5],
@@ -388,12 +372,11 @@ static void ble_disconnected(struct bt_conn *conn, u8_t reason)
     }
     
     AT_BLE_PRINTF("%s conn: 0x%x, reason: %d\r\n",__func__, conn, reason);
-
+    
     struct ble_conn_data *conn_data = ble_conn_data_get_by_conn(conn);
     if (!conn_data)
         return;
-    
-    BLE_LOCK();
+
     at_response_string("+BLE:DISCONNECTED:%d,\"%02x:%02x:%02x:%02x:%02x:%02x\",%d\r\n",
             conn_data->idx,
             conn_data->addr[5],
@@ -409,13 +392,6 @@ static void ble_disconnected(struct bt_conn *conn, u8_t reason)
     conn_data->valid = 0;
     memset(&conn_data->addr,0,sizeof(conn_data->addr));
     conn_data->indicate_finish = 0;
-
-    if (conn->role == BT_CONN_ROLE_SLAVE)
-    {
-        set_adv_enable(true);
-    }
- 
-    BLE_UNLOCK();
     
 }
 
@@ -778,22 +754,19 @@ void ble_dynamic_rd_cb(struct bt_conn *conn,const struct bt_gatt_attr* attr,u8_t
         return;
     u16_t read_len =0;
 
-    BLE_LOCK();
     read_len = g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len;
     if (read_len > 0) {
         memcpy(data, g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, read_len);
         AT_BLE_PRINTF("%s,%d\r\n",g_ble_srv_data[srv_idx].srv_char[char_idx].read_data,read_len);
     }
     *length=read_len;
-    BLE_UNLOCK();
 }
 void ble_dynamic_noti_cb(const struct bt_gatt_attr* attr ,u8_t data)
 {
     int srv_idx, char_idx;
     if (find_index_by_attr(attr, &srv_idx, &char_idx) == 0)
         return;
-    
-    BLE_LOCK();
+
     if( g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_INDICATE)
     {
         if (data == BT_GATT_CCC_INDICATE)
@@ -816,7 +789,6 @@ void ble_dynamic_noti_cb(const struct bt_gatt_attr* attr ,u8_t data)
             at_response_string("+BLE:NOTIFICATION:0,%d,%d\r\n",srv_idx,char_idx);
         }
     }
-    BLE_UNLOCK();
 
 }
 
@@ -1437,11 +1409,8 @@ int at_ble_gatts_service_get(int srv_idx, uint8_t *srv_uuid, uint8_t *srv_type,u
 int at_ble_gatts_service_set(int srv_idx, uint8_t *srv_uuid, uint8_t srv_type,uint8_t uuid_type)
 {
     CHECK_BLE_SRV_IDX_VALID(srv_idx);
-    BLE_LOCK();
-    if (g_ble_srv_data[srv_idx].valid == 1) {
-        BLE_UNLOCK();
+    if (g_ble_srv_data[srv_idx].valid == 1)
         return 0;
-    }
 	// TODO
     /*if (check_uuid_is_unique)
         return 0;*/
@@ -1460,7 +1429,6 @@ int at_ble_gatts_service_set(int srv_idx, uint8_t *srv_uuid, uint8_t srv_type,ui
     }
     g_ble_srv_data[srv_idx].srv_type = srv_type;
     g_ble_srv_data[srv_idx].valid = 1;
-    BLE_UNLOCK();
     return 1;
 }
 
@@ -1470,11 +1438,8 @@ int at_ble_gatts_service_del(int srv_idx)
 
     CHECK_BLE_SRV_IDX_VALID(srv_idx);
 
-    BLE_LOCK();
-    if (g_ble_srv_data[srv_idx].valid == 0) {
-        BLE_UNLOCK();
+    if (g_ble_srv_data[srv_idx].valid == 0)
         return 0;
-    }
 
     g_ble_srv_data[srv_idx].valid = 0;
     memset(&g_ble_srv_data[srv_idx].srv_uuid, 0, sizeof(g_ble_srv_data[srv_idx].srv_uuid));
@@ -1491,7 +1456,6 @@ int at_ble_gatts_service_del(int srv_idx)
         g_ble_srv_data[srv_idx].srv_char[i].attr = NULL;
         g_ble_srv_data[srv_idx].srv_char[i].read_data_len = 0;
     }
-    BLE_UNLOCK();
 
     return 1;
 }
@@ -1546,15 +1510,10 @@ int at_ble_gatts_service_char_set(int srv_idx, int char_idx, uint8_t *char_uuid,
     CHECK_BLE_SRV_IDX_VALID(srv_idx);
     CHECK_BLE_CHAR_IDX_VALID(char_idx);
 
-    BLE_LOCK();
-    if (g_ble_srv_data[srv_idx].valid == 0) {
-        BLE_UNLOCK();
+    if (g_ble_srv_data[srv_idx].valid == 0)
         return 0;
-    }
-    if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 1) {
-        BLE_UNLOCK();
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 1)
         return 0;
-    }
 
     
     if(uuid_type == BT_UUID_TYPE_16)
@@ -1574,7 +1533,6 @@ int at_ble_gatts_service_char_set(int srv_idx, int char_idx, uint8_t *char_uuid,
     g_ble_srv_data[srv_idx].srv_char[char_idx].attr = NULL;
     g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = 0;
     g_ble_srv_data[srv_idx].srv_char[char_idx].valid = 1;
-    BLE_UNLOCK();
     return 1;
 }
 
@@ -1605,14 +1563,23 @@ int at_ble_gatts_service_notify(int idx,int srv_idx, int char_idx, void * buffer
         }
         if(noti_attr)
         {
-            int err = bt_gatt_notify(conn_data->conn,noti_attr, buffer, length);
-            if (err != 0) {
-                AT_BLE_PRINTF("ble send notify data failed: %d\r\n", err);
+            if(bt_gatt_is_subscribed(conn_data->conn,noti_attr+1,BT_GATT_CCC_NOTIFY)==true)
+            {
+                int err = bt_gatt_notify(conn_data->conn,noti_attr, buffer, length);
+                if (err != 0) {
+                    AT_BLE_PRINTF("ble send notify data failed: %d\r\n", err);
+                    noti_attr = NULL;
+                    return 0;
+                }
+                noti_attr = NULL;
+                return length;
+            }
+            else
+            {
+                AT_BLE_PRINTF("ble send notify not enable\r\n");
                 noti_attr = NULL;
                 return 0;
             }
-            noti_attr = NULL;
-            return length;
         }
         else
         {
@@ -1689,14 +1656,24 @@ int at_ble_gatts_service_indicate(int idx,int srv_idx, int char_idx, void * buff
         }
         if(indicate_attr)
         {
-            int err = ble_gatt_send_indicate(conn_data->conn, indicate_attr, buffer, length);
-            if (err != 0) {
-                AT_BLE_PRINTF("ble send indicate data failed: %d\r\n", err);
+            if(bt_gatt_is_subscribed(conn_data->conn,indicate_attr+1,BT_GATT_CCC_INDICATE)==true)
+            {
+                int err = ble_gatt_send_indicate(conn_data->conn, indicate_attr, buffer, length);
+                if (err != 0) {
+                    AT_BLE_PRINTF("ble send indicate data failed: %d\r\n", err);
+                    indicate_attr = NULL; 
+                    return 0;
+                }
+                indicate_attr = NULL; 
+                return length;
+
+            }
+            else
+            {
+                AT_BLE_PRINTF("ble send indicate not enable\r\n");
                 indicate_attr = NULL; 
                 return 0;
             }
-            indicate_attr = NULL; 
-            return length;
         }
         else
         {
@@ -1713,25 +1690,20 @@ int at_ble_gatts_service_read(int srv_idx, int char_idx, void * buffer, int leng
 {
     CHECK_BLE_SRV_IDX_VALID(srv_idx);
     CHECK_BLE_CHAR_IDX_VALID(char_idx);
-    int ret = 0;
-
-    BLE_LOCK();
-    if (g_ble_srv_data[srv_idx].valid == 0) {
-        BLE_UNLOCK();
+    
+    if (g_ble_srv_data[srv_idx].valid == 0)
         return 0;
-    }
-    if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 0) {
-        BLE_UNLOCK();
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 0)
         return 0;
-    }
 
     if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_READ && length <= 244) {
         memcpy(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, buffer, length);
         g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = length;
-        ret = length;
+        return length;
+        
+    } else {
+        return 0;
     }
-    BLE_UNLOCK();
-    return ret;
 }
 
 static uint32_t print_chrc_props(u8_t properties)
@@ -1820,20 +1792,17 @@ static struct ble_client_disc* g_ble_disc_srv =NULL;
 
 static void ble_disc_srv_clean(void)
 {
-    BLE_LOCK();
     if (g_ble_disc_srv != NULL) {
         memset(g_ble_disc_srv, 0, sizeof(struct ble_client_disc) * BLE_CONN_MAX_NUM);
         at_free(g_ble_disc_srv);
         g_ble_disc_srv = NULL;
     }
-    BLE_UNLOCK();
 }
 
 static int ble_disc_srv_set(int idx, uint16_t start_handle, uint16_t end_handle, uint8_t type)
 {
     int i;
 
-    BLE_LOCK();
     for (i = 0; i < BLE_GATTC_SRV_MAX_NUM; i++) {
         if (g_ble_disc_srv[idx].disc_srv[i].valid == 0) {
             g_ble_disc_srv[idx].disc_srv[i].valid = 1;
@@ -1841,25 +1810,20 @@ static int ble_disc_srv_set(int idx, uint16_t start_handle, uint16_t end_handle,
             g_ble_disc_srv[idx].disc_srv[i].start_handle = start_handle;
             g_ble_disc_srv[idx].disc_srv[i].end_handle = end_handle;
             g_ble_disc_srv[idx].disc_srv[i].type = type;
-            BLE_UNLOCK();
             return 1;
         }
     }
-    BLE_UNLOCK();
 
     return 0;
 }
 static int ble_disc_srv_handle_check(uint16_t handle,int idx)
 {
     int i;
-    BLE_LOCK();
     for (i = 0; i < BLE_GATTC_SRV_MAX_NUM; i++) {
         if (g_ble_disc_srv[idx].disc_srv[i].valid == 1 && g_ble_disc_srv[idx].disc_srv[i].start_handle <= handle && g_ble_disc_srv[idx].disc_srv[i].end_handle >= handle) {
-            BLE_UNLOCK();
             return 1;
         }
     }
-    BLE_UNLOCK();
     return 0;
 }
 
@@ -2112,7 +2076,28 @@ static uint8_t notify_func(struct bt_conn *conn,
         params->value_handle = 0U;
         return BT_GATT_ITER_STOP;
     }
-    
+    if(length)
+    {
+        struct ble_conn_data *conn_data = ble_conn_data_get_by_conn(conn);
+        if (!conn_data)
+            return;
+
+        char *rdata = (char *)at_malloc(32 + length);
+        int data_len = 0;
+        if (!rdata) {
+            AT_BLE_PRINTF("ble_notificaion_callback malloc failed\r\n");
+            return;
+        }
+        memset(rdata,0,(32 + length));
+        data_len = sprintf(rdata, "+BLE:NOTIDATA:%d,%d,%d,",conn_data->idx,params->value_handle,length);
+        memcpy(rdata + data_len, data, length);
+        data_len += length;
+        memcpy(rdata + data_len, "\r\n", 2);
+        data_len += 2;
+        AT_CMD_DATA_SEND(rdata,data_len);
+        at_free(rdata);
+        rdata = NULL;
+    }
     return BT_GATT_ITER_CONTINUE;
 }
 int at_ble_subscribe(int idx, int ccc_handle, int value_handle,int value)
@@ -2506,14 +2491,7 @@ int at_ble_dis_set(char* dis_name, char* dis_value, int dis_value_len)
 #endif
 int at_ble_init(int role)
 {
-    if (g_ble_is_inited == 0 && role != BLE_DISABLE) {
-        if (g_ble_data_mutex == NULL) {
-            g_ble_data_mutex = xSemaphoreCreateMutex();
-            if (g_ble_data_mutex == NULL) {
-                AT_BLE_PRINTF("Failed to create BLE data mutex\r\n");
-                return -1;
-            }
-        }
+    if (g_ble_is_inited == 0&&role != BLE_DISABLE) {
 
        if (!atomic_test_bit(bt_dev.flags, BT_DEV_ENABLE))
         {
@@ -2563,12 +2541,6 @@ int at_ble_init(int role)
                     at_ble_config_default();
                     g_ble_is_inited = 0;
                 }
-                
-                // Delete mutex when BLE is disabled
-                if (g_ble_data_mutex) {
-                    vSemaphoreDelete(g_ble_data_mutex);
-                    g_ble_data_mutex = NULL;
-                }
             }
         }
         else
@@ -2586,7 +2558,7 @@ int at_ble_init(int role)
             g_ble_disc_srv = at_malloc(sizeof(struct ble_client_disc)*BLE_CONN_MAX_NUM);
         
         memset(g_ble_disc_srv, 0, sizeof(struct ble_client_disc)*BLE_CONN_MAX_NUM);
-        bt_gatt_register_notification_callback(ble_notification_all_cb);
+        //bt_gatt_register_notification_callback(ble_notification_all_cb);
     }
 
     if(g_ble_role == BLE_SERVER)
@@ -2603,7 +2575,7 @@ int at_ble_init(int role)
             g_ble_disc_srv = at_malloc(sizeof(struct ble_client_disc)*BLE_CONN_MAX_NUM);
         
         memset(g_ble_disc_srv, 0, sizeof(struct ble_client_disc)*BLE_CONN_MAX_NUM);
-        bt_gatt_register_notification_callback(ble_notification_all_cb);
+        //bt_gatt_register_notification_callback(ble_notification_all_cb);
 
         if(g_ble_srv_data == NULL)
             g_ble_srv_data = at_malloc(sizeof(struct ble_srv_data)*BLE_SRV_MAX_NUM);
@@ -2612,6 +2584,14 @@ int at_ble_init(int role)
     
     #if defined(QCC74x_BLE_MTU_CHANGE_CB)
     bt_gatt_register_mtu_callback(at_bt_gatt_mtu_changed_cb);
+    #endif
+    #if defined(CONFIG_BT_SMP)
+    auth_cb_display.pairing_failed   = auth_pairing_failed;
+	auth_cb_display.pairing_complete = auth_pairing_complete;
+    auth_cb_display.cancel           = auth_cancel;
+    
+    if(bt_conn_auth_cb_register(&auth_cb_display)!=0)
+        return -1;
     #endif
 
     return 0;

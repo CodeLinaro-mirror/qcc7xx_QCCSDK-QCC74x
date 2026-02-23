@@ -1,7 +1,28 @@
 # change log on lmac154 module
 
+## 2026/01/30
+- Version: 1.6.18
+  - QCC743: Add a timeout to send packet to protect coex
+
+## 2025/12/06
+- Version: 1.6.17
+  - Add API to set/get coex priority
+
+## 2025/11/25
+- Version: 1.6.16
+- Changes
+
 ## 2025/9/17
 - Version: 1.6.15
+  - QCC743: Remove unspported API
+
+## 2025/9/11
+- Version: 1.6.14
+- Changes
+
+## 2025/4/25
+- Version: 1.6.13
+- Changes
 
 ## 2025/3/12
 - Version: 1.6.12

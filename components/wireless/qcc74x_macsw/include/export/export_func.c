@@ -49,6 +49,14 @@ void mac_vif_get_sta_status(void *macif, struct mac_addr *bssid, uint16_t *aid, 
     }
 }
 
+void mac_vif_set_sta_rssi(void *macif, int8_t rssi)
+{
+    struct vif_info_tag *vif = (struct vif_info_tag *)macif;
+    if (vif->type == VIF_STA) {
+        vif->u.sta.rssi = rssi;
+    }
+}
+
 struct co_list *mac_vif_get_sta_list(void *macif)
 {
     struct vif_info_tag *vif = (struct vif_info_tag *)macif;

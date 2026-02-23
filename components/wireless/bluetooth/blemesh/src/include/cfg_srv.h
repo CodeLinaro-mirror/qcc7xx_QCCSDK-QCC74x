@@ -95,7 +95,7 @@ struct bt_mesh_cfg_srv {
 		 *              @ref BT_MESH_FEAT_PROXY,
 		 *              @ref BT_MESH_FEAT_FRIEND and
 		 *              @ref BT_MESH_FEAT_LOW_POWER.
-		 *//* Modified by boufalo*/
+		 *//* Modified by qcc74x*/
 		void (*func)(u16_t src, u16_t dst, u8_t hops, u16_t feat);
 	} hb_sub;
 };

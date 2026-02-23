@@ -8,6 +8,8 @@ find_package(qcc74x_sdk REQUIRED HINTS $ENV{QCC74x_SDK_BASE})
 sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
 #sdk_add_compile_definitions(-DCONFIG_MEMSET_OPTSPEED)
 
+# Enable coexistence timeslice statistics debug
+
 
 if (CONFIG_LPAPP)
     target_sources(app PRIVATE

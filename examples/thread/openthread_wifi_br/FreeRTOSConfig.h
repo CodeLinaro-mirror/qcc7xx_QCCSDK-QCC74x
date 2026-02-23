@@ -41,12 +41,12 @@
  *----------------------------------------------------------*/
 #include "stdio.h"
 
-#if __riscv_xlen == 64
-#define configMTIME_BASE_ADDRESS    (0)
-#define configMTIMECMP_BASE_ADDRESS ((0xE4000000UL) + 0x4000UL)
+#ifdef QCC74x_undef
+#define configMTIME_BASE_ADDRESS    (0x02000000UL + 0xBFF8UL)
+#define configMTIMECMP_BASE_ADDRESS (0x02000000UL + 0x4000UL)
 #else
-#define configMTIME_BASE_ADDRESS    ((0xE0000000UL) + 0xBFF8UL)
-#define configMTIMECMP_BASE_ADDRESS ((0xE0000000UL) + 0x4000UL)
+#define configMTIME_BASE_ADDRESS    (0xE0000000UL + 0xBFF8UL)
+#define configMTIMECMP_BASE_ADDRESS (0xE0000000UL + 0x4000UL)
 #endif
 
 #define configSUPPORT_STATIC_ALLOCATION         1
@@ -57,7 +57,7 @@
 #define configTICK_RATE_HZ                      ((TickType_t)1000)
 #define configMAX_PRIORITIES                    (32)
 #define configMINIMAL_STACK_SIZE                ((unsigned short)128) /* Only needs to be this high as some demo tasks also use this constant.  In production only the idle task would use this. */
-#define configTOTAL_HEAP_SIZE                   ((size_t)100 * 1024)
+#define configTOTAL_HEAP_SIZE                   ((size_t)24 * 1024)
 #define configMAX_TASK_NAME_LEN                 (16)
 #define configUSE_TRACE_FACILITY                1
 #define configUSE_STATS_FORMATTING_FUNCTIONS    1
@@ -108,9 +108,6 @@ to exclude the API function. */
 header file. */
 void vApplicationMallocFailedHook(void);
 void vAssertCalled(void);
-
-#include <stdio.h>
-
 #define configASSERT(x)                        \
     if ((x) == 0) {                            \
         printf("file [%s]\r\n", __FILE__);     \
@@ -126,5 +123,12 @@ void vApplicationSleep(uint32_t xExpectedIdleTime);
 #endif
 
 // #define portUSING_MPU_WRAPPERS
+
+/* Enable TLS */
+#define config_ENABLE_OS_TLS_SWITCH
+#ifdef config_ENABLE_OS_TLS_SWITCH
+#define configNUM_THREAD_LOCAL_STORAGE_POINTERS     1
+#define configTHREAD_LOCAL_STORAGE_DELETE_CALLBACKS 1
+#endif
 
 #endif /* FREERTOS_CONFIG_H */

@@ -224,7 +224,7 @@ trans_desc_t *nxspi_readbuf_pop(uint8_t type, uint32_t timeout);
 void nxspi_readbuf_push(trans_desc_t *msg);
 
 /* debug */
-int nxspi_fakewrite_forread(uint8_t *buf, uint16_t len, uint32_t timeout);
+int nxspi_fakewrite_forread(nxspi_chan_t type, uint8_t *buf, uint16_t len, uint32_t timeout);
 
 /* mem manage */
 void *malloc_aligned_with_padding(int size, int align_bytes);

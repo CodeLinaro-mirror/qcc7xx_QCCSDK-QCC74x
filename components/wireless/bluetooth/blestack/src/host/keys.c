@@ -29,6 +29,10 @@
 #if defined(CONFIG_BT_SETTINGS)
 #include "easyflash.h"
 #endif
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+#include "at_ble_config.h"
+#include "utils_crypto.h"
+#endif
 #endif
 
 static struct bt_keys key_pool[CONFIG_BT_MAX_PAIRED];
@@ -231,16 +235,16 @@ struct bt_keys *bt_keys_find_addr(u8_t id, const bt_addr_le_t *addr)
 }
 
 #if defined(CONFIG_BLE_AT_CMD)
- bt_addr_le_t *bt_get_keys_address(u8_t id)
+bt_addr_le_t *bt_get_keys_address(u8_t id)
 {
-    bt_addr_le_t addr;
+	bt_addr_le_t addr;
 
-    memset(&addr,0,sizeof(bt_addr_le_t));
-    if(id < ARRAY_SIZE(key_pool)){
-    	if (bt_addr_le_cmp(&key_pool[id].addr, &addr)) {
-    		return &key_pool[id].addr;
-    	}
-    }
+	memset(&addr, 0, sizeof(bt_addr_le_t));
+	if (id < ARRAY_SIZE(key_pool)) {
+		if (bt_addr_le_cmp(&key_pool[id].addr, &addr)) {
+			return &key_pool[id].addr;
+		}
+	}
 
 	return NULL;
 }
@@ -254,21 +258,39 @@ void bt_keys_add_type(struct bt_keys *keys, int type)
 void bt_keys_clear(struct bt_keys *keys)
 {
 #if defined(QCC74x_BLE)
-    if (keys->keys & BT_KEYS_IRK) {
+	if (keys->keys & BT_KEYS_IRK) {
 		bt_id_del(keys);
 	}
-    
-    memset(keys, 0, sizeof(*keys));
-    
-    #if defined (CONFIG_BT_SETTINGS)
-    #if (EF_SW_VERSION_NUM == 0x40099)
-    struct env_node_obj env;
-    if(!ef_get_env_obj(NV_KEY_POOL, &env)){
-        BT_DBG("Not found %s in settings", NV_KEY_POOL);
-    }else
-    #endif /* F_SW_VERSION_NUM == 0x40099 */
-        ef_del_env(NV_KEY_POOL);
-    #endif /* CONFIG_BT_SETTINGS */
+
+	memset(keys, 0, sizeof(*keys));
+
+#if defined(CONFIG_BT_SETTINGS)
+#if (EF_SW_VERSION_NUM == 0x40099)
+	struct env_node_obj env;
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	if (at_ble_config->aes_enable == 1) {
+		if (!ef_get_env_obj(AT_CONFIG_KEY_BLE_AES_LTK, &env)) {
+			BT_DBG("Not found %s in settings", AT_CONFIG_KEY_BLE_AES_LTK);
+		}
+	} else {
+#endif /* CONFIG_BT_AES_ENCRYPTION */
+		if (!ef_get_env_obj(NV_KEY_POOL, &env)) {
+			BT_DBG("Not found %s in settings", NV_KEY_POOL);
+		}
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	}
+#endif
+#endif /* EF_SW_VERSION_NUM == 0x40099 */
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	if (at_ble_config->aes_enable == 1) {
+		ef_del_env(AT_CONFIG_KEY_BLE_AES_LTK);
+	} else {
+#endif /* CONFIG_BT_AES_ENCRYPTION */
+		ef_del_env(NV_KEY_POOL);
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	}
+#endif
+#endif /* CONFIG_BT_SETTINGS */
 #else
 	BT_DBG("%s (keys 0x%04x)", bt_addr_le_str(&keys->addr), keys->keys);
 
@@ -296,7 +318,7 @@ void bt_keys_clear(struct bt_keys *keys)
 	}
 
 	(void)memset(keys, 0, sizeof(*keys));
- #endif
+#endif
 }
 
 static void keys_clear_id(struct bt_keys *keys, void *data)
@@ -304,12 +326,12 @@ static void keys_clear_id(struct bt_keys *keys, void *data)
 	u8_t *id = data;
 
 	if (*id == keys->id) {
-	#if !defined(QCC74x_BLE_PATCH_DO_GATT_CLEAR_IF_UNPAIRED)
-	if (IS_ENABLED(CONFIG_BT_SETTINGS))
-	#endif
-	{
-		bt_gatt_clear(*id, &keys->addr);
-	}
+#if !defined(QCC74x_BLE_PATCH_DO_GATT_CLEAR_IF_UNPAIRED)
+		if (IS_ENABLED(CONFIG_BT_SETTINGS))
+#endif
+		{
+			bt_gatt_clear(*id, &keys->addr);
+		}
 
 		bt_keys_clear(keys);
 	}
@@ -324,9 +346,56 @@ void bt_keys_clear_all(u8_t id)
 int bt_keys_store(struct bt_keys *keys)
 {
 #if defined(QCC74x_BLE)
-    int err;
-    err = bt_settings_set_bin(NV_KEY_POOL, (const u8_t *)&key_pool[0], sizeof(key_pool)); 
-    return err;
+	int err;
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	if (at_ble_config->aes_enable == 1) {
+		size_t plain_len = sizeof(key_pool); /* 1320 */
+		size_t padded_len = ((plain_len + 15) / 16) * 16; /* 1328 */
+		uint8_t pad = padded_len - plain_len;             /* 8 */
+
+		uint8_t *plain_pad = k_malloc(padded_len);
+		uint8_t *cipher = k_malloc(padded_len);
+
+		if (!plain_pad || !cipher) {
+			BT_ERR("malloc fail");
+			err = -1;
+			goto out;
+		}
+
+		/* PKCS7 Padding */
+		memcpy(plain_pad, key_pool, plain_len);
+		memset(plain_pad + plain_len, pad, pad);
+
+		/* Encrypt: second arg MUST be padded_len */
+		if (crypto_aes_cbc_encrypt(at_ble_config->aes_iv,
+					   padded_len,
+					   plain_pad,
+					   cipher)) {
+			BT_ERR("encrypt failed");
+			err = -1;
+			goto out;
+		}
+		/* Store to flash */
+		err = bt_settings_set_bin(AT_CONFIG_KEY_BLE_AES_LTK,
+					  cipher,
+					  padded_len);
+out:
+		if (plain_pad) {
+			memset(plain_pad, 0, padded_len);
+			k_free(plain_pad);
+		}
+		if (cipher) {
+			memset(cipher, 0, padded_len);
+			k_free(cipher);
+		}
+		return err;
+	} else {
+#endif /* CONFIG_BT_AES_ENCRYPTION */
+		err = bt_settings_set_bin(NV_KEY_POOL, (const u8_t *)&key_pool[0], sizeof(key_pool));
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	}
+#endif
+	return err;
 #else
 	char val[BT_SETTINGS_SIZE(BT_KEYS_STORAGE_LEN)];
 	char key[BT_SETTINGS_KEY_MAX];
@@ -483,8 +552,134 @@ static int keys_commit(void)
 #if defined(QCC74x_BLE)
 int bt_keys_load(void)
 {
-    return bt_settings_get_bin(NV_KEY_POOL, (u8_t *)&key_pool[0], sizeof(key_pool), NULL);    
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	if (at_ble_config->aes_enable == 1) {
+		int ret = 0;
+		size_t plain_len = sizeof(key_pool);
+		size_t padded_len = ((plain_len + 15) / 16) * 16;
+		uint8_t pad = padded_len - plain_len;
+
+		uint8_t *cipher = k_malloc(padded_len);
+		uint8_t *decrypted = k_malloc(padded_len);
+
+		if (!cipher || !decrypted) {
+			BT_ERR("malloc fail");
+			ret = -1;
+			goto out;
+		}
+
+		if (!bt_settings_get_bin(AT_CONFIG_KEY_BLE_AES_LTK, cipher, padded_len, NULL)) {
+			if (crypto_aes_cbc_decrypt(at_ble_config->aes_iv, padded_len, cipher, decrypted)) {
+				ret = -1;
+				goto out;
+			}
+			memcpy((u8_t *)&key_pool[0], decrypted, sizeof(key_pool));
+			ret = 0;
+			goto out;
+		}
+out:
+		if (cipher) {
+			memset(cipher, 0, padded_len);
+			k_free(cipher);
+		}
+		if (decrypted) {
+			memset(decrypted, 0, padded_len);
+			k_free(decrypted);
+		}
+		return ret;
+
+	} else {
+#endif /* CONFIG_BT_AES_ENCRYPTION */
+		return bt_settings_get_bin(NV_KEY_POOL, (u8_t *)&key_pool[0], sizeof(key_pool), NULL);
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+	}
+#endif
 }
+
+#if defined(CONFIG_BT_AES_ENCRYPTION)
+int bt_key_encrypt(void)
+{
+	size_t plain_len = sizeof(key_pool); /* 1320 */
+	size_t padded_len = ((plain_len + 15) / 16) * 16; /* 1328 */
+	uint8_t pad = padded_len - plain_len;             /* 8 */
+
+	uint8_t *plain_pad = k_malloc(padded_len);
+	uint8_t *cipher = k_malloc(padded_len);
+	uint8_t *decrypted = k_malloc(padded_len);
+	int ret = -1;
+
+	if (!plain_pad || !cipher || !decrypted) {
+		BT_ERR("malloc fail");
+		ret = -1;
+		goto out;
+	}
+
+	/* PKCS7 Padding */
+	memcpy(plain_pad, key_pool, plain_len);
+	memset(plain_pad + plain_len, pad, pad);
+
+	/* Encrypt: second arg MUST be padded_len */
+	if (crypto_aes_cbc_encrypt(at_ble_config->aes_iv,
+				   padded_len,
+				   plain_pad,
+				   cipher)) {
+		BT_ERR("encrypt failed");
+		goto out;
+	}
+
+	/* Decrypt */
+	if (crypto_aes_cbc_decrypt(at_ble_config->aes_iv,
+				   padded_len,
+				   cipher,
+				   decrypted)) {
+		BT_ERR("decrypt failed");
+		goto out;
+	}
+
+	/* Remove padding */
+	uint8_t last = decrypted[padded_len - 1];
+	if (last > 0 && last <= 16) {
+		/* OK */
+	} else {
+		BT_ERR("padding invalid: %d", last);
+		goto out;
+	}
+
+	/* Self-check compare */
+	if (memcmp(key_pool, decrypted, plain_len) != 0) {
+		BT_ERR("AES self-check mismatch!!!");
+		goto out;
+	}
+
+	BT_WARN("AES encrypt-decrypt validation PASS ✅");
+
+	/* Store to flash */
+	ret = bt_settings_set_bin(AT_CONFIG_KEY_BLE_AES_LTK,
+				  cipher,
+				  padded_len);
+	
+	/* Delete original unencrypted key after successful encryption */
+	if (ret == 0) {
+		BT_DBG("Deleting original unencrypted key %s", NV_KEY_POOL);
+		ef_del_env(NV_KEY_POOL);
+	}
+
+out:
+	if (plain_pad) {
+		memset(plain_pad, 0, padded_len);
+		k_free(plain_pad);
+	}
+	if (cipher) {
+		memset(cipher, 0, padded_len);
+		k_free(cipher);
+	}
+	if (decrypted) {
+		memset(decrypted, 0, padded_len);
+		k_free(decrypted);
+	}
+	return ret;
+}
+#endif /* CONFIG_BT_AES_ENCRYPTION */
 #endif
 
 #endif /* CONFIG_BT_SETTINGS */

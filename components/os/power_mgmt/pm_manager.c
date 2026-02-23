@@ -118,10 +118,9 @@ int pm_mem_pool_alloc(void)
     }
 
     addr = (uint8_t *)pvPortMalloc(PM_MEM_POOL_SIZE);
-    addr = (addr & 0x0FFFFFFF) | 0x20000000;
     pm_pbuf = (uint8_t*)addr;
 
-    linear_allocator_init(&pm_mem, pm_pbuf, PM_MEM_POOL_SIZE);
+    linear_allocator_init(&pm_mem, (void *)qcc74x_get_no_cache_addr(addr), PM_MEM_POOL_SIZE);
 
     return 0;
 }

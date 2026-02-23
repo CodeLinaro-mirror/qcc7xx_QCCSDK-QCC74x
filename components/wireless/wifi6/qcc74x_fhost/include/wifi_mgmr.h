@@ -35,7 +35,7 @@ typedef struct wifi_mgmr_sta_basic_info {
 typedef struct wifi_mgmr_adhoc_info {
     uint8_t channel;
     uint8_t rate;
-    uint8_t rts_thrshold;
+    uint16_t rts_thrshold;
     int8_t tx_power;
     uint8_t retry_limit;
     cb_adhoc_tx_cfm tx_cfm;

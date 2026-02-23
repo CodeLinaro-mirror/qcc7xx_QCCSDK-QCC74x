@@ -1,0 +1,577 @@
+From 071dee44d5cc078a5815b48f90422216f96ecb64 Mon Sep 17 00:00:00 2001
+From: Neeraj Kumar Cheryala <quic_ncheryal@quicinc.com>
+Date: Thu, 31 Jul 2025 16:29:26 +0800
+Subject: [PATCH 4/4] update ota with qcc sdk 2.0.87.1 and use partition table
+ in qcc sdk (#4)
+
+---
+ .../qcc74x/flash_config/partition_cfg_4M.toml | 141 -----------------
+ .../qualcomm/qcc74x/plat/OTAConfig.cpp        |   4 +
+ scripts/build/builders/qcc74x.py              |  11 ++
+ .../qualcomm/qcc74x/OTAImageProcessorImpl.cpp | 143 ++++--------------
+ .../qualcomm/qcc74x/OTAImageProcessorImpl.h   |  26 +---
+ .../qualcomm/qcc74x/qcc74x_executable.gni     |   2 +-
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni    |  45 +++++-
+ 7 files changed, 85 insertions(+), 287 deletions(-)
+ delete mode 100644 examples/platform/qualcomm/qcc74x/flash_config/partition_cfg_4M.toml
+
+diff --git a/examples/platform/qualcomm/qcc74x/flash_config/partition_cfg_4M.toml b/examples/platform/qualcomm/qcc74x/flash_config/partition_cfg_4M.toml
+deleted file mode 100644
+index 9cdd930082..0000000000
+--- a/examples/platform/qualcomm/qcc74x/flash_config/partition_cfg_4M.toml
++++ /dev/null
+@@ -1,141 +0,0 @@
+-[pt_table]
+-#partition table is 4K in size
+-address0 = 0xE000
+-address1 = 0xF000
+-# If version is 2, It will use dynamic mode.
+-version = 2
+-
+-[[pt_entry]]
+-type = 16
+-name = "Boot2"
+-device = 0
+-address0 = 0
+-size0 = 0xE000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 1
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 1
+-
+-[[pt_entry]]
+-type = 0
+-name = "FW"
+-device = 0
+-address0 = 0x10000
+-size0 = 0x1FA000
+-address1 = 0x20A000
+-size1 = 0x164000
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 1
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 1
+-
+-[[pt_entry]]
+-type = 10
+-name = "mfg"
+-device = 0
+-address0 = 0x20A000
+-size0 = 0x164000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 1
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 1
+-
+-[[pt_entry]]
+-type = 2
+-name = "media"
+-device = 0
+-address0 = 0x36E000
+-size0 = 0x71000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+-
+-[[pt_entry]]
+-type = 3
+-name = "PSM"
+-device = 0
+-address0 = 0x3DF000
+-size0 = 0x10000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+-
+-[[pt_entry]]
+-type = 4
+-name = "KEY"
+-device = 0
+-address0 = 0x3EF000
+-size0 = 0x2000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+-
+-[[pt_entry]]
+-type = 5
+-name = "DATA"
+-device = 0
+-address0 = 0x3F1000
+-size0 = 0x5000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+-
+-[[pt_entry]]
+-type = 6
+-name = "factory"
+-device = 0
+-address0 = 0x3F6000
+-size0 = 0x8000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+-
+-[[pt_entry]]
+-type = 7
+-name = "MFD"
+-device = 0
+-address0 = 0x3FE000
+-size0 = 0x1000
+-address1 = 0
+-size1 = 0
+-# compressed image must set len,normal image can left it to 0
+-len = 0
+-# If header is 1, it will add the header.
+-header = 0
+-# If header is 1 and security is 1, It will be encrypted.
+-security = 0
+\ No newline at end of file
+diff --git a/examples/platform/qualcomm/qcc74x/plat/OTAConfig.cpp b/examples/platform/qualcomm/qcc74x/plat/OTAConfig.cpp
+index cabebfd7ee..6200ccaf02 100644
+--- a/examples/platform/qualcomm/qcc74x/plat/OTAConfig.cpp
++++ b/examples/platform/qualcomm/qcc74x/plat/OTAConfig.cpp
+@@ -16,6 +16,10 @@
+  *    limitations under the License.
+  */
+ 
++extern "C" {
++#include <ota/ota.h>
++}
++
+ #include "OTAConfig.h"
+ #include <app/server/Server.h>
+ 
+diff --git a/scripts/build/builders/qcc74x.py b/scripts/build/builders/qcc74x.py
+index e0b48d1500..535b011747 100644
+--- a/scripts/build/builders/qcc74x.py
++++ b/scripts/build/builders/qcc74x.py
+@@ -118,6 +118,7 @@ class Qcc74xBuilder(GnBuilder):
+ 
+         self.argsOpt.append(f'qcc74x_sdk_root="%s"' % qcc74x_sdk_root)
+         self.argsOpt.append(f'qcc74x_sdk_toolchain="%s"' % qcc74x_sdk_toolchain)
++        self.argsOpt.append(f'qcc74x_sdk_pt="%s"' % self.search_pt(qcc74x_sdk_root, qcc74x_board))
+         self.argsOpt.append(f'qcc74x_sdk_boot2="%s"' % self.search_boot2(qcc74x_sdk_root, qcc74x_board))
+         self.argsOpt.append(f'qcc74x_sdk_dts="%s"' % self.search_dts(qcc74x_sdk_root, qcc74x_board))
+         self.argsOpt.append(f'custom_toolchain="//third_party/connectedhomeip/config/qualcomm/qcc74x_toolchain:riscv_gcc"')
+@@ -150,6 +151,16 @@ class Qcc74xBuilder(GnBuilder):
+ 
+         return qcc74x_sdk_root, qcc74x_sdk_toolchain
+ 
++    def search_pt(self, qcc74x_sdk_root, qcc74x_board):
++
++        try:
++            board_path=os.path.join(qcc74x_sdk_root, 'bsp/board', qcc74x_board, "config")
++            pt_file = sorted([str(path) for path in Path(board_path).glob("partition_cfg_4M.toml")])[-1]
++        except Exception:
++            raise Exception("partition table file is not found.")
++
++        return pt_file
++
+     def search_boot2(self, qcc74x_sdk_root, qcc74x_board):
+ 
+         try:
+diff --git a/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.cpp b/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.cpp
+index c092011d09..1312572f8b 100644
+--- a/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.cpp
++++ b/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.cpp
+@@ -14,57 +14,19 @@
+  *    See the License for the specific language governing permissions and
+  *    limitations under the License.
+  */
++extern "C" {
++#include <qcc743_sys.h>
++#include <ota/ota.h>
++}
+ 
+-#include "OTAImageProcessorImpl.h"
+ #include <app/clusters/ota-requestor/OTADownloader.h>
+ #include <app/clusters/ota-requestor/OTARequestorInterface.h>
+-
+-extern "C" {
+-#include <qcc74x_sys.h>
+-#include <qcc74x_ota.h>
+-}
++#include "OTAImageProcessorImpl.h"
+ 
+ using namespace chip::System;
+ 
+ namespace chip {
+ 
+-#define OTA_IMAGE_TYPE_XZ "XZ"
+-#define OTA_IMAGE_TYPE_RAW "RAW"
+-
+-static bool check_ota_header(ota_header_s_t * ota_header_s)
+-{
+-    char str[sizeof(ota_header_s->header) + 1];
+-
+-    memcpy(str, ota_header_s->header, sizeof(ota_header_s->header));
+-    str[sizeof(ota_header_s->header)] = '\0';
+-    ChipLogProgress(SoftwareUpdate, "QCC74x OTA header: %s", str);
+-
+-    if (0 == memcmp(OTA_IMAGE_TYPE_XZ, ota_header_s->type, strlen(OTA_IMAGE_TYPE_XZ)))
+-    {
+-        ChipLogProgress(SoftwareUpdate, "QCC74x OTA image type: %s", OTA_IMAGE_TYPE_XZ);
+-    }
+-    else if (0 == memcmp(OTA_IMAGE_TYPE_RAW, ota_header_s->type, strlen(OTA_IMAGE_TYPE_RAW)))
+-    {
+-        ChipLogProgress(SoftwareUpdate, "QCC74x OTA image type: %s", OTA_IMAGE_TYPE_RAW);
+-    }
+-    else
+-    {
+-        return false;
+-    }
+-
+-    ChipLogProgress(SoftwareUpdate, "QCC74x OTA image file size: %ld", ota_header_s->image_len);
+-
+-    memcpy(str, ota_header_s->ver_hardware, sizeof(ota_header_s->ver_hardware));
+-    str[sizeof(ota_header_s->ver_hardware)] = '\0';
+-    ChipLogProgress(SoftwareUpdate, "OTA image hardware version: %s", str);
+-
+-    memcpy(str, ota_header_s->ver_software, sizeof(ota_header_s->ver_software));
+-    str[sizeof(ota_header_s->ver_software)] = '\0';
+-    ChipLogProgress(SoftwareUpdate, "OTA image software version: %s", str);
+-
+-    return true;
+-}
+-
+ bool OTAImageProcessorImpl::IsFirstImageRun()
+ {
+     OTARequestorInterface * requestor = chip::GetRequestorInstance();
+@@ -157,11 +119,15 @@ void OTAImageProcessorImpl::HandlePrepareDownload(intptr_t context)
+     imageProcessor->mParams.downloadedBytes = 0;
+     imageProcessor->mParams.totalFileBytes  = 0;
+     imageProcessor->mHeaderParser.Init();
+-
+-    memset(&(imageProcessor->mOtaHdr), 0, sizeof(ota_header_s_t));
+     imageProcessor->mImageTotalSize = 0;
+ 
+-    imageProcessor->mDownloader->OnPreparedForDownload(CHIP_NO_ERROR);
++    imageProcessor->mOtaHandle = ota_start();
++    if (imageProcessor->mOtaHandle  == nullptr) {
++        imageProcessor->mDownloader->OnPreparedForDownload(CHIP_ERROR_NO_MEMORY);
++    }
++    else {
++        imageProcessor->mDownloader->OnPreparedForDownload(CHIP_NO_ERROR);
++    }
+ }
+ 
+ void OTAImageProcessorImpl::HandleFinalize(intptr_t context)
+@@ -175,21 +141,12 @@ void OTAImageProcessorImpl::HandleFinalize(intptr_t context)
+ 
+     ByteSpan block = imageProcessor->mBlock;
+ 
+-    if (qcc74x_ota_update(imageProcessor->mImageTotalSize, imageProcessor->mParams.downloadedBytes - sizeof(ota_header_t),
+-                        imageProcessor->mOtaHdr.sha256, sizeof(imageProcessor->mOtaHdr.sha256)) < 0)
+-    {
+-        imageProcessor->mDownloader->EndDownload(CHIP_ERROR_WRITE_FAILED);
+-        return;
++    if (ota_finish(imageProcessor->mOtaHandle, true, false) == 0) {
++        ChipLogProgress(SoftwareUpdate, "HandleFinalize: OTA image downloaded");
+     }
+-
+-    if (qcc74x_ota_check() < 0)
+-    {
++    else {
+         imageProcessor->mDownloader->EndDownload(CHIP_ERROR_WRITE_FAILED);
+-        ChipLogProgress(SoftwareUpdate, "OTA image verification error");
+-    }
+-    else
+-    {
+-        ChipLogProgress(SoftwareUpdate, "OTA image downloaded");
++        ChipLogProgress(SoftwareUpdate, "HandleFinalize: OTA image verification error");
+     }
+ 
+     imageProcessor->ReleaseBlock();
+@@ -204,8 +161,6 @@ void OTAImageProcessorImpl::HandleApply(intptr_t context)
+         return;
+     }
+ 
+-    qcc74x_ota_apply();
+-
+     DeviceLayer::SystemLayer().StartTimer(
+         System::Clock::Seconds32(OTA_AUTO_REBOOT_DELAY),
+         [](Layer *, void *) {
+@@ -223,8 +178,10 @@ void OTAImageProcessorImpl::HandleAbort(intptr_t context)
+         return;
+     }
+ 
+-    qcc74x_ota_abort();
+-
++    if (imageProcessor->mOtaHandle) {
++        ota_abort(imageProcessor->mOtaHandle);
++    }
++    imageProcessor->mOtaHandle = nullptr;
+     imageProcessor->ReleaseBlock();
+ }
+ 
+@@ -271,59 +228,17 @@ void OTAImageProcessorImpl::HandleProcessBlock(intptr_t context)
+ 
+     if (imageProcessor->mParams.totalFileBytes)
+     {
+-        if (0 == imageProcessor->mImageTotalSize)
+-        {
+-
+-            iSize = sizeof(ota_header_s_t) - imageProcessor->mParams.downloadedBytes;
+-            if (block.size() < iSize)
+-            {
+-                iSize = block.size();
+-            }
+-
+-            memcpy(reinterpret_cast<uint8_t *>(&imageProcessor->mOtaHdr) + imageProcessor->mParams.downloadedBytes, block.data(),
+-                   iSize);
+-
+-            if (imageProcessor->mParams.downloadedBytes + iSize >= sizeof(ota_header_s_t))
+-            {
+-                if (!check_ota_header(&imageProcessor->mOtaHdr))
+-                {
+-                    imageProcessor->mDownloader->EndDownload(CHIP_ERROR_DECODE_FAILED);
+-                    return;
+-                }
+-
+-                if (qcc74x_ota_start(imageProcessor->mOtaHdr.image_len + sizeof(imageProcessor->mOtaHdr.sha256)) < 0)
+-                {
+-                    imageProcessor->mDownloader->EndDownload(CHIP_ERROR_OPEN_FAILED);
+-                    return;
+-                }
+-
+-                imageProcessor->mImageTotalSize = imageProcessor->mOtaHdr.image_len + sizeof(imageProcessor->mOtaHdr.sha256);
+-            }
++        if (ota_update(imageProcessor->mOtaHandle, const_cast<uint8_t*>(block.data()), block.size()) >= 0) {
++            ChipLogProgress(SoftwareUpdate, "HandleProcessBlock: write image block, offset %llu, size %d", 
++                imageProcessor->mParams.downloadedBytes, block.size());
++            imageProcessor->mParams.downloadedBytes += block.size();
+         }
+-
+-        if (imageProcessor->mImageTotalSize && imageProcessor->mParams.downloadedBytes + block.size() > sizeof(ota_header_t))
+-        {
+-
+-            if (imageProcessor->mParams.downloadedBytes >= sizeof(ota_header_t))
+-            {
+-                iOffset = imageProcessor->mParams.downloadedBytes - sizeof(ota_header_t);
+-                iSize   = 0;
+-            }
+-            else
+-            {
+-                iOffset = 0;
+-                iSize   = sizeof(ota_header_t) - imageProcessor->mParams.downloadedBytes;
+-            }
+-
+-            if (qcc74x_ota_update(imageProcessor->mImageTotalSize, iOffset, const_cast<uint8_t *>(block.data() + iSize),
+-                                block.size() - iSize) < 0)
+-            {
+-                imageProcessor->mDownloader->EndDownload(CHIP_ERROR_WRITE_FAILED);
+-                return;
+-            }
++        else {
++            ChipLogProgress(SoftwareUpdate, "HandleProcessBlock: failed to write image block, offset %llu, size %d", 
++                imageProcessor->mParams.downloadedBytes, block.size());
++            imageProcessor->mDownloader->EndDownload(CHIP_ERROR_WRITE_FAILED);
++            return;
+         }
+-
+-        imageProcessor->mParams.downloadedBytes += block.size();
+     }
+ 
+     imageProcessor->mDownloader->FetchNextData();
+diff --git a/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.h b/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.h
+index 5aa4cb8836..aebc2184b3 100644
+--- a/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.h
++++ b/src/platform/qualcomm/qcc74x/OTAImageProcessorImpl.h
+@@ -24,29 +24,6 @@
+ 
+ namespace chip {
+ 
+-typedef struct _ota_header_s
+-{
+-    uint8_t header[16];
+-
+-    uint8_t type[4];    // RAW XZ
+-    uint32_t image_len; // body len
+-    uint8_t pad0[8];
+-
+-    uint8_t ver_hardware[16];
+-    uint8_t ver_software[16];
+-
+-    uint8_t sha256[32];
+-} ota_header_s_t;
+-
+-typedef struct _ota_header
+-{
+-    union
+-    {
+-        ota_header_s_t s;
+-        uint8_t _pad[512];
+-    } u;
+-} ota_header_t;
+-
+ class OTAImageProcessorImpl : public OTAImageProcessorInterface
+ {
+ public:
+@@ -82,7 +59,8 @@ private:
+     MutableByteSpan mBlock;
+     OTADownloader * mDownloader;
+     OTAImageHeaderParser mHeaderParser;
+-    ota_header_s_t mOtaHdr;
++
++    ota_handle_t mOtaHandle;
+     uint32_t mImageTotalSize;
+ };
+ 
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_executable.gni b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+index 755a7739a6..5202a9a226 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_executable.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+@@ -42,7 +42,7 @@ template("qcc74x_executable") {
+   objcopy_image_name = output_base_name + ".raw"
+ 
+   flashing_config_inputs = [
+-    "${chip_root}/examples/platform/qualcomm/qcc74x/flash_config/partition_cfg_4M.toml",
++    "${invoker.qcc74x_sdk_pt}",
+     "${invoker.qcc74x_sdk_boot2}",
+     "${invoker.qcc74x_sdk_dts}",
+   ]
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index f5197a68c8..7396105ad6 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -21,6 +21,7 @@ declare_args() {
+   chip_enable_factory_data = false
+ 
+   qcc74x_board = "qcc743dk"
++  qcc74x_sdk_pt = ""
+   qcc74x_sdk_boot2 = ""
+   qcc74x_sdk_dts = ""
+ 
+@@ -60,6 +61,9 @@ template("qcc74x_sdk") {
+       "-fshort-enums",
+       "-Wno-unused-but-set-variable",
+     ]
++    cflags_cc = [
++      "-Wno-sign-compare",
++    ]
+ 
+     cflags = [
+       "-Wno-conversion",
+@@ -612,7 +616,6 @@ template("qcc74x_sdk") {
+     include_dirs = [
+       "${qcc74x_sdk_root}/components/utils/log",
+       "${qcc74x_sdk_root}/components/utils/qcc74x_mtd/include",
+-      "${qcc74x_sdk_root}/components/utils/qcc74x_ota",
+       "${qcc74x_sdk_root}/components/utils/coredump",
+       "${qcc74x_sdk_root}/components/utils/partition",
+       "${qcc74x_sdk_root}/components/utils/getopt",
+@@ -629,10 +632,6 @@ template("qcc74x_sdk") {
+   }
+ 
+   source_set("${sdk_target_name}_utils") {
+-    defines = [
+-      "CONFIG_LOG_LEVEL=0",
+-    ]
+-
+     if (defined(invoker.enable_debug_coredump) &&
+         invoker.enable_debug_coredump) {
+       defines += [ "CONFIG_COREDUMP" ]
+@@ -641,7 +640,6 @@ template("qcc74x_sdk") {
+     sources = [
+       "${qcc74x_sdk_root}/components/utils/qcc74x_mtd/qcc74x_boot2.c",
+       "${qcc74x_sdk_root}/components/utils/qcc74x_mtd/qcc74x_mtd.c",
+-      "${qcc74x_sdk_root}/components/utils/qcc74x_ota/qcc74x_ota.c",
+       "${qcc74x_sdk_root}/components/utils/getopt/utils_getopt.c",
+       "${qcc74x_sdk_root}/components/utils/log/log.c",
+       "${qcc74x_sdk_root}/components/utils/math/src/utils_base64.c",
+@@ -693,6 +691,37 @@ template("qcc74x_sdk") {
+     ]
+   }
+ 
++
++  config("${sdk_target_name}_config_fota") {
++    include_dirs = [
++      "${qcc74x_sdk_root}/components/fota",
++    ]
++  }
++
++  source_set("${sdk_target_name}_fota") {
++    sources = [
++      "${qcc74x_sdk_root}/components/fota/ota/ota.c",
++    ]
++
++    cflags_c = [
++      "-Wno-implicit-function-declaration",
++      "-Wno-incompatible-pointer-types",
++      "-Wno-pointer-sign",
++      "-Wno-sign-compare",
++    ]
++
++    configs += [
++      ":${sdk_target_name}_config",
++      ":${sdk_target_name}_config_lhal",
++      ":${sdk_target_name}_config_utils",
++      ":${sdk_target_name}_config_sys",
++    ]
++
++    public_configs = [
++      ":${sdk_target_name}_config_fota",
++    ]
++  }
++
+   config("${sdk_target_name}_config_mbedtls") {
+     include_dirs = [
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/include",
+@@ -1273,6 +1302,7 @@ template("qcc74x_sdk") {
+       "-Wno-format-security",
+       "-Wno-discarded-qualifiers",
+       "-Wno-misleading-indentation",
++      "-Wno-type-limits",
+     ]
+ 
+     configs += [
+@@ -1321,7 +1351,8 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_std_drv",
+       ":${sdk_target_name}_sys",
+       ":${sdk_target_name}_utils",
+-      ":${sdk_target_name}_littlefs"
++      ":${sdk_target_name}_littlefs",
++      ":${sdk_target_name}_fota",
+     ]
+ 
+     if (defined(invoker.chip_enable_wifi) && invoker.chip_enable_wifi) {
+-- 
+2.34.1
+

@@ -13,6 +13,7 @@
 #include <string.h>
 #include <stdbool.h>
 #include <FreeRTOS.h>
+#include <semphr.h>
 #include <task.h>
 
 #include "at_main.h"
@@ -30,7 +31,7 @@
 #include "qcc743_sys.h"
 #include "qcc74x_adc.h"
 #include "at_fs.h"
-#include <sys/fcntl.h>
+#include <fcntl.h>
 #include <at_main.h>
 
 #define AT_FS_TYPE_LFS        0 // default littlefs
@@ -116,22 +117,23 @@ static int at_query_cmd_cmd(int argc, const char **argv)
 {
     int i, n = 0;
     int t, q, s, e;
-    char *name;
+    at_cmd_struct *cmds;
     char outbuf[64];
 
     memset(outbuf, 0, sizeof(outbuf));
     snprintf(outbuf, sizeof(outbuf), "+CMD:0,\"AT\",0,0,0,1\r\n");
     AT_CMD_RESPONSE(outbuf);
-    for (i = 0, n = 0; i < AT_CMD_MAX_NUM && n < at->num_commands; i++) {
-        name = at->commands[i]->at_name;
-        if (name) {
-            t = at->commands[i]->at_test_cmd ? 1 : 0;
-            q = at->commands[i]->at_query_cmd ? 1 : 0;
-            s = at->commands[i]->at_setup_cmd ? 1 : 0;
-            e = at->commands[i]->at_exe_cmd ? 1 : 0;
+    for (i = 0, n = 0; i < at->num_commands; i++) {
+        cmds = at->commands[i];
+        while (cmds->at_name) {
+            t = cmds->at_test_cmd ? 1 : 0;
+            q = cmds->at_query_cmd ? 1 : 0;
+            s = cmds->at_setup_cmd ? 1 : 0;
+            e = cmds->at_exe_cmd ? 1 : 0;
             memset(outbuf, 0, sizeof(outbuf));
-            snprintf(outbuf, sizeof(outbuf), "+CMD:%d,\"AT%s\",%d,%d,%d,%d\r\n", ++n, name, t, q, s, e);
+            snprintf(outbuf, sizeof(outbuf), "+CMD:%d,\"AT%s\",%d,%d,%d,%d\r\n", ++n, cmds->at_name, t, q, s, e);
             AT_CMD_RESPONSE(outbuf);
+            cmds++;
         }
     }
 
@@ -1476,6 +1478,7 @@ static const at_cmd_struct at_base_cmd[] = {
     {"+EFUSE-W-HEX", NULL, NULL, at_setup_efuse_write_hex, NULL, 2, 3},
     {"+EFUSE-R-HEX", NULL, NULL, at_setup_efuse_read_hex, NULL, 2, 3},
     {"+FLASH-R-HEX", NULL, NULL, at_setup_flash_read_hex, NULL, 2, 2},
+    {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
 bool at_base_cmd_regist(void)

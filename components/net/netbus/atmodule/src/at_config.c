@@ -53,3 +53,46 @@ int at_config_write(const char *key, void *config, int len)
     return 1;
 }
 
+int at_config_delete(const char *key)
+{
+    if (!key) {
+        AT_CONFIG_PRINTF("Invalid arguments to at_config_delete\r\n");
+        return 0;
+    }
+    int ret = ef_del_env(key);
+    if (ret != 0) {
+        AT_CONFIG_PRINTF("ef_del_env failed for '%s'\r\n", key);
+        return 0;
+    }
+    return 1;
+}
+
+int at_config_write_with_id(const char *key, int id, void *config, int len)
+{
+    char key_id[128];
+    snprintf(key_id, sizeof(key_id), "%s%d", key, id);
+
+    return at_config_write(key_id, config, len);
+}
+
+int at_config_read_with_id(const char *key, int id, void *config, int len)
+{
+    size_t ret, value_len;
+    char key_id[128];
+    snprintf(key_id, sizeof(key_id), "%s%d", key, id);
+
+    ret = ef_get_env_blob(key_id, config, len, &value_len);
+    if (ret > 0 && ret == value_len) {
+        AT_CONFIG_PRINTF("'%s' (%d) read success\r\n", key_id, value_len);
+        return 1;
+    }
+    return 0;
+}
+
+int at_config_delete_with_id(const char *key, int id)
+{
+    char key_id[128];
+    snprintf(key_id, sizeof(key_id), "%s%d", key, id);
+
+    return at_config_delete(key_id);
+}

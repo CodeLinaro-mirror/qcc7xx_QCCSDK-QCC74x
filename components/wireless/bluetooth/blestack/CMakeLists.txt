@@ -1,5 +1,5 @@
 # include $(COMPONENT_PATH)/../ble_common.mk
-# Add by boufflo sdk
+# Add by qcc74x sdk
 sdk_generate_library()
 # 
 # ##################################################################################
@@ -239,7 +239,6 @@ sdk_library_add_sources_ifdef(CONFIG_BT_SPP_SERVER
 # endif
 if(CONFIG_BT_STACK_CLI)
 	sdk_library_add_sources(src/cli_cmds/ble_cli_cmds.c)
-	sdk_library_add_sources_ifdef(CONFIG_BT_BREDR src/cli_cmds/bredr_cli_cmds.c)
 	sdk_library_add_sources_ifdef(CONFIG_BT_STACK_PTS src/cli_cmds/pts_cli_cmds.c)
 	sdk_library_add_sources_ifdef(CONFIG_BT_TP_CLI src/cli_cmds/ble_tp_cli_cmd.c)
 endif()

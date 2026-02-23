@@ -40,20 +40,14 @@ extern struct qcc74x_dma_channel_lli_pool_s rxlli_pool[4];
 extern trans_desc_t dnmsg_desc[NXBD_ITEMS];
 extern trans_desc_t upmsg_desc[NXBD_ITEMS];
 
-int nxspi_fakewrite_forread(uint8_t *buf, uint16_t len, uint32_t timeout)
+int nxspi_fakewrite_forread(nxspi_chan_t type, uint8_t *buf, uint16_t len, uint32_t timeout)
 {
     trans_desc_t *msg;
     int total_sent = 0;  // Track the total number of bytes successfully written
     int chunk_size = 0;
     BaseType_t result;
 
-    // Check for invalid arguments
-    if (buf == NULL || len == 0) {
-        NX_LOGW("arg err.\r\n");
-        return -1;  // Invalid buffer or length
-    }
-
-    while (len > 0) {
+    do {
         // Wait for an available descriptor from the free queue
         result = xQueueReceive(g_nxspi.dnfq, &msg, timeout);
         if (result != pdPASS) {
@@ -76,11 +70,11 @@ int nxspi_fakewrite_forread(uint8_t *buf, uint16_t len, uint32_t timeout)
         buf += chunk_size;  // Move the buffer pointer forward by the written chunk size
 
         // Send the message to the queue for transmission
-        while (xQueueSend(g_nxspi.dn[0], &msg, portMAX_DELAY) != pdPASS);
+        while (xQueueSend(g_nxspi.dn[type], &msg, portMAX_DELAY) != pdPASS);
 
-        // 
+        //
         total_sent += chunk_size;
-    }
+    } while(len > 0);
     return total_sent;
 }
 

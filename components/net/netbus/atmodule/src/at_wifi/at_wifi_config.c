@@ -19,6 +19,7 @@
 #include "at_config.h"
 #include "at_wifi_config.h"
 #include "at_pal.h"
+#include "utils_crypto.h"
 
 wifi_config *at_wifi_config = NULL;
 
@@ -46,10 +47,29 @@ int at_wifi_config_init(void)
         at_wifi_config->wifi_mode = WIFI_DISABLE;
     }
     at_wifi_config->switch_mode_auto_conn = WIFI_AUTOCONN_ENABLE;
+
+    crypto_aes_key_init();
+
+    at_wifi_init_credential_cache();
+
     if (!at_config_read(AT_CONFIG_KEY_WIFI_STA_INFO, &at_wifi_config->sta_info, sizeof(wifi_sta_info))) {
         memset(&at_wifi_config->sta_info, 0, sizeof(wifi_sta_info));
         at_wifi_config->sta_info.jap_timeout = 15;
+        at_wifi_config->sta_info.pmf = 1;
     }
+
+    if (strlen(at_wifi_config->sta_info.psk) > 0
+        && find_credential_slot(at_wifi_config->sta_info.ssid, NULL)==-1) {
+        int slot = save_credential_to_cache(at_wifi_config->sta_info.ssid, at_wifi_config->sta_info.psk);
+        memcpy(at_wifi_config->sta_info.pwd_encrypted,
+               at_wifi_config->credential_cache[slot].pwd_encrypted,
+               64);
+        memcpy(at_wifi_config->sta_info.iv,
+               at_wifi_config->credential_cache[slot].iv,
+               sizeof(at_wifi_config->sta_info.iv));
+        at_config_write(AT_CONFIG_KEY_WIFI_STA_INFO, &at_wifi_config->sta_info, sizeof(wifi_sta_info));
+    }
+
     if (!at_config_read(AT_CONFIG_KEY_WIFI_RECONN_CFG, &at_wifi_config->reconn_cfg, sizeof(wifi_sta_reconnect))) {
         at_wifi_config->reconn_cfg.interval_second = 0;
         at_wifi_config->reconn_cfg.repeat_count = 0;
@@ -69,6 +89,21 @@ int at_wifi_config_init(void)
         at_wifi_config->ap_info.ecn = 0;
         at_wifi_config->ap_info.max_conn = 10;
         at_wifi_config->ap_info.ssid_hidden = 0;
+    }
+
+    memset(&at_wifi_config->ap_credential_cache, 0, sizeof(wifi_secure_credential_t));
+    if (!at_config_read(AT_CONFIG_KEY_WIFI_AP_SEC_CRED, &at_wifi_config->ap_credential_cache, sizeof(wifi_secure_credential_t))
+        && strlen(at_wifi_config->ap_info.ssid) > 0 && strlen(at_wifi_config->ap_info.pwd) > 0) {
+        crypto_get_random_iv(at_wifi_config->ap_credential_cache.iv);
+        crypto_aes_cbc_encrypt(at_wifi_config->ap_credential_cache.iv,
+                               64,
+                               (const uint8_t *)at_wifi_config->ap_info.pwd,
+                               at_wifi_config->ap_credential_cache.pwd_encrypted);
+        memcpy(at_wifi_config->ap_info.pwd_encrypted,
+               at_wifi_config->ap_credential_cache.pwd_encrypted,
+               sizeof(at_wifi_config->ap_info.pwd_encrypted));
+        at_config_write(AT_CONFIG_KEY_WIFI_AP_INFO, &at_wifi_config->ap_info, sizeof(wifi_ap_info));
+        at_config_write(AT_CONFIG_KEY_WIFI_AP_SEC_CRED, &at_wifi_config->ap_credential_cache, sizeof(wifi_secure_credential_t));
     }
     if (!at_config_read(AT_CONFIG_KEY_WIFI_DHCP_STATE, &at_wifi_config->dhcp_state, sizeof(wifi_dhcp_state))) {
         at_wifi_config->dhcp_state.bit.sta_dhcp = 1;
@@ -158,7 +193,7 @@ int at_wifi_config_save(const char *key)
     else if (strcmp(key, AT_CONFIG_KEY_WIFI_NETMODE) == 0)
         return at_config_write(key, &at_wifi_config->netmode, sizeof(at_wifi_config->netmode));
 
-        return -1;
+    return -1;
 }
 
 int at_wifi_config_default(void)
@@ -184,7 +219,134 @@ int at_wifi_config_default(void)
     ef_del_env(AT_CONFIG_KEY_WIFI_COUNTRY_CODE); 
     ef_del_env(AT_CONFIG_KEY_WIFI_HOSTNAME); 
     ef_del_env(AT_CONFIG_KEY_WIFI_LAPOPT); 
-    ef_del_env(AT_CONFIG_KEY_WIFI_ANTDIV); 
+    ef_del_env(AT_CONFIG_KEY_WIFI_ANTDIV);
+    ef_del_env(AT_CONFIG_KEY_WIFI_SEC_CRED);
+    ef_del_env(AT_CONFIG_KEY_WIFI_AP_SEC_CRED);
+
+    return 0;
+}
+
+void at_wifi_init_credential_cache(void)
+{
+    memset(at_wifi_config->credential_cache, 0, sizeof(at_wifi_config->credential_cache));
+
+    at_config_read(AT_CONFIG_KEY_WIFI_SEC_CRED, at_wifi_config->credential_cache,
+                   sizeof(at_wifi_config->credential_cache));
+}
+
+int find_credential_slot(const char *ssid, int *free_index)
+{
+    if (free_index) {
+        *free_index = -1;
+    }
+
+    for (int i = 0; i < MAX_SECURE_CRED_COUNT; i++) {
+        if (at_wifi_config->credential_cache[i].ssid[0] == 0 && free_index && *free_index == -1) {
+            *free_index = i;
+        } else if (strcmp(at_wifi_config->credential_cache[i].ssid, ssid) == 0) {
+            return i;
+        }
+    }
+
+    return -1;
+}
+
+int credential_update(void)
+{
+    int slot, free_slot;
+    slot = find_credential_slot(at_wifi_config->sta_info.ssid, &free_slot);
+
+    if (slot == -1) {
+        slot = free_slot;
+    }
+
+    if (slot == -1) {
+        return -1;
+    }
+
+    strlcpy(at_wifi_config->credential_cache[slot].ssid,
+            at_wifi_config->sta_info.ssid,
+            sizeof(at_wifi_config->credential_cache[slot].ssid));
+
+    memcpy(at_wifi_config->credential_cache[slot].pwd_encrypted,
+           at_wifi_config->sta_info.pwd_encrypted,
+           sizeof(at_wifi_config->credential_cache[slot].pwd_encrypted));
+
+    memcpy(at_wifi_config->credential_cache[slot].iv,
+           at_wifi_config->sta_info.iv,
+           sizeof(at_wifi_config->credential_cache[slot].iv));
+
+    if (at->store) {
+        at_wifi_config_save(AT_CONFIG_KEY_WIFI_STA_INFO);
+        at_config_write(AT_CONFIG_KEY_WIFI_SEC_CRED, at_wifi_config->credential_cache,
+                        sizeof(at_wifi_config->credential_cache));
+    }
+    return 0;
+}
+
+int save_credential_to_cache(const char *ssid, const char *password)
+{
+    int slot, free_slot;
+    char pwd[65] = {0};
+
+    slot = find_credential_slot(ssid, &free_slot);
+    if (slot == -1) {
+        slot = free_slot;
+    }
+    if (slot == -1) {
+        return -1;
+    }
+
+    memset(&at_wifi_config->credential_cache[slot], 0, sizeof(wifi_secure_credential_t));
+    strlcpy(at_wifi_config->credential_cache[slot].ssid, ssid, sizeof(at_wifi_config->credential_cache[slot].ssid));
+
+    strlcpy(pwd, password, sizeof(pwd));
+
+    crypto_get_random_iv(at_wifi_config->credential_cache[slot].iv);
+    crypto_aes_cbc_encrypt(at_wifi_config->credential_cache[slot].iv,
+                                 64,
+                                 (const uint8_t *)pwd,
+                                 at_wifi_config->credential_cache[slot].pwd_encrypted);
+
+    memset(pwd, 0, sizeof(pwd));
+
+    if (at->store) {
+        at_config_write(AT_CONFIG_KEY_WIFI_SEC_CRED, at_wifi_config->credential_cache,
+                        sizeof(at_wifi_config->credential_cache));
+    }
+    return slot;
+}
+
+int clear_cached_credential(const char *ssid)
+{
+    int slot;
+
+    slot = find_credential_slot(ssid, NULL);
+    if (slot == -1) {
+        return -1;
+    }
+
+    memset(&at_wifi_config->credential_cache[slot], 0, sizeof(wifi_secure_credential_t));
+    at_config_write(AT_CONFIG_KEY_WIFI_SEC_CRED, at_wifi_config->credential_cache,
+                    sizeof(at_wifi_config->credential_cache));
+
+    return 0;
+}
+
+int delete_credential_from_cache(const char *ssid)
+{
+    int ret;
+
+    ret = clear_cached_credential(ssid);
+    if (ret == -1) {
+        return -1;
+    }
+
+    if (strcmp(at_wifi_config->sta_info.ssid, ssid) == 0) {
+        memset(&at_wifi_config->sta_info, 0, sizeof(wifi_sta_info));
+        at_config_write(AT_CONFIG_KEY_WIFI_STA_INFO, &at_wifi_config->sta_info, sizeof(wifi_sta_info));
+    }
+
     return 0;
 }
 

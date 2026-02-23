@@ -43,6 +43,9 @@
 #ifdef CONFIG_NETWORK
 #include "at_net_config.h"
 #endif
+
+#include "utils_crypto.h"
+
 #define DBG_TAG "MAIN"
 #include "log.h"
 
@@ -184,6 +187,7 @@ static void wifiopt_sta_disconnect(int force)
         wifi_mgmr_sta_autoconnect_disable();
         wifi_mgmr_sta_disconnect();
         vTaskDelay(500);
+        printf("disconnect over\r\n");
 #endif
 }
 
@@ -204,11 +208,26 @@ void wifiopt_sta_connect(void)
         return;
     }
     char *ssid = at_wifi_config->sta_info.ssid;
-    char *psk = at_wifi_config->sta_info.psk;
+    char pwd_plain[65] = {0};
+    char *psk = pwd_plain;
+    bool has_encrypted_pwd = false;
+
+    for (int i = 0; i < 16; i++) {
+        if (at_wifi_config->sta_info.iv[i] != 0) {
+            has_encrypted_pwd = true;
+            break;
+        }
+    }
+
+    if (has_encrypted_pwd) {
+        crypto_aes_cbc_decrypt(at_wifi_config->sta_info.iv,
+                                64,
+                                at_wifi_config->sta_info.pwd_encrypted,
+                                (uint8_t *)pwd_plain);
+    }
 
     int pmf_cfg = 1;
 
-    char *pmk = at_wifi_config->sta_info.pmk;
     uint16_t freq = at_wifi_config->sta_info.freq;
     uint8_t *bssid = at_wifi_config->sta_info.bssid;
     uint16_t listen_interval = (uint16_t)at_wifi_config->sta_info.listen_interval;
@@ -235,49 +254,8 @@ void wifiopt_sta_connect(void)
         bssid = bssid_str;
     }
 
-#if 0
-    if (at_wifi_config->sta_info.pci_en) {
-        flags |= WIFI_CONNECT_PCI_EN;
-    }
-    if (at_wifi_config->sta_info.scan_mode == 0) {
-        flags |= WIFI_CONNECT_STOP_SCAN_ALL_CHANNEL_IF_TARGET_AP_FOUND;
-    }
-    if (at_wifi_config->sta_info.pmf & 0x01) {
-        flags |= WIFI_CONNECT_PMF_CAPABLE;
-    }
-    if (at_wifi_config->sta_info.pmf & 0x02) {
-        flags |= WIFI_CONNECT_PMF_REQUIRED;
-    }
+    pmf_cfg = at_wifi_config->sta_info.pmf;
 
-    if (!g_wifi_sta_interface) {
-        g_wifi_sta_interface = wifi_mgmr_sta_enable();
-        wifi_mgmr_set_hostname(hostname);
-
-        ext_param.psk = pmk;
-        ext_param.ap_info.type = AP_INFO_TYPE_PRESIST;
-        ext_param.ap_info.time_to_live = -1;
-        ext_param.ap_info.bssid = bssid;
-        ext_param.ap_info.band = 0;
-#ifdef AT_WIFI_SUPPORT_STORE_CHANNEL
-        ext_param.ap_info.freq = freq;
-#else
-        ext_param.ap_info.freq = 0;
-#endif
-        if (dhcp_en) {
-            ext_param.ap_info.use_dhcp = 1;
-            g_wifi_sta_use_dhcp = 1;
-            wifi_mgmr_sta_ip_unset();
-        }
-        else {
-            ext_param.ap_info.use_dhcp = 0;
-            g_wifi_sta_use_dhcp = 0;
-            wifi_mgmr_sta_ip_set(ip, mask, gateway, gateway, 0);
-        }
-        ext_param.flags = flags;
-        wifi_mgmr_set_listen_interval(listen_interval);
-        wifi_mgmr_sta_connect_ext(g_wifi_sta_interface, ssid, psk, &ext_param);
-    }
-#else 
     if (!dhcp_en) {
         wifi_mgmr_sta_ip_set(ip, mask, gateway, 0);
     }
@@ -294,10 +272,11 @@ void wifiopt_sta_connect(void)
         at_response_string("+CW:CONNECTING\r\n");
     }
     if (antenna_hal_is_static_div_enabled()) {
-        return wifi_sta_antenna_connect(ssid, psk, bssid, at_wifi_config->sta_info.wep_en?"WEP":NULL, pmf_cfg, freq, freq, dhcp_en);
+        wifi_sta_antenna_connect(ssid, psk, bssid, at_wifi_config->sta_info.wep_en?"WEP":NULL, pmf_cfg, freq, freq, dhcp_en);
+    } else {
+        wifi_sta_connect(ssid, psk, bssid, at_wifi_config->sta_info.wep_en?"WEP":NULL, pmf_cfg, freq, freq, dhcp_en);
     }
-    wifi_sta_connect(ssid, psk, bssid, at_wifi_config->sta_info.wep_en?"WEP":NULL, pmf_cfg, freq, freq, dhcp_en);
-#endif
+    memset(pwd_plain, 0, sizeof(pwd_plain));
 }
 
 int at_wifi_state_get(void)
@@ -415,6 +394,7 @@ static void _wifi_ap_status_callback(struct netif *netif)
 static int wifi_ap_start(void)
 {
     wifi_mgmr_ap_params_t config = {0};
+    char pwd_plain[65] = {0};
 
     if (at_wifi_config->wifi_mode == WIFI_AP_STA_MODE) {
         int sta_channel;
@@ -424,8 +404,15 @@ static int wifi_ap_start(void)
         }
     }
 
+    if (at_wifi_config->ap_info.ecn != AT_WIFI_ENC_OPEN) {
+        crypto_aes_cbc_decrypt(at_wifi_config->ap_credential_cache.iv,
+                               64,
+                               at_wifi_config->ap_credential_cache.pwd_encrypted,
+                               (uint8_t *)pwd_plain);
+    }
+
     config.ssid = at_wifi_config->ap_info.ssid;
-    config.key = at_wifi_config->ap_info.pwd;
+    config.key = pwd_plain;
     config.hidden_ssid = at_wifi_config->ap_info.ssid_hidden;
     config.channel = at_wifi_config->ap_info.channel;
     config.use_dhcpd = at_wifi_config->dhcp_state.bit.ap_dhcp;
@@ -446,6 +433,7 @@ static int wifi_ap_start(void)
     struct netif *netif = fhost_to_net_if(MGMR_VIF_AP);
 
     int ret = wifi_mgmr_ap_start(&config);
+    memset(pwd_plain, 0, sizeof(pwd_plain));
     if (ret != 0) {
         return ret;
     }
@@ -642,11 +630,29 @@ static void at_wifi_event_cb(void *private_data, uint32_t code)
                     }
                 }
                 g_wifi_sta_is_connected = 1;
+
                 if (!at_wifi_config->sta_info.store) {
-                    at_wifi_config->sta_info.store = 1;
-                    if (at->store) {
-                        at_wifi_config_save(AT_CONFIG_KEY_WIFI_STA_INFO);
+                    wifi_mgmr_connect_ind_stat_info_t conn_info = {0};
+                    wifi_mgmr_sta_connect_ind_stat_get(&conn_info);
+                    strlcpy(at_wifi_config->sta_info.ssid, conn_info.ssid,
+                            sizeof(at_wifi_config->sta_info.ssid));
+
+                    if (strlen(conn_info.passphr) > 0) {
+                        crypto_get_random_iv(at_wifi_config->sta_info.iv);
+                        crypto_aes_cbc_encrypt(at_wifi_config->sta_info.iv,
+                                            64,
+                                            conn_info.passphr,
+                                            at_wifi_config->sta_info.pwd_encrypted);
+                    } else {
+                        memset(at_wifi_config->sta_info.iv, 0,
+                        sizeof(at_wifi_config->sta_info.iv));
                     }
+
+                    memcpy(at_wifi_config->sta_info.bssid, conn_info.bssid,
+                        sizeof(at_wifi_config->sta_info.bssid));
+
+                    at_wifi_config->sta_info.store = 1;
+                    credential_update();
                 }
 
                 if (g_wifi_ap_is_start && at_wifi_config->wifi_mode == WIFI_AP_STA_MODE) {
@@ -719,6 +725,12 @@ static void at_wifi_event_cb(void *private_data, uint32_t code)
                             sta_mac[4],
                             sta_mac[5]);
                 }
+            }
+        }
+        break;
+        case CODE_WIFI_ON_AP_STARTED: {
+            if (at_wifi_config->wifi_mode != WIFI_SOFTAP_MODE && at_wifi_config->wifi_mode != WIFI_AP_STA_MODE) {
+                wifiopt_ap_stop(0);
             }
         }
         break;
@@ -798,9 +810,11 @@ void wifi_event_handler(uint32_t code)
         } break;
         case CODE_WIFI_ON_AP_STARTED: {
             LOG_I("[APP] [EVT] %s, CODE_WIFI_ON_AP_STARTED\r\n", __func__);
+            wifi_event_start(code);
         } break;
         case CODE_WIFI_ON_AP_STOPPED: {
             LOG_I("[APP] [EVT] %s, CODE_WIFI_ON_AP_STOPPED\r\n", __func__);
+            wifi_event_start(code);
         } break;
         case CODE_WIFI_ON_AP_STA_ADD: {
             LOG_I("[APP] [EVT] [AP] [ADD] %lld\r\n", xTaskGetTickCount());

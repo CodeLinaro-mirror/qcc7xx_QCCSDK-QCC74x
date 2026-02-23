@@ -18,4 +18,6 @@ typedef struct mbedtls_sha1_context
 }
 mbedtls_sha1_context __attribute__((aligned(32)));
 
+void mbedtls_sha1_once_padded_init( void );
+int mbedtls_sha1_once_padded(const unsigned char *input, unsigned char *output, unsigned char nblock);
 #endif /* sha1_alt.h */

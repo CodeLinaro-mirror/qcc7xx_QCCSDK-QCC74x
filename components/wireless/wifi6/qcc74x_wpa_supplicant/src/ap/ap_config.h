@@ -272,6 +272,19 @@ struct airtime_sta_weight {
 
 #define EXT_CAPA_MAX_LEN 15
 
+struct hostapd_bss_acl_config {
+    bool mac_acl_disable;
+    enum macaddr_acl {
+        ACCEPT_UNLESS_DENIED = 0,
+        DENY_UNLESS_ACCEPTED = 1,
+        USE_EXTERNAL_RADIUS_AUTH = 2
+    } macaddr_acl;
+    struct mac_acl_entry *accept_mac;
+    int num_accept_mac;
+    struct mac_acl_entry *deny_mac;
+    int num_deny_mac;
+};
+
 /**
  * struct hostapd_bss_config - Per-BSS configuration
  */
@@ -335,11 +348,7 @@ struct hostapd_bss_config {
 	char *erp_domain;
 
     bool mac_acl_disable;
-	enum macaddr_acl {
-		ACCEPT_UNLESS_DENIED = 0,
-		DENY_UNLESS_ACCEPTED = 1,
-		USE_EXTERNAL_RADIUS_AUTH = 2
-	} macaddr_acl;
+	enum macaddr_acl macaddr_acl;
 	struct mac_acl_entry *accept_mac;
 	int num_accept_mac;
 	struct mac_acl_entry *deny_mac;

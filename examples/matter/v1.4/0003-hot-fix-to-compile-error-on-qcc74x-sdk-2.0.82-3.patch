@@ -1,0 +1,24 @@
+From 4653b12ffbf13303230ab30ee05d3d64b2dfd186 Mon Sep 17 00:00:00 2001
+From: Ganesh Kondabattini <quic_ganeshk@quicinc.com>
+Date: Fri, 27 Jun 2025 12:38:15 +0530
+Subject: [PATCH 3/4] hot fix to compile error on qcc74x sdk 2.0.82 (#3)
+
+---
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni | 1 +
+ 1 file changed, 1 insertion(+)
+
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index 6696856a00..f5197a68c8 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -765,6 +765,7 @@ template("qcc74x_sdk") {
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/gcm.c",
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/havege.c",
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/hkdf.c",
++      "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/hmac.c",
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/hmac_drbg.c",
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/md.c",
+       "${qcc74x_sdk_root}/components/crypto/mbedtls/mbedtls/library/md2.c",
+-- 
+2.34.1
+

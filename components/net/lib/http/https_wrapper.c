@@ -26,7 +26,7 @@
 #include "mbedtls/debug.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
-#include "mbedtls/net.h"
+#include "mbedtls/net_sockets.h"
 
 #if defined(MBEDTLS_THREADING_ALT)
 #include "mbedtls/threading.h"
@@ -89,7 +89,7 @@ static int ssl_mutex_unlock(mbedtls_threading_mutex_t *mutex)
 }
 #endif
 
-static int ssl_random(void *p_rng, unsigned char *output, size_t output_len)                                                                                                                           
+static int ssl_random(void *p_rng, unsigned char *output, size_t output_len)
 {
     uint32_t rnglen = output_len;
     uint8_t rngoffset = 0;
@@ -184,7 +184,7 @@ static int ssl_data_send( void *ctx, const unsigned char *buf, size_t len )
     return ret;
 }
 
-static void *ssl_connect(int fd, const http_wrapper_ssl_param_t *param)
+static void *ssl_connect(int fd, const char *host_name, const http_wrapper_ssl_param_t *param)
 {
     int ret;
     uint32_t result;
@@ -245,7 +245,11 @@ static void *ssl_connect(int fd, const http_wrapper_ssl_param_t *param)
     }
 
     if (param->private_cert && param->private_cert_len > 0) {
+#ifdef CONFIG_MBEDTLS_V3
+        ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)param->private_cert, param->private_cert_len, NULL, 0, NULL, NULL);
+#else
         ret = mbedtls_pk_parse_key(&ssl_param->pkey, (unsigned char *)param->private_cert, param->private_cert_len, NULL, 0);
+#endif
         if (ret != 0) {
             LOG_DBG("[MBEDTLS] ssl connect: x509 parse failed- 0x%x\r\n", -ret);
             goto ERROR;
@@ -294,6 +298,9 @@ static void *ssl_connect(int fd, const http_wrapper_ssl_param_t *param)
 
     if (param->sni) {
         mbedtls_ssl_set_hostname(&ssl_param->ssl, param->sni);
+    } else {
+        // For MbedTLS v3 certificate verification, hostname must be set
+        mbedtls_ssl_set_hostname(&ssl_param->ssl, host_name);
     }
     mbedtls_ssl_set_bio(&ssl_param->ssl, &ssl_param->net, ssl_data_send, ssl_data_recv, NULL);
 
@@ -303,7 +310,7 @@ static void *ssl_connect(int fd, const http_wrapper_ssl_param_t *param)
     LOG_DBG("[MBEDTLS] Performing the SSL/TLS handshake ... \r\n");
     while ((ret = mbedtls_ssl_handshake(&ssl_param->ssl)) != 0) {
         if ((ret != MBEDTLS_ERR_SSL_WANT_READ) && (ret != MBEDTLS_ERR_SSL_WANT_WRITE)) {
-        	LOG_ERR("[MBEDTLS] ssl connect: mbedtls_ssl_handshake returned -0x%x\r\n", -ret);
+            LOG_ERR("[MBEDTLS] ssl connect: mbedtls_ssl_handshake returned -0x%x\r\n", -ret);
             goto ERROR;
         }
     }
@@ -314,7 +321,7 @@ static void *ssl_connect(int fd, const http_wrapper_ssl_param_t *param)
     LOG_DBG("[MBEDTLS] ...... Verifying peer X.509 certificate ... \r\n");
     result = mbedtls_ssl_get_verify_result(&ssl_param->ssl);
     if (result != 0) {
-    	LOG_ERR("[MBEDTLS] ssl connect: verify result not confirmed - %d\r\n", result);
+        LOG_ERR("[MBEDTLS] ssl connect: verify result not confirmed - %d\r\n", result);
         goto ERROR;
     }
 
@@ -522,7 +529,7 @@ static int connect_tcp(const char *host_name, uint16_t port)
 
 https_wrapper_handle_t https_wrapper_connect(const char *host_name, uint16_t port, http_wrapper_ssl_param_t *param)
 {
-	int rv = 0;
+    int rv = 0;
     int sockfd;
     mbedtls_net_context net_ctx;
     ssl_param_t *ctx;
@@ -534,13 +541,13 @@ https_wrapper_handle_t https_wrapper_connect(const char *host_name, uint16_t por
     }
 
     if (param == NULL) {
-    	ctx = (ssl_param_t *)calloc(sizeof(ssl_param_t), 1);
+        ctx = (ssl_param_t *)calloc(sizeof(ssl_param_t), 1);
         if (NULL == ctx) {
             LOG_ERR("[MBEDTLS] ssl connect: malloc(%d) fail\r\n", sizeof(ssl_param_t));
             return NULL;
         }
         ctx->net.fd = sockfd;
-    	return (https_wrapper_handle_t)ctx;
+        return (https_wrapper_handle_t)ctx;
     }
 
     net_ctx.fd = sockfd;
@@ -551,10 +558,10 @@ https_wrapper_handle_t https_wrapper_connect(const char *host_name, uint16_t por
     }
 
     LOG_DBG("ca_cert:%p, own_cert:%p private_key:%p alpn:%p alpn_num:%d sni:%p\r\n", 
-    		param->ca_cert, param->own_cert, param->private_cert,
-			param->alpn, param->alpn_num, param->sni);
+            param->ca_cert, param->own_cert, param->private_cert,
+            param->alpn, param->alpn_num, param->sni);
 
-    ctx = ssl_connect(net_ctx.fd, param);
+    ctx = ssl_connect(net_ctx.fd, host_name, param);
 
     if (ctx == NULL) {
         LOG_ERR("ssl_connect handle NULL, fd:%d\r\n", sockfd);
@@ -563,7 +570,7 @@ https_wrapper_handle_t https_wrapper_connect(const char *host_name, uint16_t por
 
     rv = mbedtls_net_set_nonblock(&net_ctx);
     if (rv != 0) {
-		ssl_close(ctx);
+        ssl_close(ctx);
         close(sockfd);
     }
 
@@ -572,38 +579,38 @@ https_wrapper_handle_t https_wrapper_connect(const char *host_name, uint16_t por
 
 int https_wrapper_send(https_wrapper_handle_t https, const void *data, uint16_t size, int flags)
 {
-	ssl_param_t *ctx = (ssl_param_t *)https;
-	if (ctx->ssl_inited) {
-		return mbedtls_ssl_send(ctx, data, size);
-	}
-	return send(ctx->net.fd, data, size, flags);
+    ssl_param_t *ctx = (ssl_param_t *)https;
+    if (ctx->ssl_inited) {
+        return mbedtls_ssl_send(ctx, data, size);
+    }
+    return send(ctx->net.fd, data, size, flags);
 }
 
 int https_wrapper_recv(https_wrapper_handle_t https, uint8_t *data, uint32_t size, int flags)
 {
-	ssl_param_t *ctx = (ssl_param_t *)https;
-	if (ctx->ssl_inited) {
-		return mbedtls_ssl_recv(ctx, data, size);
-	}
-	return recv(ctx->net.fd, data, size, flags);
+    ssl_param_t *ctx = (ssl_param_t *)https;
+    if (ctx->ssl_inited) {
+        return mbedtls_ssl_recv(ctx, data, size);
+    }
+    return recv(ctx->net.fd, data, size, flags);
 }
 
 int https_wrapper_destroy(https_wrapper_handle_t https)
 {
-	ssl_param_t *ctx = (ssl_param_t *)https;
-	int fd = ctx->net.fd;
+    ssl_param_t *ctx = (ssl_param_t *)https;
+    int fd = ctx->net.fd;
 
-	if (ctx->ssl_inited) {
-		ssl_close(ctx);
-	} else {
-		free(ctx);
-	}
-	close(fd);
-	return 0;
+    if (ctx->ssl_inited) {
+        ssl_close(ctx);
+    } else {
+        free(ctx);
+    }
+    close(fd);
+    return 0;
 }
 
 int https_wrapper_socketfd_get(https_wrapper_handle_t https)
 {
-	return ((ssl_param_t *)https)->net.fd;
+    return ((ssl_param_t *)https)->net.fd;
 }
 

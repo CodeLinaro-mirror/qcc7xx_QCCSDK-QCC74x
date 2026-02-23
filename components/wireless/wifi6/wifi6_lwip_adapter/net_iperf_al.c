@@ -1915,6 +1915,7 @@ const char* net_iperf_bit_lbl[] =
 /// Long version of iperf helf
 const char iperf_long_help[] = "\
 Client/Server:\r\n\
+  stop            #        stop the current throughput test\r\n\
   -i, --interval  #        seconds between periodic bandwidth reports\r\n\
   -l, --len       #[KM]    length of buffer to read or write (default 8 KB)\r\n\
   -p, --port      #        server port to listen on/connect to\r\n\

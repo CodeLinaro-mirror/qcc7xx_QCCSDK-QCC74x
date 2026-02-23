@@ -70,15 +70,16 @@ PROJECT_PARAM := $(if $(CONFIG_SW_IMAGE),_$(CONFIG_SW_IMAGE))
 cmake_definition+= -DCROSS_COMPILE=${CROSS_COMPILE}
 cmake_definition+= -DCHIP=$(CHIP)
 cmake_definition+= -DCPU_ID=$(CPU_ID)
-ifeq ($(BOARD),qcc744dk)
+ifeq ($(BOARD),qcc748dk)
 	cmake_definition+= -DBOARD=qcc74xdk
 	cmake_definition+= -DCONFIG_PSRAM=1
+else ifeq ($(BOARD),qcc744dk)
+	cmake_definition+= -DBOARD=qcc74xdk
+	cmake_definition+= -DCONFIG_PSRAM=1
+else ifeq ($(BOARD),qcc743dk)
+	cmake_definition+= -DBOARD=qcc74xdk
 else
-	ifeq ($(BOARD),qcc743dk)
-		cmake_definition+= -DBOARD=qcc74xdk
-	else
-		cmake_definition+= -DBOARD=$(BOARD)
-	endif
+	cmake_definition+= -DBOARD=$(BOARD)
 endif
 cmake_definition+= -DBOARD_DIR=$(BOARD_DIR)
 cmake_definition+= -DCONFIG_DEBUG=$(CONFIG_DEBUG)

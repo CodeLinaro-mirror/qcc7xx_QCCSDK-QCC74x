@@ -43,6 +43,11 @@
 #define MBEDTLS_REMOVE_3DES_CIPHERSUITES
 
 #define MBEDTLS_HAVE_TIME
+
+#ifdef CONFIG_MBEDTLS_V3
+#define MBEDTLS_PLATFORM_MS_TIME_ALT
+#endif
+
 #define MBEDTLS_ECDH_C
 #define MBEDTLS_ECDSA_C
 //#define MBEDTLS_ECP_DP_SECP192R1_ENABLED
@@ -171,6 +176,8 @@
 #include "mbedtls/config_psa.h"
 #endif
 
+#ifndef CONFIG_MBEDTLS_V3
 #include "mbedtls/check_config.h"
+#endif
 
 #endif /* MBEDTLS_CONFIG_H */

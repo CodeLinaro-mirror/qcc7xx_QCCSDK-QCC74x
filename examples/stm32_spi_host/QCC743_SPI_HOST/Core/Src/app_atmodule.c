@@ -66,6 +66,7 @@ static int __at_iperf_statis(uint8_t *buf, uint32_t size, void *arg)
 	}
 	return 0;
 }
+#define TEST_UDP_BUFFER_SIZE (1470*4)
 #define TEST_BUFFER_SIZE    (6000)
 #define TEST_RX_BUFFER_SIZE (6000)
 int at_iperf_udp_tx_start(at_host_handle_t at, char ip_addr[20], int port)
@@ -89,17 +90,17 @@ int at_iperf_udp_tx_start(at_host_handle_t at, char ip_addr[20], int port)
     at_host_printf(at, AT_HOST_RESP_EVT_OK, 100, "AT+CIPSTART=0,\"UDP\",\"%s\",%d\r\n", ip_addr, port);
     osDelay(100);
 
-    tx_buf = pvPortMalloc(TEST_BUFFER_SIZE);
-	memset(tx_buf, 0x55, TEST_BUFFER_SIZE);
+    tx_buf = pvPortMalloc(TEST_UDP_BUFFER_SIZE);
+	memset(tx_buf, 0x55, TEST_UDP_BUFFER_SIZE);
 
 	last = osKernelGetTickCount();
 
-	cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=0,%d\r\n", TEST_BUFFER_SIZE);
+	cmd_len = snprintf(cmd, sizeof(cmd), "AT+CIPSEND=0,%d\r\n", TEST_UDP_BUFFER_SIZE);
 
     while (run_count <= 10) {
     	at_host_send(at, AT_HOST_RESP_EVT_OK|AT_HOST_RESP_EVT_WAIT_DATA, cmd, cmd_len, 1000);
 
-    	ret = at_host_send(at, AT_HOST_RESP_EVT_RECV_BTYES, tx_buf, TEST_BUFFER_SIZE, 100);
+    	ret = at_host_send(at, AT_HOST_RESP_EVT_RECV_BTYES, tx_buf, TEST_UDP_BUFFER_SIZE, 100);
     	if (ret > 0) {
     		totle_len += ret;
     	}

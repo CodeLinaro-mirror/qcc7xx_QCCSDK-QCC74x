@@ -579,21 +579,28 @@ int hostapd_ctrl_iface_deauthenticate(struct hostapd_data *hapd,
 	return 0;
 }
 
+extern struct hostapd_bss_acl_config g_bss_acl_conf;
 int hostapd_ctrl_iface_acl_enable(struct hostapd_data *hapd,
 				    const char *txtaddr)
 {
+
+    struct hostapd_bss_acl_config* conf = &g_bss_acl_conf;
     int ap_acl_enable = atoi(txtaddr);
     if (ap_acl_enable) {
-        hapd->conf->mac_acl_disable = false;
+        conf->mac_acl_disable = false;
         //printf(">>>>> hostapd_ctrl_iface_acl_enable enable\r\n");
         if (ap_acl_enable == 2) {
-            hapd->conf->macaddr_acl = DENY_UNLESS_ACCEPTED;
+            conf->macaddr_acl = DENY_UNLESS_ACCEPTED;
         } else {
-            hapd->conf->macaddr_acl = ACCEPT_UNLESS_DENIED;
+            conf->macaddr_acl = ACCEPT_UNLESS_DENIED;
         }
     } else {
-        hapd->conf->mac_acl_disable = true;
+        conf->mac_acl_disable = true;
         //printf(">>>>> hostapd_ctrl_iface_acl_enable disable\r\n");
+    }
+
+    if (hapd) {
+        memcpy(&hapd->conf->mac_acl_disable, &g_bss_acl_conf, sizeof(struct hostapd_bss_acl_config));
     }
 	return 0;
 }

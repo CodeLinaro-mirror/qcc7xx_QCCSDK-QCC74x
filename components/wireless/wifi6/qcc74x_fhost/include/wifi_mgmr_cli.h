@@ -27,6 +27,12 @@ void wifi_disable_autoreconnect_cmd(int argc, char *argv[]);
 void wifi_sta_ps_on_cmd(int argc, char *argv[]);
 void wifi_sta_ps_off_cmd(int argc, char *argv[]);
 void wifi_sta_ps_set_cmd(int argc, char **argv);
+#if NX_COEX_POWERSAVE
+void cmd_wifi_coex_enable(int argc, char **argv);
+void cmd_wifi_coex_disable(int argc, char **argv);
+void cmd_wifi_coex_duty_set(int argc, char **argv);
+void cmd_wifi_coex_status_get(int argc, char **argv);
+#endif // NX_COEX_POWERSAVE
 void wifi_sta_info_cmd(int argc, char *argv[]);
 void wifi_ap_sta_list_get_cmd(int argc, char *argv[]);
 void wifi_ap_sta_delete_cmd(int argc, char *argv[]);
@@ -44,6 +50,7 @@ void cmd_iperf(int argc, char *argv[]);
 #endif
 void cmd_rc(int argc, char *argv[]);
 void cmd_rate(int argc, char *argv[]);
+void cmd_wifi_rate_config(int argc, char *argv[]);
 void cmd_non_pref_chan(int argc, char **argv);
 void cmd_non_pref_chan_notify(int argc, char **argv);
 void cmd_wifi_mgmr_sta_twt_setup(int argc, char **argv);

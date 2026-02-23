@@ -607,6 +607,35 @@ Ensure that the PC and qcc74x are connected to the same router.
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
    ```
 
+## Memory Consumption
+
+Memory usage depends on the enabled modules and functions in the `proj.conf` file.
+
+### BLE Library and RAM Usage
+
+The default BLE controller in the `proj.conf` file is:
+
+```bash
+set(CONFIG_BTBLECONTROLLER_LIB  ble1m10s1bredr0)
+```
+
+This library supports up to 10 BLE connections and enables all BLE roles. If your application needs fewer connections, use:
+
+```bash
+set(CONFIG_BTBLECONTROLLER_LIB ble1m2s1bredr0)
+```
+
+It supports 2 BLE connections and saves approximately 20-25 KB more free SRAM.
+
+
+### How to Reduce Memory
+
+If your project does not require all BLE roles or many connections, you can:
+
+   * Use the appropriate BLE controller library
+   * Disable BLE completely if only WiFi is needed
+
+
 # Antenna Diversity
 
 ## Configuration Guide
@@ -712,6 +741,8 @@ Many customers desire an SPI-based communication solution with high throughput. 
 
 ​![image](assets/master_tx.png)​
 ​![image](assets/master_rx.png)​
+
+Note: The SLAVE-RDY signal is controlled by software, so in the timing waveform the actual falling edge may be delayed.
 
 ## Spi State machine
 ​![image](assets/statemachine_1.png)​

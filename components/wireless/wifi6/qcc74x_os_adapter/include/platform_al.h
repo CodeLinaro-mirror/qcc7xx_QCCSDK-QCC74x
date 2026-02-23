@@ -4,7 +4,7 @@
 #include <stdint.h>
 #include "rtos_def.h"
 
-#if defined(CFG_QCC74x_WIFI_PS_ENABLE) || defined(CFG_WIFI_PDS_RESUME)
+#if defined(CFG_QCC74x_WIFI_PS_ENABLE) || defined(CFG_WIFI_PDS_RESUME) || defined(LP_APP)
 #include <qcc74x_lp.h>
 #else
 enum PSM_EVENT {
@@ -12,7 +12,9 @@ enum PSM_EVENT {
     PSM_EVENT_CONNECT,
     PSM_EVENT_DISCONNECT,
     PSM_EVENT_PS,
+    PSM_EVENT_AP,
     PSM_EVENT_APP,
+    PSM_EVENT_LP_BUF_REUSED,
 };
 #endif
 

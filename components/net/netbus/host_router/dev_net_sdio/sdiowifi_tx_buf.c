@@ -191,10 +191,8 @@ int sdiowifi_tx_buf_mem_register(struct sdiowifi_tx_buf *tb, void *mem, size_t s
 
 static inline void notify_tx_buf_status(struct sdiowifi_tx_buf *tb)
 {
-//#ifdef SDIO_REUSE_LP_RAM
     uint8_t prevent = !sdiowifi_tx_buf_is_all_free(tb);
     PLATFORM_HOOK(prevent_sleep, PSM_EVENT_LP_BUF_REUSED, prevent);
-//#endif
 }
 
 static void tx_buf_free(struct pbuf *p)

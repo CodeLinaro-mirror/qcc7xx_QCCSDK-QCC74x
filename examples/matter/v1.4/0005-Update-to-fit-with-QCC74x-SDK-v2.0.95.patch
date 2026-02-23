@@ -1,0 +1,123 @@
+From 3c1cd8ec0a7ae5e574e864b7354d7b14f143de7a Mon Sep 17 00:00:00 2001
+From: Neeraj Kumar Cheryala <quic_ncheryal@quicinc.com>
+Date: Tue, 28 Oct 2025 11:18:59 +0530
+Subject: [PATCH 1/2] Update to fit with QCC74x SDK v2.0.95
+
+---
+ examples/platform/qualcomm/qcc74x/plat/platform_port.cpp    | 2 +-
+ scripts/build/build/targets.py                              | 2 +-
+ scripts/build/builders/qcc74x.py                            | 3 +++
+ src/platform/qualcomm/qcc74x/NetworkCommissioningDriver.cpp | 6 +-----
+ third_party/qualcomm/qcc74x/qcc74x_executable.gni           | 1 +
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni                  | 5 ++++-
+ 6 files changed, 11 insertions(+), 8 deletions(-)
+
+diff --git a/examples/platform/qualcomm/qcc74x/plat/platform_port.cpp b/examples/platform/qualcomm/qcc74x/plat/platform_port.cpp
+index f544c2dfc5..ab2dbc9759 100644
+--- a/examples/platform/qualcomm/qcc74x/plat/platform_port.cpp
++++ b/examples/platform/qualcomm/qcc74x/plat/platform_port.cpp
+@@ -23,7 +23,7 @@
+ 
+ extern "C" {
+ #include <qcc74x_mtd.h>
+-#include <qcc743dk/board.h>
++#include <qcc74xdk/board.h>
+ }
+ #include <plat.h>
+ 
+diff --git a/scripts/build/build/targets.py b/scripts/build/build/targets.py
+index c9121d9d7a..c00bf9a895 100755
+--- a/scripts/build/build/targets.py
++++ b/scripts/build/build/targets.py
+@@ -828,7 +828,7 @@ def BuildQcc74xTarget():
+ 
+     # Boards
+     target.AppendFixedTargets([
+-        TargetPart('QCC743DK', board=Qcc74xBoard.QCC743DK),
++        TargetPart('QCC743DK', board=Qcc74xBoard.QCC74XDK),
+         # TargetPart('QCC744DK', board=Qcc74xBoard.QCC744DK),
+     ])
+ 
+diff --git a/scripts/build/builders/qcc74x.py b/scripts/build/builders/qcc74x.py
+index 535b011747..5c918a216e 100644
+--- a/scripts/build/builders/qcc74x.py
++++ b/scripts/build/builders/qcc74x.py
+@@ -51,6 +51,7 @@ class Qcc74xApp(Enum):
+ class Qcc74xBoard(Enum):
+     QCC743DK = auto()
+     QCC744DK = auto()
++    QCC74XDK = auto()
+ 
+     def GnArgName(self):
+ 
+@@ -58,6 +59,8 @@ class Qcc74xBoard(Enum):
+             return 'qcc743dk'
+         elif self == Qcc74xBoard.QCC744DK:
+             return 'qcc744dk'
++        elif self == Qcc74xBoard.QCC74XDK:
++            return 'qcc74xdk'
+         else:
+             raise Exception('Unknown board #: %r' % self)
+ 
+diff --git a/src/platform/qualcomm/qcc74x/NetworkCommissioningDriver.cpp b/src/platform/qualcomm/qcc74x/NetworkCommissioningDriver.cpp
+index 1a63b66d6b..0db045bc04 100644
+--- a/src/platform/qualcomm/qcc74x/NetworkCommissioningDriver.cpp
++++ b/src/platform/qualcomm/qcc74x/NetworkCommissioningDriver.cpp
+@@ -407,10 +407,6 @@ void NetworkEventHandler(const ChipDeviceEvent * event, intptr_t arg)
+     }
+ }
+ 
+-static wifi_conf_t conf = {
+-    .country_code = "CN",
+-};
+-
+ extern "C" void wifi_event_handler(uint32_t code)
+ {
+     ChipDeviceEvent event;
+@@ -420,7 +416,7 @@ extern "C" void wifi_event_handler(uint32_t code)
+     switch (code)
+     {
+     case CODE_WIFI_ON_INIT_DONE:
+-        wifi_mgmr_init(&conf);
++        wifi_mgmr_init();
+         break;
+     case CODE_WIFI_ON_MGMR_DONE:
+         wifi_mgmr_sta_autoconnect_enable();
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_executable.gni b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+index 5202a9a226..bddc979dc1 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_executable.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+@@ -20,6 +20,7 @@ import("${build_root}/toolchain/flashable_executable.gni")
+ 
+ template("qcc74x_executable") {
+ 
++  assert(invoker.qcc74x_sdk_pt != "", "qcc74x_sdk_pt must be specified")
+   assert(invoker.qcc74x_sdk_boot2 != "", "qcc74x_sdk_boot2 must be specified")
+   assert(invoker.qcc74x_sdk_dts != "", "qcc74x_sdk_dts must be specified")
+ 
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index 7396105ad6..f1453712bc 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -516,7 +516,9 @@ template("qcc74x_sdk") {
+       "${qcc74x_sdk_root}/components/os/freertos/tasks.c",
+       "${qcc74x_sdk_root}/components/os/freertos/timers.c",
+     ]
+-
++    configs += [
++      ":${sdk_target_name}_config_mm",
++    ]
+     public_configs = [
+       ":${sdk_target_name}_config",
+       ":${sdk_target_name}_config_freertos",
+@@ -1198,6 +1200,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_lhal",
+       ":${sdk_target_name}_config_utils",
+       ":${sdk_target_name}_config_shell",
++      ":${sdk_target_name}_config_mm",
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_lwip",
+       ":${sdk_target_name}_config_mbedtls",
+-- 
+2.34.1
+

@@ -1226,14 +1226,33 @@ static void wpa_supplicant_scan(void *eloop_ctx, void *timeout_ctx)
     if (!wpas_wps_in_use(wpa_s, &req_type)) {
 #endif
         //XXX scan for specific SSID
+        /* Find the first enabled (non-disabled) network instead of always using conf->ssid */
         ssid = wpa_s->conf->ssid;
-        wpa_s->prev_scan_ssid = ssid;
-        wpa_s->prev_scan_wildcard = 1;
-        params.ssids[0].ssid = ssid->ssid;
-        params.ssids[0].ssid_len = ssid->ssid_len;
-        params.num_ssids = 1;
-        os_memcpy(wpa_s->next_scan_bssid, ssid->bssid, ETH_ALEN);
-        printf("Starting AP scan for specific SSID: %s, ssid_len:%d, BSSID: " MACSTR " \r\n", wpa_s->prev_scan_ssid->ssid, ssid->ssid_len, MAC2STR(ssid->bssid));
+        while (ssid && wpas_network_disabled(wpa_s, ssid)) {
+            printf("[SCAN-FIX] Skipping disabled network id=%d ssid='%s'\r\n",
+                   ssid->id,
+                   ssid->ssid ? wpa_ssid_txt(ssid->ssid, ssid->ssid_len) : "(no SSID)");
+            ssid = ssid->next;
+        }
+
+        if (ssid) {
+            printf("[SCAN-FIX] XXX scan - scanning enabled network id=%d ssid='%s'\r\n",
+                   ssid->id,
+                   wpa_ssid_txt(ssid->ssid, ssid->ssid_len));
+            wpa_s->prev_scan_ssid = ssid;
+            wpa_s->prev_scan_wildcard = 1;
+            params.ssids[0].ssid = ssid->ssid;
+            params.ssids[0].ssid_len = ssid->ssid_len;
+            params.num_ssids = 1;
+            os_memcpy(wpa_s->next_scan_bssid, ssid->bssid, ETH_ALEN);
+            printf("Starting AP scan for specific SSID: %s, ssid_len:%d, BSSID: " MACSTR " \r\n", wpa_s->prev_scan_ssid->ssid, ssid->ssid_len, MAC2STR(ssid->bssid));
+        } else {
+            printf("[SCAN-FIX] XXX scan - no enabled network found, using wildcard scan\r\n");
+            params.ssids[0].ssid = NULL;
+            params.ssids[0].ssid_len = 0;
+            wpa_s->prev_scan_ssid = NULL;
+            wpa_s->prev_scan_wildcard = 1;
+        }
 #ifdef CONFIG_WPS
     } else {
         params.ssids[0].ssid = NULL;

@@ -1,13 +1,16 @@
 
+#include <qcc74x_sys.h>
+#include <qcc74x_mtd.h>
+
 #if defined(QCC743)
 #include "rfparam_adapter.h"
 #endif
 
-#include <qcc74x_mtd.h>
 #if defined (CONFIG_EASYFLASH4)
 #include <easyflash.h>
 #endif
 
+#include <lmac154.h>
 #include <openthread_port.h>
 #include <openthread/ncp.h>
 

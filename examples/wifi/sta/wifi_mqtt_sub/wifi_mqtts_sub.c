@@ -20,7 +20,7 @@
 #include "mbedtls/debug.h"
 #include "mbedtls/ssl.h"
 #include "mbedtls/x509_crt.h"
-#include "mbedtls/net.h"
+#include "mbedtls/net_sockets.h"
 
 #include "utils_getopt.h"
 

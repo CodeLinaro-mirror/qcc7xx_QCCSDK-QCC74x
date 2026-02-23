@@ -35,7 +35,7 @@ This section describes how to provision WiFi credentials to the QCC74x device us
     <p align="center"><img src="picture/0.png" alt="Device Startup Log" width="400"/></p>
 
 2.  **Scan for Devices**: Open the BLE provisioning app on your smartphone or computer. Initiate a scan for nearby BLE devices. The QCC74x device should appear in the list of discoverable devices (typically identified by a name like "BTBLE-DEV" or similar).
-    <p align="center"><img src="picture/1.png" alt="App Scanning BLE Devices" width="400"/></p>
+    <p align="center"><img src="picture/1.jpg" alt="App Scanning BLE Devices" width="400"/></p>
 
 3.  **Connect to Device**: Select the QCC74x BLE device from the list in the provisioning app and establish a connection.
     <p align="center"><img src="picture/2.png" alt="App Connected to QCC74x Device" width="400"/></p>

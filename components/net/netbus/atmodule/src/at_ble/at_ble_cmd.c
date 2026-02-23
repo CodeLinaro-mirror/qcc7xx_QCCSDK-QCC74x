@@ -785,7 +785,8 @@ static int at_setup_cmd_ble_gatts_notify(int argc, const char **argv)
 
     if (at_ble_config->work_role != BLE_SERVER&&at_ble_config->work_role != BLE_DUALMODE)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
-
+    
+    
     AT_CMD_PARSE_NUMBER(0, &srv_idx);
     AT_CMD_PARSE_NUMBER(1, &char_idx );
     AT_CMD_PARSE_NUMBER(2, &length);
@@ -842,7 +843,7 @@ static int at_setup_cmd_ble_gatts_indicate(int argc, const char **argv)
 
     if (at_ble_config->work_role != BLE_SERVER&&at_ble_config->work_role != BLE_DUALMODE)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
-
+    
     AT_CMD_PARSE_NUMBER(0, &srv_idx);
     AT_CMD_PARSE_NUMBER(1, &char_idx );
     AT_CMD_PARSE_NUMBER(2, &length);
@@ -1680,6 +1681,29 @@ static int at_setup_cmd_ble_dis_set(int argc, const char **argv)
 }
 #endif
 
+int at_setup_cmd_ble_gap_appearance(int argc, const char **argv)
+{
+    int  device_appearance  =  0 ;
+    if (at_ble_config->work_role == BLE_DISABLE)
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
+    AT_CMD_PARSE_NUMBER(0,&device_appearance);
+    if(device_appearance < 0||device_appearance>0xFFFF)
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID); 
+    bt_gap_set_local_device_appearance(device_appearance);
+    return AT_RESULT_CODE_OK;
+
+}
+
+static int at_exe_cmd_ble_generate_aes_iv(int argc, const char **argv)
+{
+    if (at_ble_config->work_role == BLE_DISABLE)
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
+    if(!at_ble_generate_aes_iv())
+        return AT_RESULT_CODE_OK;
+
+    return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+}
+
 static const at_cmd_struct at_ble_cmd[] = {
     {"+BLEINIT", NULL, at_query_cmd_ble_init, at_setup_cmd_ble_init, NULL, 1, 1},
     {"+BLEADDR", NULL, at_query_cmd_ble_addr, at_setup_cmd_ble_addr, NULL, 1, 1},
@@ -1735,6 +1759,9 @@ static const at_cmd_struct at_ble_cmd[] = {
     {"+BLEDISDEINIT", NULL, NULL, NULL, at_exe_cmd_ble_dis_unregister, 0, 0},
     {"+BLEDISSET", NULL, NULL, at_setup_cmd_ble_dis_set,NULL, 3, 3},
 #endif
+    {"+BLESETGAPAPPEARANCE", NULL, NULL, at_setup_cmd_ble_gap_appearance, NULL, 1, 1},
+    {"+BLEAESIV", NULL, NULL, NULL, at_exe_cmd_ble_generate_aes_iv, 0, 0},
+    {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
 bool at_ble_cmd_regist(void)

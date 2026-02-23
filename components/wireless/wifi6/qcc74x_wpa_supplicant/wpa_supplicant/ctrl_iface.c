@@ -12649,20 +12649,26 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
                  reply_len = -1;
          } else if (os_strncmp((buf + 11), "DEL_MAC ", 8) == 0) {
              if (!ap_ctrl_iface_acl_del_mac(wpa_s, true, buf + 19))
-                 ap_disassoc_accept_mac(wpa_s);
+             {
+                 if (wpa_s)
+                    ap_disassoc_accept_mac(wpa_s);
+             }
              else
                  reply_len = -1;
          } else if (os_strcmp(buf + 11, "SHOW") == 0) {
              reply_len = ap_ctrl_iface_acl_show_mac(wpa_s, true, reply, reply_size);
          } else if (os_strcmp(buf + 11, "CLEAR") == 0) {
              ap_ctrl_iface_acl_clear_list(wpa_s, true);
-             ap_disassoc_accept_mac(wpa_s);
+             if(wpa_s)
+                ap_disassoc_accept_mac(wpa_s);
          }
      } else if (os_strncmp(buf, "DENY_ACL ", 9) == 0) {
          if (os_strncmp(buf + 9, "ADD_MAC ", 8) == 0) {
              if (!ap_ctrl_iface_acl_add_mac(
-                     wpa_s, false, buf + 17))
-                 ap_disassoc_deny_mac(wpa_s);
+                     wpa_s, false, buf + 17)) {
+                 if (wpa_s)
+                    ap_disassoc_deny_mac(wpa_s);
+             }
              else
                  reply_len = -1;
          } else if (os_strncmp(buf + 9, "DEL_MAC ", 8) == 0) {
@@ -13098,12 +13104,14 @@ static char * wpas_global_ctrl_iface_ifname(struct wpa_global *global,
 {
 	struct wpa_supplicant *wpa_s;
 
+
 	for (wpa_s = global->ifaces; wpa_s; wpa_s = wpa_s->next) {
 		if (os_strcmp(ifname, wpa_s->ifname) == 0)
 			break;
 	}
 
-	if (wpa_s == NULL) {
+	if (wpa_s == NULL && os_strncmp(cmd, "ACCEPT_ACL ", 11) != 0 &&
+            os_strncmp(cmd, "DENY_ACL ", 9) != 0 && os_strncmp(cmd, "ENABLE_ACL ", 11) != 0) {
 		char *resp = os_strdup("FAIL-NO-IFNAME-MATCH\n");
 		if (resp)
 			*resp_len = os_strlen(resp);

@@ -20,6 +20,14 @@ if (CONFIG_SHELL AND CONFIG_LMAC154_CMD)
 sdk_add_compile_definitions(-DCONFIG_LMAC154_CMD=1)
 endif()
 
+if ( DEFINED CONFIG_WIFI6 AND CONFIG_WIFI6)
+sdk_add_compile_definitions(-DCONFIG_WIFI6=${CONFIG_WIFI6})
+endif()
+
+if ( DEFINED CONFIG_BLUETOOTH AND CONFIG_BLUETOOTH)
+sdk_add_compile_definitions(-DCONFIG_BLUETOOTH=${CONFIG_BLUETOOTH})
+endif()
+
 if ("${OT_SERIAL}" STREQUAL "SYS_CLI")
 sdk_add_compile_definitions(-DOT_SERIAL_SHELL)
 elseif ("${OT_SERIAL}" STREQUAL "UART") 

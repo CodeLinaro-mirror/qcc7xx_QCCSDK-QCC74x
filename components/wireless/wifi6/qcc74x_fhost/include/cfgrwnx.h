@@ -148,6 +148,14 @@ enum cfgrwnx_msg_index {
     CFGRWNX_SET_PS_MODE_CMD,
     /// Response to CFGRWNX_SET_PS_MODE_CMD (param: @ref cfgrwnx_resp)
     CFGRWNX_SET_PS_MODE_RESP,
+    /// Get coexistence status (param: @ref cfgrwnx_get_coex_status)
+    CFGRWNX_GET_COEX_STATUS_CMD,
+    /// Response to CFGRWNX_GET_COEX_STATUS_CMD (param: @ref cfgrwnx_get_coex_status_resp)
+    CFGRWNX_GET_COEX_STATUS_RESP,
+    /// Get coexistence duty cycle (param: @ref cfgrwnx_get_coex_duty)
+    CFGRWNX_GET_COEX_DUTY_CMD,
+    /// Response to CFGRWNX_GET_COEX_DUTY_CMD (param: @ref cfgrwnx_get_coex_duty_resp)
+    CFGRWNX_GET_COEX_DUTY_RESP,
     /// Request statistics information for a station (param: @ref cfgrwnx_get_sta_info)
     CFGRWNX_GET_STA_INFO_CMD,
     /// Response to CFGRWNX_GET_STA_INFO_CMD with statistics of the station
@@ -239,6 +247,16 @@ enum cfgrwnx_msg_index {
     CFGRWNX_CLR_STATS_CMD,
 
     CFGRWNX_STATS_RESP,
+#if NX_COEX_POWERSAVE
+    /// Request to enable WiFi/BLE coexistence (param: @ref cfgrwnx_coex_enable)
+    CFGRWNX_COEX_ENABLE_CMD,
+    /// Response to CFGRWNX_COEX_ENABLE_CMD (param: @ref cfgrwnx_resp)
+    CFGRWNX_COEX_ENABLE_RESP,
+    /// Request to disable WiFi/BLE coexistence (param: @ref cfgrwnx_coex_disable)
+    CFGRWNX_COEX_DISABLE_CMD,
+    /// Response to CFGRWNX_COEX_DISABLE_CMD (param: @ref cfgrwnx_resp)
+    CFGRWNX_COEX_DISABLE_RESP,
+#endif // NX_COEX_POWERSAVE
 #ifdef CFG_QCC74x_WIFI_PS_ENABLE
     /// Requset to send null packet
     CFGRWNX_NULL_DATA_SEND_CMD,
@@ -441,7 +459,7 @@ struct cfgrwnx_raw_send {
     /// Tx rate
     uint8_t rate;
     /// Tx rts thrshold
-    uint8_t rts_thrshold;
+    uint16_t rts_thrshold;
     /// Tx power
     int8_t tx_power;
     /// Tx retry limit
@@ -955,6 +973,38 @@ struct cfgrwnx_set_ps_mode {
     uint8_t ps_mode;
 };
 
+/// structure for CFGRWNX_GET_COEX_STATUS_CMD
+struct cfgrwnx_get_coex_status {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Vif idx
+    uint8_t fhost_vif_idx;
+};
+
+/// structure for CFGRWNX_GET_COEX_STATUS_RESP
+struct cfgrwnx_get_coex_status_resp {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Coex status: 0=disabled, 1=enabled
+    uint8_t status;
+};
+
+/// structure for CFGRWNX_GET_COEX_DUTY_CMD
+struct cfgrwnx_get_coex_duty {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Vif idx
+    uint8_t fhost_vif_idx;
+};
+
+/// structure for CFGRWNX_GET_COEX_DUTY_RESP
+struct cfgrwnx_get_coex_duty_resp {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Duty cycle in milliseconds (10-90ms range)
+    uint8_t duty_ms;
+};
+
 /// structure for CFGRWNX_TWT_SETUP_CMD
 struct cfgrwnx_twt_setup_req {
     /// header
@@ -1235,6 +1285,24 @@ struct cfgrwnx_ftm_done_event {
     struct mac_ftm_results results;
 };
 #endif
+
+#if NX_COEX_POWERSAVE
+/// structure for CFGRWNX_COEX_ENABLE_CMD
+struct cfgrwnx_coex_enable {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Vif idx
+    uint16_t fhost_vif_idx;
+};
+
+/// structure for CFGRWNX_COEX_DISABLE_CMD
+struct cfgrwnx_coex_disable {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Vif idx
+    uint16_t fhost_vif_idx;
+};
+#endif // NX_COEX_POWERSAVE
 
 /**
  ****************************************************************************************

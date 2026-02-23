@@ -14,6 +14,7 @@
 #include "at_main.h"
 #include "at_core.h"
 #include "at_httpc_main.h"
+#include "at_net_main.h"
 #include <FreeRTOS.h>
 #include <semphr.h>
 #include <stream_buffer.h>
@@ -368,7 +369,7 @@ static int at_httpc_request(struct at_http_ctx *ctx,
         } else if (ctx->https_auth_type == AT_HTTPS_CLIENT_AUTH) {
 
             if (at_load_file(ctx->cert_file, &cert_buf, &cert_len) != 0 ||
-                at_load_file(ctx->key_file, &privkey_buf, &privkey_len) != 0 ||
+                at_net_ssl_load_file_decrypt(ctx->key_file, &privkey_buf, &privkey_len) != 0 ||
                 cert_buf == NULL || cert_len == 0 ||
                 privkey_buf == NULL || privkey_len == 0) {
                 at_free(cert_buf);
@@ -408,7 +409,7 @@ static int at_httpc_request(struct at_http_ctx *ctx,
         } else if (ctx->https_auth_type == AT_HTTPS_BOTH_AUTH) {
 
             if (at_load_file(ctx->cert_file, &cert_buf, &cert_len) != 0 ||
-                at_load_file(ctx->key_file, &privkey_buf, &privkey_len) != 0 ||
+                at_net_ssl_load_file_decrypt(ctx->key_file, &privkey_buf, &privkey_len) != 0 ||
                 at_load_file(ctx->ca_file, &ca_buf, &ca_len) != 0 ||
                 cert_buf == NULL || cert_len == 0 ||
                 privkey_buf == NULL || privkey_len == 0 ||
@@ -1118,6 +1119,7 @@ static const at_cmd_struct at_http_cmd[] = {
     {"+HTTPCPUT", NULL, NULL, at_setup_cmd_httpcput, NULL, 4, 4},
     {"+HTTPURLCFG", NULL, at_query_cmd_httpcurlcfg, at_setup_cmd_httpcurlcfg, NULL, 1, 2},
     {"+HTTPSSLCFG", NULL, at_query_cmd_httpsslcfg, at_setup_cmd_httpsslcfg, NULL, 2, 5},
+    {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 
 bool at_http_cmd_regist(void)

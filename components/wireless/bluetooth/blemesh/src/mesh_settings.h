@@ -34,7 +34,7 @@ void bt_mesh_clear_net(void);
 void bt_mesh_clear_subnet(struct bt_mesh_subnet *sub);
 void bt_mesh_clear_app_key(struct bt_mesh_app_key *key);
 void bt_mesh_clear_rpl(void);
-/* Added by boufflolab to cleat node rpl */
+/* Added by qcc74x to cleat node rpl */
 void bt_mesh_clear_node_rpl(u16_t src);
 void bt_mesh_clear_cdb_node(struct bt_mesh_cdb_node *node);
 void bt_mesh_clear_cdb_subnet(struct bt_mesh_cdb_subnet *sub);

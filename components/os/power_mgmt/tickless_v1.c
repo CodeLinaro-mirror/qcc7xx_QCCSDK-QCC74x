@@ -269,7 +269,7 @@ __enter_disconnected:
     tickless_debugf("E:%ld, R:%ld, O:%ld W:0x%lx", xExpectedIdleTime, real_rtc_tick, pds_wakeup_overhead, wake_reason);
 
     /* resume wifi task must followed by vTaskStepTick */
-    rwnxl_resume_wifi();
+    rwnxl_resume_wifi(&lpfw_cfg);
 
     tickless_debugf("wifi resume done!");
 

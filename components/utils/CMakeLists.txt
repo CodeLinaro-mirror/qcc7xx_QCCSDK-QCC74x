@@ -112,3 +112,7 @@ sdk_add_include_directories(math/include)
 sdk_library_add_sources(list/src/utils_list.c)
 sdk_add_include_directories(list/include)
 
+# crypto
+sdk_library_add_sources(crypto/utils_crypto.c)
+sdk_add_include_directories(crypto)
+

@@ -1675,6 +1675,7 @@ int ATTR_TCM_SECTION qcc74x_lp_fw_enter(qcc74x_lp_fw_cfg_t *qcc74x_lp_fw_cfg)
     qcc74x_lp_fw_cfg->wakeup_reason = iot2lp_para->wakeup_reason;
     qcc74x_lp_fw_cfg->lpfw_recv_cnt = iot2lp_para->lp_info->bcn_lpfw_recv_cnt;
     qcc74x_lp_fw_cfg->lpfw_loss_cnt = iot2lp_para->lp_info->bcn_lpfw_loss_cnt;
+    qcc74x_lp_fw_cfg->bcn_target_level = iot2lp_para->bcn_target_level;
 
     if ((iot2lp_para->wakeup_reason & LPFW_WAKEUP_IO) || (iot2lp_para->wakeup_reason & LPFW_WAKEUP_ACOMP)) {
         /* register */

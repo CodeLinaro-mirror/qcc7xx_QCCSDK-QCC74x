@@ -196,6 +196,14 @@ enum
     ME_GET_STATS_CFM,
     // Clear wifi stats
     ME_CLR_STATS_REQ,
+    // Get coexistence status request
+    ME_GET_COEX_STATUS_REQ,
+    // Get coexistence status confirmation
+    ME_GET_COEX_STATUS_CFM,
+    // Get coexistence duty cycle request
+    ME_GET_COEX_DUTY_REQ,
+    // Get coexistence duty cycle confirmation
+    ME_GET_COEX_DUTY_CFM,
     /*
      * Section of internal ME messages. No ME API messages should be defined below this point
      */
@@ -318,6 +326,10 @@ enum mm_msg_tag
     MM_SET_PS_MODE_REQ,
     /// Set Power Save mode confirmation
     MM_SET_PS_MODE_CFM,
+    /// Set Coexistence mode
+    MM_SET_COEX_MODE_REQ,
+    /// Set Coexistence mode confirmation
+    MM_SET_COEX_MODE_CFM,
     /// Request to add a channel context
     MM_CHAN_CTXT_ADD_REQ,
     /// Confirmation of the channel context addition
@@ -376,6 +388,8 @@ enum mm_msg_tag
     MM_SET_PS_OPTIONS_CFM,
     /// Indication of PS state change for a P2P VIF
     MM_P2P_VIF_PS_CHANGE_IND,
+    /// Indication of flow control state change for a VIF
+    MM_FLOW_CNTRL_CHANGE_IND,
     /// Indication that CSA counter has been updated
     MM_CSA_COUNTER_IND,
     /// Message containing channel information

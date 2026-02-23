@@ -57,8 +57,9 @@ enum mdns_sd_proto {
 #define MDNS_PROBING_SUCCESSFUL 1
 
 #define MDNS_LABEL_MAXLEN  63
+#ifndef MDNS_DOMAIN_MAXLEN
 #define MDNS_DOMAIN_MAXLEN 256
-
+#endif
 struct mdns_host;
 struct mdns_service;
 

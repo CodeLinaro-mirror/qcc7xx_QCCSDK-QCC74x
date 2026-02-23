@@ -37,17 +37,14 @@
  *
  * See http://www.freertos.org/a00110.html.
  *----------------------------------------------------------*/
-#if defined(QCC74x_undef) || defined(QCC74x_undefL)
+#include "stdio.h"
+
+#ifdef QCC74x_undef
 #define configMTIME_BASE_ADDRESS    (0x02000000UL + 0xBFF8UL)
 #define configMTIMECMP_BASE_ADDRESS (0x02000000UL + 0x4000UL)
 #else
-#if __riscv_xlen == 64
-#define configMTIME_BASE_ADDRESS    (0)
-#define configMTIMECMP_BASE_ADDRESS ((0xE4000000UL) + 0x4000UL)
-#else
-#define configMTIME_BASE_ADDRESS    ((0xE0000000UL) + 0xBFF8UL)
-#define configMTIMECMP_BASE_ADDRESS ((0xE0000000UL) + 0x4000UL)
-#endif
+#define configMTIME_BASE_ADDRESS    (0xE0000000UL + 0xBFF8UL)
+#define configMTIMECMP_BASE_ADDRESS (0xE0000000UL + 0x4000UL)
 #endif
 
 #define configSUPPORT_STATIC_ALLOCATION         1
@@ -77,18 +74,20 @@
 #define configUSE_POSIX_ERRNO                   1
 
 /* Co-routine definitions. */
-#define configUSE_CO_ROUTINES                   0
-#define configMAX_CO_ROUTINE_PRIORITIES         (2)
+#define configUSE_CO_ROUTINES           0
+#define configMAX_CO_ROUTINE_PRIORITIES (2)
 
 /* Software timer definitions. */
-#define configUSE_TIMERS                        1
-#define configTIMER_TASK_PRIORITY               (configMAX_PRIORITIES - 1)
-#define configTIMER_QUEUE_LENGTH                4
-#define configTIMER_TASK_STACK_DEPTH            (configMINIMAL_STACK_SIZE)
+#define configUSE_TIMERS             1
+#define configTIMER_TASK_PRIORITY    (configMAX_PRIORITIES - 1)
+#define configTIMER_QUEUE_LENGTH     4
+#define configTIMER_TASK_STACK_DEPTH (1024)
+
 /* Task priorities.  Allow these to be overridden. */
 #ifndef uartPRIMARY_PRIORITY
 #define uartPRIMARY_PRIORITY (configMAX_PRIORITIES - 3)
 #endif
+
 /* Set the following definitions to 1 to include the API function, or zero
 to exclude the API function. */
 #define INCLUDE_vTaskPrioritySet         1
@@ -103,13 +102,11 @@ to exclude the API function. */
 #define INCLUDE_xTaskAbortDelay          1
 #define INCLUDE_xTaskGetHandle           1
 #define INCLUDE_xSemaphoreGetMutexHolder 1
+
 /* Normal assert() semantics without relying on the provision of an assert.h
 header file. */
 void vApplicationMallocFailedHook(void);
 void vAssertCalled(void);
-
-#include <stdio.h>
-
 #define configASSERT(x)                        \
     if ((x) == 0) {                            \
         printf("file [%s]\r\n", __FILE__);     \
@@ -118,9 +115,19 @@ void vAssertCalled(void);
         printf("%s\r\n", (const char *)(#x));  \
         vAssertCalled();                       \
     }
+
 #if (configUSE_TICKLESS_IDLE != 0)
 void vApplicationSleep(uint32_t xExpectedIdleTime);
 #define portSUPPRESS_TICKS_AND_SLEEP(xExpectedIdleTime) vApplicationSleep(xExpectedIdleTime)
 #endif
+
 // #define portUSING_MPU_WRAPPERS
+
+/* Enable TLS */
+#define config_ENABLE_OS_TLS_SWITCH
+#ifdef config_ENABLE_OS_TLS_SWITCH
+#define configNUM_THREAD_LOCAL_STORAGE_POINTERS     1
+#define configTHREAD_LOCAL_STORAGE_DELETE_CALLBACKS 1
+#endif
+
 #endif /* FREERTOS_CONFIG_H */

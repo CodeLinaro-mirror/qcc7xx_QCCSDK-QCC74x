@@ -1303,6 +1303,7 @@ sdk_ifndef(CONFIG_DISABLE_BT_HOST_PRIVACY 1)
 sdk_ifndef(CONFIG_BT_L2CAP_DYNAMIC_CHANNEL 0)
 sdk_ifndef(CONFIG_BT_GATT_CLIENT 1)
 sdk_ifndef(CONFIG_BT_DATA_LEN_UPDATE 0)
+sdk_ifndef(CONFIG_BT_ATT_PREPARE_COUNT 0)
 sdk_ifndef(CONFIG_BT_MESH 0)
 sdk_ifndef(CONFIG_BT_MESH_MODEL 0)
 # ifeq ($(CONFIG_BT_MESH),1)
@@ -1700,6 +1701,18 @@ sdk_add_compile_definitions_ifdef(CONFIG_AUTO_PTS -DCONFIG_AUTO_PTS)
 #CFLAGS += -DCONFIG_DYNAMIC_GATTS
 #endif
 sdk_add_compile_definitions_ifdef(CONFIG_DYNAMIC_GATTS -DCONFIG_DYNAMIC_GATTS)
+
+if(NOT CONFIG_BT_STACK_PTS)
+# Validate CONFIG_BT_ATT_PREPARE_COUNT range (0-64)
+if(CONFIG_BT_ATT_PREPARE_COUNT GREATER 64)
+    message(FATAL_ERROR "CONFIG_BT_ATT_PREPARE_COUNT must be <= 64, but got ${CONFIG_BT_ATT_PREPARE_COUNT}")
+endif()
+if(CONFIG_BT_ATT_PREPARE_COUNT LESS 0)
+    message(FATAL_ERROR "CONFIG_BT_ATT_PREPARE_COUNT must be >= 0, but got ${CONFIG_BT_ATT_PREPARE_COUNT}")
+endif()
+sdk_add_compile_definitions(-DCONFIG_BT_ATT_PREPARE_COUNT=${CONFIG_BT_ATT_PREPARE_COUNT})
+endif()
+
 # 
 # ##########################################
 # ############## BLE MESH ##################

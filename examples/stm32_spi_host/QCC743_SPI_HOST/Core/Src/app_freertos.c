@@ -878,6 +878,11 @@ static int console_cli_run(const char *cmd, int len)
 		goto err_out;
 	}
 
+    if ((strnstr(cmd, "+++\r\n", 5) != NULL) && (len == 5)) {
+    	_console_to_at("+++", 3);
+    	return _console_to_at("\r\n", 2);
+    }
+
 	return _console_to_at(cmd, len);
 #else
 	return cli_handle_one(cmd, argc, argv);
@@ -940,11 +945,6 @@ static void uart_console_task(void *param)
            }
            out = 0; // Reset out for normal parsing below
 
-            if (strstr(buf, "+++") != NULL) {
-                _console_to_at(buf, 3);
-                out = 0;
-                in = 0;
-            }
 			/* parse received data */
 			while (in > out) {
 				char ch = buf[out++];

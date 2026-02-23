@@ -576,3 +576,104 @@ int pthread_setschedparam( pthread_t thread,
 }
 
 /*-----------------------------------------------------------*/
+
+int pthread_setname_np( pthread_t thread,
+                        const char * name )
+{
+    int iStatus = 0;
+    pthread_internal_t * pxThread = ( pthread_internal_t * ) thread;
+    size_t xNameLen;
+
+    /* Check for NULL name. */
+    if( name == NULL )
+    {
+        iStatus = EINVAL;
+        return iStatus;
+    }
+
+    /* Get the length of the name. */
+    xNameLen = strlen( name );
+
+    /* Check if name is too long. POSIX requires ERANGE for names that are too long. */
+    if( xNameLen >= configMAX_TASK_NAME_LEN )
+    {
+        iStatus = ERANGE;
+        return iStatus;
+    }
+
+    /* Create a critical section to modify the task name safely. */
+    vTaskSuspendAll();
+
+    /* Get direct access to the task name in the TCB through pcTaskGetName.
+     * FreeRTOS provides pcTaskGetName which returns a pointer to the task name buffer. */
+    char * pcTaskName = pcTaskGetName( pxThread->xTaskHandle );
+
+    if( pcTaskName != NULL )
+    {
+        /* Copy the new name into the task name buffer.
+         * Use strncpy to ensure we don't overflow the buffer. */
+        strncpy( pcTaskName, name, configMAX_TASK_NAME_LEN - 1 );
+
+        /* Ensure null termination. */
+        pcTaskName[ configMAX_TASK_NAME_LEN - 1 ] = '\0';
+    }
+    else
+    {
+        iStatus = EINVAL;
+    }
+
+    /* End the critical section. */
+    xTaskResumeAll();
+
+    return iStatus;
+}
+
+/*-----------------------------------------------------------*/
+
+int pthread_getname_np( pthread_t thread,
+                        char * name,
+                        size_t len )
+{
+    int iStatus = 0;
+    pthread_internal_t * pxThread = ( pthread_internal_t * ) thread;
+    const char * pcTaskName;
+    size_t xTaskNameLen;
+
+    /* Check for NULL name buffer. */
+    if( name == NULL )
+    {
+        iStatus = EINVAL;
+        return iStatus;
+    }
+
+    /* Get the task name from FreeRTOS. */
+    pcTaskName = pcTaskGetName( pxThread->xTaskHandle );
+
+    if( pcTaskName == NULL )
+    {
+        iStatus = EINVAL;
+        return iStatus;
+    }
+
+    /* Get the length of the task name. */
+    xTaskNameLen = strlen( pcTaskName );
+
+    /* Check if the buffer is large enough.
+     * The buffer must be able to hold the name plus a null terminator. */
+    if( len <= xTaskNameLen )
+    {
+        iStatus = ERANGE;
+        return iStatus;
+    }
+
+    /* Copy the task name to the provided buffer. */
+    strncpy( name, pcTaskName, len - 1 );
+
+    /* Ensure null termination. */
+    name[ len - 1 ] = '\0';
+
+
+    return iStatus;
+}
+
+/*-----------------------------------------------------------*/

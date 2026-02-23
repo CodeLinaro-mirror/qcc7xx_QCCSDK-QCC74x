@@ -553,7 +553,7 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
   /* !!! Schdule Started !!! */
 
   /* resume wifi task { -- 3.4ms */
-  rwnxl_resume_wifi_not_isr();
+  rwnxl_resume_wifi_not_isr(&lpfw_cfg);
   qcc74x_irq_enable(WIFI_IRQn);
   tickless_info("resume wifi");
   /* } */
@@ -582,7 +582,9 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
   qcc74x_lp_call_user_after_exit();
 
   /* Reusume other task */
+  portDISABLE_INTERRUPTS();
   vTaskHandleForeachFromISR(handle_resume);
+  portENABLE_INTERRUPTS();
 
   /* enable soft int */
   qcc74x_irq_enable(MSOFT_IRQn);

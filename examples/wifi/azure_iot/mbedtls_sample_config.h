@@ -173,6 +173,8 @@
 #include "mbedtls/config_psa.h"
 #endif
 
+#ifndef CONFIG_MBEDTLS_V3
 #include "mbedtls/check_config.h"
+#endif
 
 #endif /* MBEDTLS_CONFIG_H */

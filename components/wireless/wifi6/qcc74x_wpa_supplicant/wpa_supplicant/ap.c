@@ -1526,67 +1526,79 @@ int ap_ctrl_iface_sta_next(struct wpa_supplicant *wpa_s, const char *txtaddr,
 	return hostapd_ctrl_iface_sta_next(hapd, txtaddr, buf, buflen);
 }
 
+struct hostapd_bss_acl_config g_bss_acl_conf;
 int ap_ctrl_iface_acl_add_mac(struct wpa_supplicant *wpa_s, bool accept, const char *txtaddr)
 {
-    if (wpa_s->ap_iface == NULL)
-        return -1;
-    struct hostapd_data *hapd = wpa_s->ap_iface->bss[0];
+    struct hostapd_bss_acl_config* conf = &g_bss_acl_conf;
+    int8_t ret;
 
     if (accept) {
-        return hostapd_ctrl_iface_acl_add_mac(
-            &hapd->conf->accept_mac,
-            &hapd->conf->num_accept_mac, txtaddr);
+        ret = hostapd_ctrl_iface_acl_add_mac(
+            &conf->accept_mac,
+            &conf->num_accept_mac, txtaddr);
     } else {
-        return hostapd_ctrl_iface_acl_add_mac(
-            &hapd->conf->deny_mac,
-            &hapd->conf->num_deny_mac, txtaddr);
+        ret = hostapd_ctrl_iface_acl_add_mac(
+            &conf->deny_mac,
+            &conf->num_deny_mac, txtaddr);
     }
+    if (!ret && wpa_s) {
+        memcpy(&wpa_s->ap_iface->bss[0]->conf->mac_acl_disable, &g_bss_acl_conf, sizeof(struct hostapd_bss_acl_config));
+    }
+
+    return ret;
+
 }
 
 int ap_ctrl_iface_acl_del_mac(struct wpa_supplicant *wpa_s, bool accept, const char *txtaddr)
 {
-	if (wpa_s->ap_iface == NULL)
-		return -1;
-    struct hostapd_data *hapd = wpa_s->ap_iface->bss[0];
+    struct hostapd_bss_acl_config* conf = &g_bss_acl_conf;
+    int8_t ret;
     if (accept) {
-        return hostapd_ctrl_iface_acl_del_mac(
-            &hapd->conf->accept_mac,
-            &hapd->conf->num_accept_mac, txtaddr);
+        ret = hostapd_ctrl_iface_acl_del_mac(
+            &conf->accept_mac,
+            &conf->num_accept_mac, txtaddr);
     } else {
-        return hostapd_ctrl_iface_acl_del_mac(
-            &hapd->conf->deny_mac,
-            &hapd->conf->num_deny_mac, txtaddr);
+        ret = hostapd_ctrl_iface_acl_del_mac(
+            &conf->deny_mac,
+            &conf->num_deny_mac, txtaddr);
     }
+
+    if (!ret && wpa_s) {
+        memcpy(&wpa_s->ap_iface->bss[0]->conf->mac_acl_disable, &g_bss_acl_conf, sizeof(struct hostapd_bss_acl_config));
+    }
+
+    return ret;
 }
 
 int ap_ctrl_iface_acl_show_mac(struct wpa_supplicant *wpa_s, bool accept, char *reply, size_t reply_size)
 {
-	if (wpa_s->ap_iface == NULL)
-		return -1;
-    struct hostapd_data *hapd = wpa_s->ap_iface->bss[0];
+    struct hostapd_bss_acl_config* conf = &g_bss_acl_conf;
     if (accept) {
         return hostapd_ctrl_iface_acl_show_mac(
-            hapd->conf->accept_mac,
-            hapd->conf->num_accept_mac, reply, reply_size);
+            conf->accept_mac,
+            conf->num_accept_mac, reply, reply_size);
     } else {
         return hostapd_ctrl_iface_acl_show_mac(
-            hapd->conf->deny_mac,
-            hapd->conf->num_deny_mac, reply, reply_size);
+            conf->deny_mac,
+            conf->num_deny_mac, reply, reply_size);
     }
 }
+
 int ap_ctrl_iface_acl_clear_list(struct wpa_supplicant *wpa_s, bool accept)
 {
-	if (wpa_s->ap_iface == NULL)
-		return -1;
-    struct hostapd_data *hapd = wpa_s->ap_iface->bss[0];
+    struct hostapd_bss_acl_config* conf = &g_bss_acl_conf;
     if (accept) {
         hostapd_ctrl_iface_acl_clear_list(
-            &hapd->conf->accept_mac,
-            &hapd->conf->num_accept_mac);
+            &conf->accept_mac,
+            &conf->num_accept_mac);
     } else {
         hostapd_ctrl_iface_acl_clear_list(
-            &hapd->conf->deny_mac,
-            &hapd->conf->num_deny_mac);
+            &conf->deny_mac,
+            &conf->num_deny_mac);
+    }
+
+    if (wpa_s) {
+        memcpy(&wpa_s->ap_iface->bss[0]->conf->mac_acl_disable, &g_bss_acl_conf, sizeof(struct hostapd_bss_acl_config));
     }
     return 0;
 }
@@ -1619,8 +1631,10 @@ int ap_ctrl_iface_sta_disassociate(struct wpa_supplicant *wpa_s,
 int ap_ctrl_iface_acl_enable(struct wpa_supplicant *wpa_s,
                                   const char *txtaddr)
 {
-    if (wpa_s->ap_iface == NULL)
-        return -1;
+    if (wpa_s == NULL) {
+        return hostapd_ctrl_iface_acl_enable(NULL,
+                                         txtaddr);
+    }
     return hostapd_ctrl_iface_acl_enable(wpa_s->ap_iface->bss[0],
                                         txtaddr);
 }

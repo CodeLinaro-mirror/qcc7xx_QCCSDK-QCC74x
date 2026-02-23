@@ -16,19 +16,19 @@ extern "C" {
 
 #define AT_CMD_BIN_VERSION "1.0.0"
 
-#define AT_CMD_MAX_NUM 256
+#define AT_CMD_MAX_NUM 12
 #define AT_CMD_MAX_LEN 256
 #define AT_CMD_MAX_PARA 16
 #define AT_CMD_MAX_FUNC 8
 
 typedef struct {
-    char *at_name;                        
-    int (*at_test_cmd)(int argc, const char **argv);      
+    char *at_name;
+    int (*at_test_cmd)(int argc, const char **argv);
     int (*at_query_cmd)(int argc, const char **argv);
     int (*at_setup_cmd)(int argc, const char **argv);
     int (*at_exe_cmd)(int argc, const char **argv);
-    int para_num_min;
-    int para_num_max;
+    uint16_t para_num_min;
+    uint16_t para_num_max;
 } at_cmd_struct;
 
 typedef enum {
@@ -55,6 +55,9 @@ typedef struct {
     int (*deinit_device)(void); 
     int (*read_data) (uint8_t *data, int len);
     int (*write_data) (uint8_t *data, int len);
+    int (*read_zero_copy) (void **pirv, uint8_t **data);
+    int (*read_buffer_release) (void *pirv, uint8_t *data, int len);
+    int (*schedule_work) (void);
     int (*f_output_redirect) (void);
 } at_device_ops;
 
@@ -76,12 +79,12 @@ struct at_workq {
 };
 
 struct at_struct {
-    int initialized;
-    int echo;
-    int syslog;
-    int store;
-    int fakeoutput;
-    int exit;
+    uint8_t initialized:1;
+    uint8_t echo:1;
+    uint8_t syslog:1;
+    uint8_t store:1;
+    uint8_t fakeoutput:1;
+    uint8_t exit:1;
     at_work_mode incmd;
     at_device_ops device_ops;
     int function_num;
@@ -121,6 +124,14 @@ int at_output_is_redirect();
 int at_workq_send(int eventid, struct at_workq *q, int timeout);
 
 int at_workq_dowork(int eventid, int timeout);
+
+static inline int at_module_schedule_work(void)
+{
+    if (at && at->device_ops.schedule_work) {
+        at->device_ops.schedule_work();
+    }
+    return 0;
+}
 
 #ifdef __cplusplus
 }

@@ -85,15 +85,5 @@ void qcc74x_sta_set_keepalive_period(uint8_t time_seconds);
 int qcc74x_wifi_sta_ps_active_ms(uint16_t active_ms);
 int twt_get_flow_num(void);
 
-#ifdef CFG_QCC74x_WIFI_PS_ENABLE
-/**
- ****************************************************************************************
- * @brief Api for send null frame.
- *
- * This function for send null frame.
- *
- ****************************************************************************************
- */
-#endif
 
 #endif /*__QCC74x_FW_API_H__*/

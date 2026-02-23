@@ -332,66 +332,6 @@ int mbedtls_sha1_self_test(int verbose);
 
 #endif /* MBEDTLS_SELF_TEST */
 
-/**
- * \brief          This function calculates the SHA-1 checksum of n block.
- *
- *                 The function need 32 byte aligned input address
- *
- * \warning        This usually used by HMAC-SHA1
- *
- * \param input    The buffer holding the input data.
- *                 This must be a 32 byte aligned buffer
- * \param output   The SHA-1 checksum result.
- *                 This must be a writable buffer of length \c 20 Bytes.
- * \param nblock   The SHA-1 checksum block number.
- *
- * \return         \c 0 on success.
- * \return         A negative error code on failure.
- *
- */
-int mbedtls_sha1_once_padded(const unsigned char *input, unsigned char *output, unsigned char nblock);
-
-/**
- * \brief          This function init the SHA-1 once padded
- *
- * \return         null
- *
- */
-void mbedtls_sha1_once_padded_init(void);
-
-/**
- * \brief          This function calculates the HMAC
- *
- * \param buf      The buffer hmac data
- * \param buf_len  This must bigger than aligned 256 bytes
- * \param msg      The buffer input msg
- * \param msg_len  This must less than 64 bytes
- * \param output   The HMAC output
- * \param padded   The msg same length, and not need pad
- *
- * \return         \c 0 on success.
- * \return         A negative error code on failure.
- *
- */
-int mbedtls_hmac_iter_ret( unsigned char *buf, size_t buf_len,
-                           unsigned char *msg, size_t msg_len,
-                           unsigned char output[20], int padded);
-
-/**
- * \brief          This function init hmac buf
- *
- * \param key      The HMAC key
- * \param key_len  The HMAC key length
- * \param buf      The buffer hmac data
- * \param buf_len  This must bigger than aligned 256 bytes
- *
- * \return         \c 0 on success.
- * \return         A negative error code on failure.
- *
- */
-int mbedtls_hmac_iter_init( const unsigned char *key, size_t key_len,
-                            unsigned char *buf, size_t buf_len);
-
 #ifdef __cplusplus
 }
 #endif

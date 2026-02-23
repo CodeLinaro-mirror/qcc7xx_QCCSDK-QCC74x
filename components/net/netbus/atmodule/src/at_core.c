@@ -215,14 +215,12 @@ int at_cmd_register(const at_cmd_struct *cmds, int num_cmds)
     int i;
     int err;
 
-    if (!at) {
+    if (!at || !num_cmds) {
         return -1;
     }
 
-    for (i = 0; i < num_cmds; i++) {
-        if ((err = at_register_command(cmds++)) != 0) {
-            return err;
-        }
+    if ((err = at_register_command(cmds)) != 0) {
+        return err;
     }
 
     return 0;
@@ -237,10 +235,8 @@ int at_cmd_unregister(const at_cmd_struct *cmds, int num_cmds)
         return -1;
     }
 
-    for (i = 0; i < num_cmds; i++) {
-        if ((err = at_unregister_command(cmds++)) != 0) {
-            return err;
-        }
+    if ((err = at_unregister_command(cmds)) != 0) {
+        return err;
     }
 
     return 0;
@@ -250,15 +246,16 @@ static const at_cmd_struct *at_cmd_lookup(char *name)
 {
     int i = 0;
     int n = 0;
+    at_cmd_struct *cmds;
 
     while (i < AT_CMD_MAX_NUM && n < at->num_commands) {
-        if (at->commands[i]->at_name == NULL) {
-            i++;
-            continue;
-        }
 
-        if (!strcasecmp(at->commands[i]->at_name, name)) {
-            return at->commands[i];
+        cmds = at->commands[n];
+        while (cmds->at_name) {
+            if (!strcasecmp(cmds->at_name, name)) {
+                return cmds;
+            }
+            cmds++;
         }
 
         i++;

@@ -27,3 +27,4 @@ make flash CHIP=chip_name COMX=xxx # xxx is your com name
 ```
 python components/wireless/bluetooth/tools/GenerateOAD.py FW.bin FW.bin.sha256
 ```
+## 
