@@ -211,6 +211,9 @@ struct bt_dev {
 #if defined(QCC74x_BLE_SMP_SUPPORT_DISABLE_PAIR)
     bool disable_pair;
 #endif
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	bt_security_t default_sec_level;
+#endif
 };
 
 #if defined (CONFIG_BT_STACK_PTS)

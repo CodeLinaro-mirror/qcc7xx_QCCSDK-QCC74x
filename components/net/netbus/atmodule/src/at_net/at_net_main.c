@@ -2277,8 +2277,10 @@ int at_net_stop(void)
     wake_socket_close();
     if (g_at_net_task_is_start) {
         g_at_net_task_is_start = 2;
-        while(g_at_net_task_is_start != 0)
-            vTaskDelay(100);
+        while(g_at_net_task_is_start != 0) {
+		vTaskDelay(100);
+		net_main_wakeup();
+	}
     }
     at_net_deinit();
     return 0;

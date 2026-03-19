@@ -1,4 +1,7 @@
 # Changes
+## 2026-02-26
+1.[blestack]support set all connection default security level.
+
 ## 2026-02-06
 1.[blestack]Support GATT long/reliable writes.
 

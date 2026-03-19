@@ -1373,23 +1373,48 @@ int bt_conn_set_security(struct bt_conn *conn, bt_security_t sec)
 	}
 
 	/* nothing to do */
+	#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	if (conn->sec_level >= sec || conn->upper_sec_level >= sec) {
+		return 0;
+	}
+	#else
 	if (conn->sec_level >= sec || conn->required_sec_level >= sec) {
 		return 0;
 	}
-
+	#endif
 	atomic_set_bit_to(conn->flags, BT_CONN_FORCE_PAIR,
 			  sec & BT_SECURITY_FORCE_PAIR);
 	conn->required_sec_level = sec & ~BT_SECURITY_FORCE_PAIR;
-
+	#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	conn->upper_sec_level = sec;
+	#endif
 	err = start_security(conn);
 
 	/* reset required security level in case of error */
 	if (err) {
+		#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
 		conn->required_sec_level = conn->sec_level;
+		#else
+		conn->required_sec_level = bt_dev.default_sec_level;
+		#endif
 	}
 
 	return err;
 }
+
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+int bt_conn_set_security_level_all(bt_security_t sec)
+{
+	if (IS_ENABLED(CONFIG_BT_SMP_SC_ONLY) &&
+	    sec < BT_SECURITY_L4) {
+		return -EOPNOTSUPP;
+	}
+
+	bt_dev.default_sec_level = sec;
+
+	return 0;
+}
+#endif
 
 bt_security_t bt_conn_get_security(struct bt_conn *conn)
 {
@@ -1890,8 +1915,14 @@ struct bt_conn *bt_conn_add_le(u8_t id, const bt_addr_le_t *peer)
 	conn->id = id;
 	bt_addr_le_copy(&conn->le.dst, peer);
 #if defined(CONFIG_BT_SMP)
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	conn->sec_level = BT_SECURITY_L1;
+	conn->required_sec_level = bt_dev.default_sec_level;
+	conn->upper_sec_level = BT_SECURITY_L1;
+#else
 	conn->sec_level = BT_SECURITY_L1;
 	conn->required_sec_level = BT_SECURITY_L1;
+#endif/* QCC74x_BLE_SET_DEFAULT_SEC_LEVEL */
 #endif /* CONFIG_BT_SMP */
 	conn->type = BT_CONN_TYPE_LE;
 	conn->le.interval_min = BT_GAP_INIT_CONN_INT_MIN;

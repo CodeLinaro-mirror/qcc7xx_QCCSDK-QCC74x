@@ -363,6 +363,14 @@ typedef enum __packed {
  */
 int bt_conn_set_security(struct bt_conn *conn, bt_security_t sec);
 
+/** @brief Set security level for all connection.
+ *  @param sec Requested security level.
+ *
+ *  @return 0 on success or negative error
+ */
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+int bt_conn_set_security_level_all(bt_security_t sec);
+#endif
 /** @brief Get security level for a connection.
  *
  *  @return Connection security level

@@ -834,4 +834,7 @@ then it does disconnected flow once more. This will cause hardfault issue becaus
 /* Fix the issue that conn_new reentry before atomic_set is completed, then different connections may be use the same conns[i]*/
 #define QCC74x_BLE_PATCH_CONN_NEW_REENTRY_RISK
 
+/*FEAT: support set all connection default security level.*/
+#define QCC74x_BLE_SET_DEFAULT_SEC_LEVEL
+
 #endif /* BLE_CONFIG_H */

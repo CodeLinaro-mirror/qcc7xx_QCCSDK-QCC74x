@@ -57,6 +57,18 @@
 
 #define AT_BLE_PRINTF              printf
 
+/* BLE Advertising Data Constants */
+#define BLE_ADV_DATA_MAX_LEN           31      /* BLE 4.2 spec: max advertising data length */
+#define BLE_AD_HDR_SIZE                2       /* AD structure: Length(1) + Type(1) */
+#define BLE_AD_MAX_STRUCTURES          32      /* Maximum reasonable number of AD structures */
+#define BLE_MAC_ADDR_LEN               6       /* MAC address length in bytes */
+#define BLE_UUID_128_LEN               16      /* 128-bit UUID length in bytes */
+#define BLE_UUID_16_LEN                2       /* 16-bit UUID length in bytes */
+
+/* AT Command Format Constants */
+#define BLE_AT_FORMAT_MAX_LEN          64      /* Maximum length for AT command format string */
+#define BLE_AT_HEX_STRING_MAX_LEN      62      /* Maximum HEX string length (31 bytes * 2) */
+
 #define CHECK_BLE_SRV_IDX_VALID(idx) \
     if (!at_ble_srv_idx_is_valid(idx)) { \
         AT_BLE_PRINTF("service idx is invalid\r\n"); \
@@ -68,7 +80,6 @@
         AT_BLE_PRINTF("characteristic idx is invalid\r\n"); \
         return 0; \
     }
-
 
 static int g_ble_is_inited = 0;
 static int g_ble_dynamic_init = 0;
@@ -118,7 +129,7 @@ struct ble_char_data
     uint32_t char_prop;
     uint32_t char_perm;
     uint8_t uuid_type;
-    char read_data[22];
+    char *read_data;
     int read_data_len;
     struct bt_gatt_attr *attr;
 };
@@ -138,6 +149,19 @@ static struct ble_srv_data *g_ble_srv_data = NULL;
 static void ble_gatts_srv_clean(void)
 {
     if (g_ble_srv_data != NULL) {
+        // Free read_data buffers for all characteristics before freeing service data
+        for (int i = 0; i < BLE_SRV_MAX_NUM; i++) {
+            if (g_ble_srv_data[i].valid) {
+                for (int j = 0; j < BLE_CHAR_MAX_NUM; j++) {
+                    if (g_ble_srv_data[i].srv_char[j].read_data != NULL) {
+                        at_free(g_ble_srv_data[i].srv_char[j].read_data);
+                        g_ble_srv_data[i].srv_char[j].read_data = NULL;
+                    }
+                    g_ble_srv_data[i].srv_char[j].read_data_len = 0;
+                }
+            }
+        }
+
         memset(g_ble_srv_data, 0, sizeof(struct ble_srv_data) * BLE_SRV_MAX_NUM);
         at_free(g_ble_srv_data);
         g_ble_srv_data = NULL;
@@ -196,8 +220,13 @@ static void ble_addr_trans(uint8_t *src, uint8_t *dst)
 {
     int i;
 
-    for (i = 0; i < 6; i++) {
-        dst[i] = src[5 - i];
+    if (!src || !dst) {
+        AT_BLE_PRINTF("ble_addr_trans: NULL pointer\r\n");
+        return;
+    }
+
+    for (i = 0; i < BLE_MAC_ADDR_LEN; i++) {
+        dst[i] = src[BLE_MAC_ADDR_LEN - 1 - i];
     }
 }
 
@@ -205,20 +234,35 @@ static void ble_uuid_trans(uint8_t *src, uint8_t *dst)
 {
     int i;
 
-    for (i = 0; i < 16; i++) {
-        dst[i] = src[15 - i];
+    if (!src || !dst) {
+        AT_BLE_PRINTF("ble_uuid_trans: NULL pointer\r\n");
+        return;
+    }
+
+    for (i = 0; i < BLE_UUID_128_LEN; i++) {
+        dst[i] = src[BLE_UUID_128_LEN - 1 - i];
     }
 }
 
 static void ble_uuid_16_trans_get(uint16_t src, uint8_t *dst)
 {
+    if (!dst) {
+        AT_BLE_PRINTF("ble_uuid_16_trans_get: NULL pointer\r\n");
+        return;
+    }
+
     dst[0] = (uint8_t)(src >> 8);
     dst[1] = (uint8_t)(src & 0xFF);
 }
 
 static void ble_uuid_16_trans_set(uint8_t *src, uint16_t *dst)
 {
-    *dst = (uint16_t)(src[0] << 8) | src[1]; 
+    if (!src || !dst) {
+        AT_BLE_PRINTF("ble_uuid_16_trans_set: NULL pointer\r\n");
+        return;
+    }
+
+    *dst = (uint16_t)(src[0] << 8) | src[1];
 }
 
 static int check_attr_ismatch(struct ble_char_data *srv_char, struct bt_gatt_attr *attr)
@@ -487,19 +531,25 @@ static void ble_notification_all_cb(struct bt_conn *conn, u16_t handle,const voi
     if (!conn_data)
         return;
 
-    char *rdata = (char *)at_malloc(32 + length);
+    char *rdata = (char *)at_malloc(BLE_AT_FORMAT_MAX_LEN + length);
     int data_len = 0;
     if (!rdata) {
         AT_BLE_PRINTF("ble_notificaion_callback malloc failed\r\n");
         return;
     }
-    memset(rdata,0,(32 + length));
-    data_len = sprintf(rdata, "+BLE:NOTIDATA:%d,%d,%d,",conn_data->idx,handle,length);
+    memset(rdata, 0, (BLE_AT_FORMAT_MAX_LEN + length));
+    data_len = snprintf(rdata, BLE_AT_FORMAT_MAX_LEN, "+BLE:NOTIDATA:%d,%d,%d,", conn_data->idx, handle, length);
+    /* Ensure we don't overflow the buffer */
+    if (data_len < 0 || data_len >= BLE_AT_FORMAT_MAX_LEN) {
+        AT_BLE_PRINTF("sprintf error or overflow\r\n");
+        at_free(rdata);
+        return;
+    }
     memcpy(rdata + data_len, data, length);
     data_len += length;
     memcpy(rdata + data_len, "\r\n", 2);
     data_len += 2;
-    AT_CMD_DATA_SEND(rdata,data_len);
+    AT_CMD_DATA_SEND(rdata, data_len);
     at_free(rdata);
     rdata = NULL;
     
@@ -580,9 +630,9 @@ static struct bt_conn_auth_cb auth_cb_display = {
 	.pairing_complete = NULL,
 };
 
-int at_ble_sec_paramter_setup(int sec)
+int at_ble_sec_paramter_setup(int sec, int level)
 {
-    
+    int err = 0;
     switch(sec)
     {
         case BT_SMP_IO_DISPLAY_ONLY:
@@ -630,7 +680,14 @@ int at_ble_sec_paramter_setup(int sec)
 	auth_cb_display.pairing_complete = auth_pairing_complete;
     auth_cb_display.cancel           = auth_cancel;
     
-    return bt_conn_auth_cb_register(&auth_cb_display);
+    err = bt_conn_auth_cb_register(&auth_cb_display);
+
+    if(err != 0)
+        return err;
+
+    err = bt_conn_set_security_level_all(level);
+
+    return err;
 }
 
 
@@ -681,8 +738,12 @@ int at_ble_sec_start_security(int idx, int level)
 
     if (conn_data == NULL || conn_data->state != BLE_CONN_STATE_CONNECTED)
         return -EINVAL;
-    if(bt_conn_get_security(conn_data->conn)>=level)
+
+    if((bt_conn_get_security(conn_data->conn) >= level) || (at_ble_config->ble_sec_lvl > level))
+    {
         return -EINVAL;
+    }
+
     return bt_conn_set_security(conn_data->conn, level);
 }
 
@@ -715,7 +776,7 @@ int at_ble_get_unpair(char *addr, int type)
 
 static void ble_write_callback(int conn_idx,int srv_idx, int char_idx, void *buf, u16_t len)
 {
-    char *data = (char *)at_malloc(32 + len);
+    char *data = (char *)at_malloc(BLE_AT_FORMAT_MAX_LEN + len);
     int data_len = 0;
     if (!data) {
         AT_BLE_PRINTF("ble_write_callback malloc failed\r\n");
@@ -723,7 +784,13 @@ static void ble_write_callback(int conn_idx,int srv_idx, int char_idx, void *buf
         return;
     }
 
-    data_len = sprintf(data, "+BLE:GATTWRITE:%d,%d,%d,%d,", conn_idx,srv_idx, char_idx, len);
+    data_len = snprintf(data, BLE_AT_FORMAT_MAX_LEN, "+BLE:GATTWRITE:%d,%d,%d,%d,", conn_idx, srv_idx, char_idx, len);
+    /* Ensure we don't overflow the buffer */
+    if (data_len < 0 || data_len >= BLE_AT_FORMAT_MAX_LEN) {
+        AT_BLE_PRINTF("snprintf error or overflow\r\n");
+        at_free(data);
+        return;
+    }
     memcpy(data + data_len, buf, len);
     data_len += len;
     memcpy(data + data_len, "\r\n", 2);
@@ -752,14 +819,22 @@ void ble_dynamic_rd_cb(struct bt_conn *conn,const struct bt_gatt_attr* attr,u8_t
     struct ble_conn_data *conn_data = ble_conn_data_get_by_conn(conn);
     if (conn_data == NULL)
         return;
-    u16_t read_len =0;
 
-    read_len = g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len;
+    // Initialize length to 0
+    *length = 0;
+
+    // Check if read_data buffer exists (only allocated for characteristics with read permission)
+    if(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data == NULL)
+    {
+        AT_BLE_PRINTF("Warning: read_data is NULL for char %d,%d (no read permission or not allocated)\r\n", srv_idx, char_idx);
+        return;
+    }
+
+    u16_t read_len = g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len;
     if (read_len > 0) {
         memcpy(data, g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, read_len);
-        AT_BLE_PRINTF("%s,%d\r\n",g_ble_srv_data[srv_idx].srv_char[char_idx].read_data,read_len);
+        *length = read_len;
     }
-    *length=read_len;
 }
 void ble_dynamic_noti_cb(const struct bt_gatt_attr* attr ,u8_t data)
 {
@@ -897,7 +972,7 @@ static int parse_ble_ad_data(const uint8_t *raw_data, size_t raw_data_len,
     size_t offset = 0;
     uint8_t count = 0;
     struct bt_data *list = NULL;
-    
+
     *bt_data_list = NULL;
     *bt_data_count = 0;
     if (!raw_data || raw_data_len == 0 || !bt_data_list || !bt_data_count) {
@@ -905,31 +980,134 @@ static int parse_ble_ad_data(const uint8_t *raw_data, size_t raw_data_len,
         return 1;
     }
 
+    /* Validate total length against BLE spec limit
+     * BLE 4.2 spec: maximum advertising data length is 31 bytes
+     */
+    if (raw_data_len > BLE_ADV_DATA_MAX_LEN) {
+        AT_BLE_PRINTF("AD data error: length %zu exceeds BLE maximum %d\r\n",
+                      raw_data_len, BLE_ADV_DATA_MAX_LEN);
+        return 1;
+    }
+
+    /* First pass: count valid entries and validate structure
+     * BLE AD format: [Length][Type][Data...]
+     * - Length: 1 byte, value = sizeof(Type) + sizeof(Data)
+     * - Length excludes the Length field itself
+     * - Length = 0 indicates end of advertising data
+     * - Length >= 1 is valid (at least Type field exists)
+     */
     while (offset < raw_data_len) {
         uint8_t len = raw_data[offset];
+
+        /* Length = 0 marks end of data */
         if (len == 0) break;
 
-        if (offset + len + 1 > raw_data_len) {
-            AT_BLE_PRINTF("AD data format error: length overflow (offset=%d, len=%d, raw_len=%d)\r\n",
-                          offset, len, raw_data_len);
+        /* Check if we have enough bytes for Length field + Type field
+         * Minimum AD structure = 1(Length) + 1(Type) = BLE_AD_HDR_SIZE bytes
+         * Use subtraction to avoid integer overflow
+         */
+        if (raw_data_len - offset < BLE_AD_HDR_SIZE) {
+            AT_BLE_PRINTF("AD data format error: incomplete header at offset %d (need %d bytes, have %zu)\r\n",
+                          offset, BLE_AD_HDR_SIZE, raw_data_len - offset);
             return 1;
         }
-        
+
+        /* Check if we have enough data for complete AD structure
+         * Total size = 1(Length) + len(Type+Data)
+         * Use subtraction to avoid integer overflow: offset + len + 1 > raw_data_len
+         * Equivalent to: raw_data_len - offset - 1 < len
+         */
+        if (raw_data_len - offset - 1 < len) {
+            AT_BLE_PRINTF("AD data format error: incomplete data at offset %d (len=%d, remaining=%zu)\r\n",
+                          offset, len, raw_data_len - offset - 1);
+            return 1;
+        }
+
         count++;
+
+        /* Prevent integer overflow in allocation */
+        if (count > BLE_AD_MAX_STRUCTURES) {
+            AT_BLE_PRINTF("AD data error: too many AD structures (max=%d)\r\n", BLE_AD_MAX_STRUCTURES);
+            return 1;
+        }
+
+        /* Move to next AD structure: skip Length(1) + Type+Data(len) */
         offset += len + 1;
     }
-    
+
     if (count == 0) return 0;
-    
+
     list = (struct bt_data *)at_malloc(count * sizeof(struct bt_data));
     if (!list) return 1;
     
     offset = 0;
     for (uint8_t i = 0; i < count; i++) {
+        /* Validate we haven't gone past the end */
+        if (offset >= raw_data_len) {
+            AT_BLE_PRINTF("AD data error: offset out of bounds during parsing\r\n");
+            /* Clean up already allocated memory */
+            for (uint8_t j = 0; j < i; j++) {
+                if (list[j].data) at_free((void *)list[j].data);
+            }
+            at_free(list);
+            return 1;
+        }
+
         uint8_t len = raw_data[offset];
+
+        /* Length = 0 should not happen here as we validated in first pass
+         * But double-check for safety
+         */
+        if (len == 0) {
+            AT_BLE_PRINTF("AD data error: unexpected zero length at entry %d\r\n", i);
+            /* Clean up already allocated memory */
+            for (uint8_t j = 0; j < i; j++) {
+                if (list[j].data) at_free((void *)list[j].data);
+            }
+            at_free(list);
+            return 1;
+        }
+
+        /* Validate we have at least Length + Type (2 bytes minimum)
+         * This check was already done in first pass, but re-validate for safety
+         */
+        if (raw_data_len - offset < 2) {
+            AT_BLE_PRINTF("AD data error: insufficient data for header at entry %d\r\n", i);
+            /* Clean up already allocated memory */
+            for (uint8_t j = 0; j < i; j++) {
+                if (list[j].data) at_free((void *)list[j].data);
+            }
+            at_free(list);
+            return 1;
+        }
+
+        /* Extract Type field */
         list[i].type = raw_data[offset + 1];
+
+        /* Calculate Data length
+         * len includes Type field, so data_len = len - 1
+         * When len = 1: data_len = 0 (only Type, no Data - this is valid!)
+         * When len > 1: data_len > 0 (Type + Data)
+         */
         list[i].data_len = len - 1;
-        
+
+        /* Validate we have enough data for the complete structure
+         * This was already checked in first pass
+         */
+        if (raw_data_len - offset - 1 < len) {
+            AT_BLE_PRINTF("AD data error: insufficient data for payload at entry %d\r\n", i);
+            /* Clean up already allocated memory */
+            for (uint8_t j = 0; j < i; j++) {
+                if (list[j].data) at_free((void *)list[j].data);
+            }
+            at_free(list);
+            return 1;
+        }
+
+        /* Allocate and copy Data if present
+         * data_len = 0 means no data (only Type field)
+         * data_len > 0 means we have Type + Data
+         */
         if (list[i].data_len > 0) {
             list[i].data = (const uint8_t *)at_malloc(list[i].data_len);
             if (!list[i].data) {
@@ -941,12 +1119,14 @@ static int parse_ble_ad_data(const uint8_t *raw_data, size_t raw_data_len,
             }
             memcpy((void *)list[i].data, &raw_data[offset + 2], list[i].data_len);
         } else {
+            /* len = 1: only Type field, no Data */
             list[i].data = NULL;
         }
-        
+
+        /* Move to next AD structure */
         offset += len + 1;
     }
-    
+
     *bt_data_list = list;
     *bt_data_count = count;
     return 0;
@@ -1037,13 +1217,13 @@ int at_ble_adv_start(void)
     if(at_ble_config->scan_rsp_data.len!=0)
     {
 
-        if (parse_ble_ad_data(at_ble_config->scan_rsp_data.data, 
-                              at_ble_config->scan_rsp_data.len, 
+        if (parse_ble_ad_data(at_ble_config->scan_rsp_data.data,
+                              at_ble_config->scan_rsp_data.len,
                               &sdad, &set_sd_num)) {
             AT_BLE_PRINTF("Failed to parse scan rsp data\n");
             if(at_ble_config->adv_data.len!=0)
             {
-                if (ad) free_ble_ad_data(ad, set_sd_num);
+                if (ad) free_ble_ad_data(ad, set_adv_num);
             }
             return -1;
         }
@@ -1454,6 +1634,10 @@ int at_ble_gatts_service_del(int srv_idx)
         g_ble_srv_data[srv_idx].srv_char[i].char_perm = 0;
         g_ble_srv_data[srv_idx].srv_char[i].uuid_type = 0;
         g_ble_srv_data[srv_idx].srv_char[i].attr = NULL;
+        if (g_ble_srv_data[srv_idx].srv_char[i].read_data != NULL) {
+            at_free(g_ble_srv_data[srv_idx].srv_char[i].read_data);
+            g_ble_srv_data[srv_idx].srv_char[i].read_data = NULL;
+        }
         g_ble_srv_data[srv_idx].srv_char[i].read_data_len = 0;
     }
 
@@ -1493,10 +1677,12 @@ int at_ble_gatts_service_register(int enable)
     }
     if(enable == 0)
     {
-        if(ble_dynamic_unregister_service())
-            return 1;
         if(g_ble_dynamic_init == 1)
         {
+            if(ble_dynamic_unregister_service())
+            {
+              return 1;
+            }
             ble_dynamic_gatt_server_deinit();
             g_ble_dynamic_init = 0;
         }
@@ -1531,7 +1717,27 @@ int at_ble_gatts_service_char_set(int srv_idx, int char_idx, uint8_t *char_uuid,
     g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop = char_prop;
     g_ble_srv_data[srv_idx].srv_char[char_idx].char_perm = char_perm;
     g_ble_srv_data[srv_idx].srv_char[char_idx].attr = NULL;
-    g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = 0;
+
+    // Free existing read_data if present
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].read_data != NULL) {
+        at_free(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data);
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = NULL;
+    }
+
+    if (char_prop & BLE_GATT_CHAR_PROP_READ) {
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = (char *)at_malloc(244);
+        if (g_ble_srv_data[srv_idx].srv_char[char_idx].read_data == NULL)
+        {
+            AT_BLE_PRINTF("Failed to allocate memory for read_data\r\n");
+            return 0;
+        }
+        memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, 244);
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = 0;
+    } else {
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = NULL;
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = 0;
+    }
+
     g_ble_srv_data[srv_idx].srv_char[char_idx].valid = 1;
     return 1;
 }
@@ -1690,20 +1896,40 @@ int at_ble_gatts_service_read(int srv_idx, int char_idx, void * buffer, int leng
 {
     CHECK_BLE_SRV_IDX_VALID(srv_idx);
     CHECK_BLE_CHAR_IDX_VALID(char_idx);
-    
+
     if (g_ble_srv_data[srv_idx].valid == 0)
         return 0;
     if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 0)
         return 0;
 
-    if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_READ && length <= 244) {
-        memcpy(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, buffer, length);
-        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = length;
-        return length;
-        
-    } else {
+    // Check if characteristic has read property
+    if (!(g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_READ)) {
+        AT_BLE_PRINTF("Error: Characteristic %d,%d does not have read property\r\n", srv_idx, char_idx);
         return 0;
     }
+
+    // Check if read_data buffer exists (should exist if characteristic has read permission)
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].read_data == NULL) {
+        AT_BLE_PRINTF("Error: read_data is NULL for characteristic %d,%d with read permission\r\n", srv_idx, char_idx);
+        return 0;
+    }
+
+    // Validate length
+    if (length > 244) {
+        AT_BLE_PRINTF("Error: length %d exceeds maximum buffer size 244\r\n", length);
+        return 0;
+    }
+
+    // Clear data buffer
+    memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, 244);
+
+    // Copy data only if length > 0 and buffer is not NULL
+    if (length > 0 && buffer != NULL) {
+        memcpy(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, buffer, length);
+    }
+
+    g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = length;
+    return length;
 }
 
 static uint32_t print_chrc_props(u8_t properties)
@@ -2082,19 +2308,25 @@ static uint8_t notify_func(struct bt_conn *conn,
         if (!conn_data)
             return;
 
-        char *rdata = (char *)at_malloc(32 + length);
+        char *rdata = (char *)at_malloc(BLE_AT_FORMAT_MAX_LEN + length);
         int data_len = 0;
         if (!rdata) {
             AT_BLE_PRINTF("ble_notificaion_callback malloc failed\r\n");
             return;
         }
-        memset(rdata,0,(32 + length));
-        data_len = sprintf(rdata, "+BLE:NOTIDATA:%d,%d,%d,",conn_data->idx,params->value_handle,length);
+        memset(rdata, 0, (64 + length));
+        data_len = snprintf(rdata, BLE_AT_FORMAT_MAX_LEN, "+BLE:NOTIDATA:%d,%d,%d,", conn_data->idx, params->value_handle, length);
+        /* Ensure we don't overflow the buffer */
+        if (data_len < 0 || data_len >= BLE_AT_FORMAT_MAX_LEN) {
+            AT_BLE_PRINTF("snprintf error or overflow\r\n");
+            at_free(rdata);
+            return;
+        }
         memcpy(rdata + data_len, data, length);
         data_len += length;
         memcpy(rdata + data_len, "\r\n", 2);
         data_len += 2;
-        AT_CMD_DATA_SEND(rdata,data_len);
+        AT_CMD_DATA_SEND(rdata, data_len);
         at_free(rdata);
         rdata = NULL;
     }
@@ -2252,14 +2484,20 @@ int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void * buffer
 }
 static void ble_read_callback(int idx, int srv_idx, int char_idx, void *buf, u16_t len)
 {
-    char *data = (char *)at_malloc(32 + len);
+    char *data = (char *)at_malloc(BLE_AT_FORMAT_MAX_LEN + len);
     int data_len = 0;
     if (!data) {
         AT_BLE_PRINTF("ble_read_callback malloc failed\r\n");
         return;
     }
 
-    data_len = sprintf(data, "+BLE:GATTREAD:%d,%d,%d,%d,", idx,srv_idx, char_idx, len);
+    data_len = snprintf(data, BLE_AT_FORMAT_MAX_LEN, "+BLE:GATTREAD:%d,%d,%d,%d,", idx, srv_idx, char_idx, len);
+    /* Ensure we don't overflow the buffer */
+    if (data_len < 0 || data_len >= BLE_AT_FORMAT_MAX_LEN) {
+        AT_BLE_PRINTF("snprintf error or overflow\r\n");
+        at_free(data);
+        return;
+    }
     memcpy(data + data_len, buf, len);
     data_len += len;
     memcpy(data + data_len, "\r\n", 2);

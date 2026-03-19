@@ -31,6 +31,10 @@
 #define AT_BLE_CMD_PRINTF printf
 #define AT_BLE_SCAN_DEBUG_OUTPUT 0
 
+/* BLE AT Command Constants */
+#define BLE_AT_FORMAT_MAX_LEN          64      /* Maximum length for AT command format string */
+#define BLE_AT_HEX_STRING_MAX_LEN      62      /* Maximum HEX string length for 31-byte data */
+
 static int get_mac_from_string(const char *string, uint8_t mac[6])
 {
     if (string == NULL || strlen(string) != 17) {
@@ -83,12 +87,19 @@ static int is_valid_uuid_string(const char *uuid_str)
 }
 static void hex_to_string(uint8_t *hex, int hex_len, char *string, int string_len)
 {
+    const char hex_table[] = "0123456789abcdef";
     int i;
 
-    memset(string, 0, string_len);
-    for (i = 0; i < hex_len; i++) {
-        snprintf(string + strlen(string), string_len - strlen(string), "%02x", hex[i]);
+    /* Check if buffer is large enough: each hex byte needs 2 chars + null terminator */
+    if (string_len < hex_len * 2 + 1) {
+        return;
     }
+
+    for (i = 0; i < hex_len; i++) {
+        string[i * 2]     = hex_table[hex[i] >> 4];
+        string[i * 2 + 1] = hex_table[hex[i] & 0x0F];
+    }
+    string[hex_len * 2] = '\0';
 }
 
 static int at_query_cmd_ble_init(int argc, const char **argv)
@@ -278,6 +289,13 @@ static int at_setup_cmd_ble_scan_rsp_data(int argc, const char **argv)
     AT_CMD_PARSE_STRING(0, scan_rsp_data, sizeof(scan_rsp_data));
     if (strlen(scan_rsp_data) <= 0||strlen(scan_rsp_data)%2!=0)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+
+    /* Validate input length against BLE spec limit (31 bytes = 62 hex chars) */
+    if (strlen(scan_rsp_data) > BLE_AT_HEX_STRING_MAX_LEN) {
+        AT_BLE_CMD_PRINTF("Scan rsp data too long: max 62 hex chars (31 bytes)\r\n");
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
     at_ble_config->scan_rsp_data.len = utils_hex2bin(scan_rsp_data, strlen(scan_rsp_data), at_ble_config->scan_rsp_data.data, sizeof(at_ble_config->scan_rsp_data.data));
     if(at_ble_config->scan_rsp_data.len != (strlen(scan_rsp_data)/2))
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
@@ -339,6 +357,13 @@ static int at_setup_cmd_ble_adv_data(int argc, const char **argv)
     AT_CMD_PARSE_STRING(0, adv_data, sizeof(adv_data));
     if (strlen(adv_data) <= 0 || strlen(adv_data)%2!=0)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+
+    /* Validate input length against BLE spec limit (31 bytes = 62 hex chars) */
+    if (strlen(adv_data) > BLE_AT_HEX_STRING_MAX_LEN) {
+        AT_BLE_CMD_PRINTF("Adv data too long: max 62 hex chars (31 bytes)\r\n");
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
     at_ble_config->adv_data.len = utils_hex2bin(adv_data, strlen(adv_data), at_ble_config->adv_data.data, sizeof(at_ble_config->adv_data.data));
     if(at_ble_config->adv_data.len != (strlen(adv_data)/2))
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
@@ -819,6 +844,12 @@ static int at_setup_cmd_ble_gatts_notify(int argc, const char **argv)
     }
     at_response_string("Recv %d bytes\r\n", recv_num);
 
+    if (recv_num != length) {
+        at_free(buffer);
+        buffer = NULL;
+        AT_BLE_CMD_PRINTF("Data reception incomplete: expected %d, got %d\r\n", length, recv_num);
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
     send_num = at_ble_gatts_service_notify(conn_index, srv_idx, char_idx, buffer, recv_num);
     at_free(buffer);
     buffer = NULL;
@@ -872,7 +903,12 @@ static int at_setup_cmd_ble_gatts_indicate(int argc, const char **argv)
        recv_num += AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
     }
     at_response_string("Recv %d bytes\r\n", recv_num);
-
+    if (recv_num != length) {
+        at_free(buffer);
+        buffer = NULL;
+        AT_BLE_CMD_PRINTF("Data reception incomplete: expected %d, got %d\r\n", length, recv_num);
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
     send_num = at_ble_gatts_service_indicate(conn_index, srv_idx, char_idx, buffer, recv_num);
     at_free(buffer);
     buffer = NULL;
@@ -902,26 +938,35 @@ static int at_setup_cmd_ble_gatts_read(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
     if (char_idx < 0 || char_idx >= BLE_CHAR_MAX_NUM)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
-    if (length <= 0 || length > 244) {
+    if (length < 0 || length > 244) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
     }
 
-    char *buffer = (char *)at_malloc(length);
-    if (!buffer) {
-        AT_BLE_CMD_PRINTF("malloc %d bytes failed\r\n", length);
+    if (length > 0) {
+        char *buffer = (char *)at_malloc(length);
+        if (!buffer) {
+            AT_BLE_CMD_PRINTF("malloc %d bytes failed\r\n", length);
+            buffer = NULL;
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+        }
+
+        AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
+        while(recv_num < length) {
+            recv_num += AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
+        }
+        at_response_string("Recv %d bytes\r\n", recv_num);
+        if (recv_num != length) {
+            at_free(buffer);
+            buffer = NULL;
+            AT_BLE_CMD_PRINTF("Data reception incomplete: expected %d, got %d\r\n", length, recv_num);
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+        }
+        send_num = at_ble_gatts_service_read(srv_idx, char_idx, buffer, recv_num);
+        at_free(buffer);
         buffer = NULL;
-        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    } else {
+        send_num = at_ble_gatts_service_read(srv_idx, char_idx, NULL, 0);
     }
-
-    AT_CMD_RESPONSE(AT_CMD_MSG_WAIT_DATA);
-    while(recv_num < length) {
-        recv_num += AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
-    }
-    at_response_string("Recv %d bytes\r\n", recv_num);
-
-    send_num = at_ble_gatts_service_read(srv_idx, char_idx, buffer, recv_num);
-    at_free(buffer);
-    buffer = NULL;
 
     if (send_num != recv_num) {
         return AT_RESULT_CODE_SEND_FAIL;
@@ -1019,6 +1064,13 @@ static int at_setup_cmd_ble_gattc_write(int argc, const char **argv)
     }
     at_response_string("Recv %d bytes\r\n", recv_num);
 
+    if (recv_num != length) {
+        at_free(buffer);
+        buffer = NULL;
+        AT_BLE_CMD_PRINTF("Data reception incomplete: expected %d, got %d\r\n", length, recv_num);
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+
     send_num = at_ble_gattc_service_write(conn_index, srv_idx, char_idx, buffer, recv_num);
     at_free(buffer);
     buffer = NULL;
@@ -1112,21 +1164,33 @@ static int at_query_cmd_ble_sec_param(int argc, const char **argv)
 {
     if (at_ble_config->work_role == BLE_DISABLE)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
-    at_response_string("+BLESECPARAM:%d\r\n",at_ble_config->ble_sec_param);
+    at_response_string("+BLESECPARAM:%d,%d\r\n",at_ble_config->ble_sec_param,at_ble_config->ble_sec_lvl);
     return AT_RESULT_CODE_OK;
 }
 
 static int at_setup_cmd_ble_sec_param(int argc, const char **argv)
 {
     int sec_param = 0;
+    int sec_level = 1;
+    int level_vaild = 0;
     if (at_ble_config->work_role == BLE_DISABLE)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_INIT);
     AT_CMD_PARSE_NUMBER(0, &sec_param);
     if(sec_param < 0 || sec_param > 4)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
-    if(at_ble_sec_paramter_setup(sec_param))
+    AT_CMD_PARSE_OPT_NUMBER(1, &sec_level, level_vaild);
+
+    // Validate security level parameter
+    if (level_vaild && (sec_level < 0 || sec_level > 4)) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+    if (sec_param == 3 && sec_level > 2) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+    if(at_ble_sec_paramter_setup(sec_param,sec_level))
        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
-    at_ble_config->ble_sec_param=sec_param;
+    at_ble_config->ble_sec_param = sec_param;
+    at_ble_config->ble_sec_lvl = sec_level;
     return AT_RESULT_CODE_OK;
 }
 
@@ -1736,7 +1800,7 @@ static const at_cmd_struct at_ble_cmd[] = {
     {"+BLEGATTCSUBSCRIBE", NULL, NULL, at_setup_cmd_ble_gattc_subscribe, NULL, 4, 4},
     {"+BLEGATTCUNSUBSCRIBE", NULL, NULL, at_setup_cmd_ble_gattc_unsubscribe, NULL, 2, 2},
     {"+BLETXPWR", NULL, at_query_cmd_ble_tx_power, at_setup_cmd_ble_tx_power, NULL, 1, 1},
-    {"+BLESECPARAM", NULL, at_query_cmd_ble_sec_param, at_setup_cmd_ble_sec_param, NULL, 1, 1},
+    {"+BLESECPARAM", NULL, at_query_cmd_ble_sec_param, at_setup_cmd_ble_sec_param, NULL, 1, 2},
     {"+BLESECCANNEL", NULL, NULL, at_setup_cmd_ble_sec_cancel, NULL, 1, 1},
     {"+BLESECPASSKEYCONFIRM", NULL, NULL, at_setup_cmd_ble_sec_passkey_confirm, NULL, 1, 1},
     {"+BLESECPAIRINGCONFIRM", NULL, NULL, at_setup_cmd_ble_sec_pairing_confirm, NULL, 1, 1},

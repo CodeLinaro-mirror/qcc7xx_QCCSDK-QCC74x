@@ -126,6 +126,9 @@ struct bt_conn {
 #if defined(CONFIG_BT_SMP) || defined(CONFIG_BT_BREDR)
 	bt_security_t		sec_level;
 	bt_security_t		required_sec_level;
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	bt_security_t 		upper_sec_level;
+#endif /* QCC74x_BLE_SET_DEFAULT_SEC_LEVEL*/
 	u8_t			encrypt;
 #endif /* CONFIG_BT_SMP || CONFIG_BT_BREDR */
 

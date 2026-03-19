@@ -2256,7 +2256,12 @@ static void reset_pairing(struct bt_conn *conn)
 #endif /* CONFIG_BT_BREDR */
 
 	/* Reset required security level to current operational */
+	#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	conn->upper_sec_level = conn->sec_level;
+	conn->required_sec_level = bt_dev.default_sec_level;
+	#else
 	conn->required_sec_level = conn->sec_level;
+	#endif
 }
 #endif /* defined(CONFIG_BT_SMP) || defined(CONFIG_BT_BREDR) */
 
@@ -5829,6 +5834,9 @@ static int bt_init(void)
 #endif
 #if defined(QCC74x_HOST_ASSISTANT)
 	hast_init(host_assist_cb);
+#endif
+#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+	bt_dev.default_sec_level = BT_SECURITY_L1;
 #endif
 #endif
 
