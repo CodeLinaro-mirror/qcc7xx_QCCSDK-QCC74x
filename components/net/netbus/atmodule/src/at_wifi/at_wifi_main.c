@@ -1091,14 +1091,29 @@ int at_wifi_hostname_set(char *hostname)
         printf("[WIFI_MAIN] Error: hostname is NULL\r\n");
         return -1;
     }
-    
+
     struct netif *netif = (struct netif *)net_if_find_from_name("wl1");
     if (!netif) {
         printf("[WIFI_MAIN] Error: netif not found\r\n");
         return -1;
     }
-    
+
+#if LWIP_NETIF_HOSTNAME
     netif_set_hostname(netif, hostname);
+#endif
     return 0;
+}
+
+int at_wifi_hostname_get(void)
+{
+    struct netif *netif = (struct netif *)net_if_find_from_name("wl1");
+    if (!netif) {
+        return -1;
+    }
+
+#if LWIP_NETIF_HOSTNAME
+    return netif_get_hostname(netif);
+#endif
+    return NULL;
 }
 

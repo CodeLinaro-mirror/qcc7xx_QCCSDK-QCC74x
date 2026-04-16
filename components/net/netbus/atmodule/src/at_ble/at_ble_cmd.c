@@ -843,7 +843,7 @@ static int at_setup_cmd_ble_gatts_notify(int argc, const char **argv)
        recv_num += AT_CMD_DATA_RECV(buffer + recv_num, length - recv_num);
     }
     at_response_string("Recv %d bytes\r\n", recv_num);
-
+    
     if (recv_num != length) {
         at_free(buffer);
         buffer = NULL;
@@ -1179,7 +1179,7 @@ static int at_setup_cmd_ble_sec_param(int argc, const char **argv)
     if(sec_param < 0 || sec_param > 4)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
     AT_CMD_PARSE_OPT_NUMBER(1, &sec_level, level_vaild);
-
+    
     // Validate security level parameter
     if (level_vaild && (sec_level < 0 || sec_level > 4)) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);

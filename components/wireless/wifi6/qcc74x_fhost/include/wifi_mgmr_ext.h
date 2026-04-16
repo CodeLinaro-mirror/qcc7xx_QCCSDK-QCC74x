@@ -951,6 +951,14 @@ int wifi_mgmr_sta_ps_active_time(uint32_t ms);
  *
  * BLE RF usage time = 102.4 ms − 12 ms (receive beacon) − active_ms
  *
+ * @note Duty Cycle Accuracy:
+ *       - The configured active_ms (set via wifi_mgmr_sta_coex_duty_set) is the target
+ *       - Actual WiFi active time may be longer due to pending transmissions
+ *       - When the active period ends, WiFi activities in hardware queue or
+ *         in-flight packets will complete before WiFi releases RF
+ *       - For example, if active_ms=30, actual WiFi time may extend to ~40ms
+ *       - This extension (typically up to ~10ms) ensures packet integrity
+ *
  * @return 0 on success, negative error code on failure
  */
 int wifi_mgmr_sta_coex_enable(void);
@@ -974,6 +982,15 @@ int wifi_mgmr_sta_coex_disable(void);
  * @param active_ms WiFi active time in milliseconds (valid range: 10-90)
  *
  * @return 0 on success, -1 if parameter is out of range
+ *
+ * @note Duty Cycle Accuracy:
+ *       - The configured active_ms is the target WiFi active time
+ *       - Actual WiFi active time may be longer due to pending transmissions
+ *       - When the active period ends, WiFi activities in hardware queue or
+ *         in-flight packets will complete before WiFi releases RF
+ *       - For example, if active_ms=30, actual WiFi time may extend to ~40ms
+ *       - This extension (typically up to ~10ms) ensures packet integrity
+ *       - Applications requiring precise timing should account for this variation
  */
 int wifi_mgmr_sta_coex_duty_set(uint8_t active_ms);
 

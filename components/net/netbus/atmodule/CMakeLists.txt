@@ -48,9 +48,10 @@ sdk_library_add_sources(src/at_pwr/at_pwr_cmd.c)
 sdk_library_add_sources(src/at_port/at_port_fs.c)
 
 sdk_library_add_sources_ifdef(CONFIG_LITTLEFS src/at_port/at_port_littlefs.c)
-sdk_library_add_sources_ifdef(CONFIG_SPISYNC src/at_port/at_port_spi.c)
-sdk_library_add_sources_ifdef(CONFIG_NXSPI src/at_port/at_port_spi.c)
-sdk_library_add_sources_ifdef(CONFIG_ATUART src/at_port/at_port_uart.c)
+sdk_library_add_sources_ifdef(CONFIG_ATMODULE_SPISYNC src/at_port/at_port_spi.c)
+sdk_library_add_sources_ifdef(CONFIG_ATMODULE_NXSPI src/at_port/at_port_spi.c)
+sdk_library_add_sources_ifdef(CONFIG_ATMODULE_UART src/at_port/at_port_uart.c)
+sdk_library_add_sources_ifdef(CONFIG_ATMODULE_TTY src/at_port/at_port_tty.c)
 
 if(CONFIG_MQTT AND CONFIG_NETWORK)
 sdk_add_compile_definitions(-DCONFIG_MQTT=1)

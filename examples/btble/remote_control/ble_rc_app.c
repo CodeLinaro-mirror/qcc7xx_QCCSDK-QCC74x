@@ -76,6 +76,14 @@ SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_right, );
 SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_left, );
 SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_down, );
 SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_up, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_menu, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_pwr, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_pick, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_mute, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_home, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_vol_ins, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_vol_des, );
+SHELL_CMD_EXPORT_ALIAS(ble_rc_key_notify, ble_key_back, );
 #endif
 
 static void ble_rc_data_len_extend(struct bt_conn *conn)

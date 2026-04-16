@@ -1551,9 +1551,7 @@ static int at_setup_cmd_mdns(int argc, const char **argv)
 
 static int at_query_cmd_cwhostname(int argc, const char **argv)
 {
-    struct netif *netif = (struct netif *)net_if_find_from_name("wl1");
-    
-    at_response_string("+CWHOSTNAME:%s\r\n", netif_get_hostname(netif));
+    at_response_string("+CWHOSTNAME:%s\r\n", at_wifi_hostname_get());
     return AT_RESULT_CODE_OK;
 }
 
