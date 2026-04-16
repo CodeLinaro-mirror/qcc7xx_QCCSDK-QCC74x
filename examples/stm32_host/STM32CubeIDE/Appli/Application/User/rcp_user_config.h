@@ -1,0 +1,12 @@
+#ifndef __RCP_USER_CONFIG_H__
+#define __RCP_USER_CONFIG_H__
+
+#define RCP_SDIO_FREQUENCY_HZ (20 * 1000 * 1000)
+#define RCP_OS_FREERTOS 1
+#define RCP_BUF_SIZE    (1536)
+#define RCP_LOG_LEVEL   3
+#define LOG_LEVEL       RCP_LOG_LEVEL
+#define RCP_DEFAULT_BUS RCP_BUS_SDIO
+#define RCP_RX_NUM_BUFFERS 23
+
+#endif /* __RCP_USER_CONFIG_H__ */

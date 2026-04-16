@@ -151,6 +151,20 @@ void board_sdh_gpio_init()
     qcc74x_gpio_init(gpio, GPIO_PIN_15, GPIO_FUNC_SDH | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_2);
 }
 
+void board_sdio_gpio_init(void)
+{
+    struct qcc74x_device_s *gpio;
+
+    gpio = qcc74x_device_get_by_name("gpio");
+    qcc74x_gpio_init(gpio, GPIO_PIN_10, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+    qcc74x_gpio_init(gpio, GPIO_PIN_11, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+    qcc74x_gpio_init(gpio, GPIO_PIN_12, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+    qcc74x_gpio_init(gpio, GPIO_PIN_13, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+    qcc74x_gpio_init(gpio, GPIO_PIN_14, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+    qcc74x_gpio_init(gpio, GPIO_PIN_15, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);
+}
+
+
 void board_ir_gpio_init(void)
 {
     struct qcc74x_device_s *gpio;

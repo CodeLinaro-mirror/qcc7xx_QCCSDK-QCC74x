@@ -226,6 +226,7 @@ int pm_coex_set_wifi_connecting(bool is_connecting);
 
 void pm_coex_force_wifi_role(void);
 void pm_coex_force_ble_and_thread(void);
+void pm_coex_set_wifi_ack_ba_autoresp_block(bool disable);
 
 /// Aggregated debug/status snapshot for CLI/diagnostics.
 struct pm_coex_status {

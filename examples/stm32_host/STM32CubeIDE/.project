@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<projectDescription>
+	<name>host</name>
+	<comment></comment>
+	<projects>
+	</projects>
+	<buildSpec>
+	</buildSpec>
+	<natures>
+		<nature>com.st.stm32cube.ide.mcu.MCUProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCURootProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCUCubeIdeServicesRevAev2ProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCUNonUnderRootProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCUCubeProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCUAppliEnabledProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCURootBootProjectNature</nature>
+		<nature>com.st.stm32cube.ide.mcu.MCUSingleCpuProjectNature</nature>
+	</natures>
+	<linkedResources>
+		<link>
+			<name>stm32_host.ioc</name>
+			<type>1</type>
+			<locationURI>copy_PARENT/LwIP_HTTP_Server_Socket_RTOS.ioc</locationURI>
+		</link>
+	</linkedResources>
+	<variableList>
+		<variable>
+			<name>copy_PARENT</name>
+			<value>file:/Q:/stm32_host/STM32CubeH7RS/Projects/NUCLEO-H7S3L8/Applications/LwIP/LwIP_HTTP_Server_Socket_RTOS</value>
+		</variable>
+	</variableList>
+</projectDescription>
