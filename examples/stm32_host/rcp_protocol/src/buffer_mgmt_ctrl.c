@@ -66,7 +66,7 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
 
     ctrl->name = cfg->name;
 
-    LOG_INF("buffer_mgmt_create %s", ctrl->name);
+    LOG_DBG("buffer_mgmt_create %s", ctrl->name);
     return ctrl;
 
 err_deinit_pool:
@@ -110,34 +110,6 @@ int buffer_mgmt_pool_get_available(buffer_mgmt_ctrl_t *ctrl)
 }
 
 /**
- * @brief Register buffer management free callbacks
- * @param ctrl Buffer management controller
- * @param before_free_cb Before free callback
- * @param before_free_cb_arg Before free callback argument
- * @param after_free_cb After free callback
- * @param after_free_cb_arg After free callback argument
- * @retval 0 Success
- * @retval -1 Error
- */
-int buffer_mgmt_free_cb_register(buffer_mgmt_ctrl_t *ctrl,
-                                 buffer_mgmt_free_cb_t before_free_cb,
-                                 void *before_free_cb_arg,
-                                 buffer_mgmt_free_cb_t after_free_cb,
-                                 void *after_free_cb_arg)
-{
-    if (!ctrl) {
-        return -1;
-    }
-
-    ctrl->before_free_cb = before_free_cb;
-    ctrl->before_free_cb_arg = before_free_cb_arg;
-    ctrl->after_free_cb = after_free_cb;
-    ctrl->after_free_cb_arg = after_free_cb_arg;
-
-    return 0;
-}
-
-/**
  * @brief Allocate buffer element from pool
  * @param ctrl Buffer management controller
  * @param buffer_elem Pointer to store allocated buffer element
@@ -170,12 +142,10 @@ int buffer_mgmt_alloc_elem(buffer_mgmt_ctrl_t *ctrl,
  */
 int buffer_mgmt_free_elem(buffer_mgmt_elem_t *buffer_elem)
 {
-    if (!buffer_elem || !buffer_elem->buff_addr || !buffer_elem->buffer_ctrl) {
+    if (!buffer_elem || !buffer_elem->buff_addr) {
         LOG_ERR("invalid elem");
         return -1;
     }
-
-    buffer_mgmt_ctrl_t *ctrl = buffer_elem->buffer_ctrl;
 
     LOG_DBG("free elem:%p, buff_addr:%p\r\n", buffer_elem, buffer_elem->buff_addr);
 
@@ -185,10 +155,21 @@ int buffer_mgmt_free_elem(buffer_mgmt_elem_t *buffer_elem)
         return -1;
     }
 
-    if (ctrl->before_free_cb) {
-        ctrl->before_free_cb(buffer_elem, ctrl->before_free_cb_arg);
+    if (buffer_elem->buffer_ctrl == NULL) {
+        if (buffer_elem->free_cb) {
+            buffer_elem->free_cb(buffer_elem, buffer_elem->cb_arg);
+        }
+        return 0;
     }
 
+    buffer_mgmt_ctrl_t *ctrl = buffer_elem->buffer_ctrl;
+
+    if (buffer_elem->free_cb) {
+        buffer_elem->free_cb(buffer_elem, buffer_elem->cb_arg);
+    }
+
+    buffer_elem->free_cb = NULL;
+    buffer_elem->cb_arg = NULL;
     buffer_elem->data_size = 0;
     buffer_elem->offset = FRAME_BUFF_PAYLOAD_OFFSET;
     int ret = rcp_os_queue_send(&ctrl->pool_queue, &buffer_elem, 0);
@@ -196,10 +177,5 @@ int buffer_mgmt_free_elem(buffer_mgmt_elem_t *buffer_elem)
         LOG_ERR("send to pool failed, ret:%d", ret);
         return -1;
     }
-
-    if (ctrl->after_free_cb) {
-        ctrl->after_free_cb(buffer_elem, ctrl->after_free_cb_arg);
-    }
-
     return 0;
 }

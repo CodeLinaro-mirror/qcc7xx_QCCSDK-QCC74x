@@ -90,6 +90,8 @@ link_state_t link_get_state(uint8_t stream);
 
 lnk_sts_t *link_get_status(uint8_t stream);
 
-lnk_sts_t *rcp_stream_create(buffer_mgmt_ctrl_t *buffer_ctrl, uint8_t stream_id);
+lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint8_t rx_wnd);
+void rcp_dump_status(void);
+void rcp_reset_status_counters(void);
 
 #endif

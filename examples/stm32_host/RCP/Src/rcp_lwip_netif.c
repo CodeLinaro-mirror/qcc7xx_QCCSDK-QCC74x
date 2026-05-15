@@ -63,10 +63,14 @@ static rcp_lwip_ctx_t g_rcp_lwip = {
 
 _Static_assert(FRAME_BUFF_PBUFCUSTOM >= sizeof(struct pbuf_custom),
 	       "FRAME_BUFF_PBUFCUSTOM is too small for lwIP custom pbuf");
+_Static_assert(PBUF_LINK_ENCAPSULATION_HLEN >= (sizeof(buffer_mgmt_elem_t) + sizeof(rcp_pro_packt_t)),
+	       "PBUF_LINK_ENCAPSULATION_HLEN is too small for zero-copy TX");
 
 static rcp_lwip_port_t *rcp_lwip_default_port(void);
 static struct pbuf *rcp_lwip_pbuf_from_elem(const buffer_mgmt_elem_t *payload_ptr);
 static void rcp_lwip_zero_copy_free(struct pbuf *p);
+static void rcp_lwip_tx_pbuf_free(buffer_mgmt_elem_t *buffer_elem, void *arg);
+static bool rcp_lwip_tx_zero_copy_prepare(struct pbuf *p, buffer_mgmt_elem_t **buffer_elem);
 
 static uint8_t handle_rcp_msg(uint8_t msg_flags, const buffer_mgmt_elem_t *payload_ptr);
 static err_t netif_rcp_output(struct netif *netif, struct pbuf *p);
@@ -163,6 +167,51 @@ static struct pbuf *rcp_lwip_pbuf_from_elem(const buffer_mgmt_elem_t *payload_pt
 	return pbuf_alloced_custom(PBUF_RAW, buffer_mgmt_data_size(payload), PBUF_REF, custom,
 				   buffer_mgmt_data_ptr(payload),
 				   (u16_t)buffer_mgmt_max_size(payload));
+}
+
+static void rcp_lwip_tx_pbuf_free(buffer_mgmt_elem_t *buffer_elem, void *arg)
+{
+	(void)buffer_elem;
+	pbuf_free((struct pbuf *)arg);
+	printf("free1:%p\r\n", arg);
+}
+
+static bool rcp_lwip_tx_zero_copy_prepare(struct pbuf *p, buffer_mgmt_elem_t **buffer_elem)
+{
+	buffer_mgmt_elem_t *msg_buffer;
+	uint8_t *wrapper_end;
+	uint8_t *wrapper_base;
+
+	uint16_t offset;
+
+	if (!p || !buffer_elem) {
+		return false;
+	}
+
+	if (p->next != NULL || p->len != p->tot_len ||
+	    ((p->type_internal & PBUF_TYPE_FLAG_STRUCT_DATA_CONTIGUOUS) == 0U)) {
+		return false;
+	}
+
+//	wrapper_end = p->payload - sizeof(rcp_pro_packt_t);
+//	wrapper_base = (uint8_t *)(((uintptr_t)(wrapper_end - sizeof(*msg_buffer))) &
+//				 ~((uintptr_t)(_Alignof(buffer_mgmt_elem_t) - 1U)));
+
+//	msg_buffer = (buffer_mgmt_elem_t *)wrapper_base;
+	//memset(msg_buffer, 0, sizeof(*msg_buffer));
+
+	offset = sizeof(buffer_mgmt_elem_t) + sizeof(rcp_pro_packt_t);
+	msg_buffer = (buffer_mgmt_elem_t *)(((uint32_t)p->payload - offset) & ~(_Alignof(buffer_mgmt_elem_t) - 1U));
+	msg_buffer->buffer_ctrl = NULL;
+	msg_buffer->buff_addr = msg_buffer;
+	msg_buffer->offset = (uint32_t)((uint8_t *)p->payload - (uint8_t *)msg_buffer);
+	msg_buffer->data_size = p->tot_len;
+	msg_buffer->max_size = msg_buffer->offset + p->tot_len;
+	msg_buffer->free_cb = rcp_lwip_tx_pbuf_free;
+	msg_buffer->cb_arg = p;
+
+	*buffer_elem = msg_buffer;
+	return true;
 }
 
 static err_t netif_rcp_init(struct netif *netif)
@@ -324,7 +373,8 @@ err_t rcp_lwip_init(void)
 	}
 
 	if (port->lnk_sts == NULL) {
-		port->lnk_sts = rcp_stream_create(port->buffer_ctrl, port->stream_id);
+		port->lnk_sts = rcp_stream_create(port->stream_id, port->buffer_ctrl,
+						RCP_ETH_RX_WND);
 		if (port->lnk_sts == NULL) {
 			LOG_ERR("Failed to create ETH stream");
 			return ERR_IF;
@@ -393,7 +443,7 @@ static uint8_t handle_rcp_msg(uint8_t msg_flags, const buffer_mgmt_elem_t *paylo
 		pbuf_free(p);
 		return RCP_RX_TAKEN;
 	}
-	pbuf_free(p);
+	//pbuf_free(p);
 	return RCP_RX_TAKEN;
 }
 
@@ -417,16 +467,22 @@ static err_t netif_rcp_output(struct netif *netif, struct pbuf *p)
 		return ERR_IF;
 	}
 
+//	if (rcp_lwip_tx_zero_copy_prepare(p, &msg_buffer)) {
+//		pbuf_ref(p);
+//		res = link_send(port->stream_id, msg_buffer, 6000);
+//		if (res != RCP_LNK_SUCCESS) {
+//			pbuf_free(p);
+//			return ERR_IF;
+//		}
+//		return ERR_OK;
+//	}
+//    printf("not used zero copy len:%d\r\n", p->tot_len);
+
 	if (buffer_mgmt_alloc_elem(port->buffer_ctrl, &msg_buffer_elem, 0) != 0) {
 		LOG_ERR("Failed to allocate packet buffer");
 		return ERR_IF;
 	}
 	msg_buffer = msg_buffer_elem;
-
-	if (msg_buffer == NULL) {
-		LOG_ERR("Failed to allocate packet buffer");
-		return ERR_IF;
-	}
 
 	if (p->tot_len > BUFFER_MGMT_MAX_SIZE(msg_buffer)) {
 		LOG_ERR("packet to large to send over link");

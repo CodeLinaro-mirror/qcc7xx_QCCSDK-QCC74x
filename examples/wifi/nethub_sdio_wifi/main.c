@@ -29,6 +29,9 @@
 #include "qcc74x_uart.h"
 
 #include <app_user.h>
+#include "coredump.h"
+
+extern void at_minidump_init(uint32_t, size_t);
 
 static struct qcc74x_device_s *uart0;
 
@@ -43,6 +46,9 @@ void app_init_entry(void *param)
 int main(void)
 {
     board_init();
+
+    core_partition_init();
+    at_minidump_init(core_partition_addr(), 256);
 
     uart0 = qcc74x_device_get_by_name("uart0");
     shell_init_with_task(uart0);

@@ -164,6 +164,7 @@ void bt_enable_cb(int err)
         ble_tp_init();
 #if defined(CONFIG_BT_OAD_SERVER)
         oad_service_enable(ble_check_oad);
+        bt_oad_enable_data_len_exchange(false);
 #endif
 
 #if defined(CONFIG_BT_BAS_SERVER)

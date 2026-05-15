@@ -39,6 +39,8 @@ extern "C" {
  */
 void qcc74x_efuse_read_secure_boot(uint8_t *sign, uint8_t *aes);
 
+void qcc74x_efuse_read_secure_boot_app(uint8_t *sign, uint8_t *aes);
+
 int qcc74x_efuse_enable_aes(uint8_t aes_type, uint8_t xts_mode);
 
 int qcc74x_efuse_rw_lock_aes_key(uint8_t key_index, uint8_t rd_lock, uint8_t wr_lock);

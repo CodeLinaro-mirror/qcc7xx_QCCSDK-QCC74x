@@ -861,6 +861,26 @@ int fhost_get_scan_results(struct fhost_cntrl_link *link, int result_idx,
                            int max_nb_result, struct mac_scan_result *results);
 
 /**
+ * Failure codes returned by @ref fhost_send_80211_frame. Any return value
+ * strictly less than @ref FHOST_TX_FRAME_ID_MIN is a failure code from this
+ * enum; any value greater or equal is the frame id.
+ *
+ * Ownership rule for @p cfm_cb_arg on failure:
+ *  - INVALID_VIF / VIF_NOT_READY / NO_BUFFER: @p cfm_cb was NOT invoked and
+ *    the caller still owns @p cfm_cb_arg (must free it to avoid a leak).
+ *  - REQ_FAILED: @p cfm_cb has ALREADY been invoked synchronously inside
+ *    fhost_send_80211_frame; the caller must NOT release @p cfm_cb_arg
+ *    again (doing so would double-free).
+ */
+enum fhost_tx_frame_result {
+    FHOST_TX_FRAME_INVALID_VIF   = 0, /* fvif_idx out of range; cb NOT called */
+    FHOST_TX_FRAME_VIF_NOT_READY = 1, /* mac_vif NULL; cb NOT called */
+    FHOST_TX_FRAME_NO_BUFFER     = 2, /* net_buf alloc failed; cb NOT called */
+    FHOST_TX_FRAME_REQ_FAILED    = 3, /* send path failed; cb ALREADY called */
+    FHOST_TX_FRAME_ID_MIN        = 4, /* >= this value means success (frame id) */
+};
+
+/**
  ****************************************************************************************
  * @brief Transmit a 802.11 frame
  *
@@ -879,8 +899,10 @@ int fhost_get_scan_results(struct fhost_cntrl_link *link, int result_idx,
  * @param[in] cfm_cb      Callback when transmission has been completed (may be NULL)
  * @param[in] cfm_cb_arg  Private argument for the callback.
  *
- * @return A unique frame id (the one passed in the confirmation callback) and 0/1/2/3 if
- * an error happened
+ * @return A unique frame id (>= @ref FHOST_TX_FRAME_ID_MIN, also passed to the
+ * confirmation callback) on success, or a value from @ref fhost_tx_frame_result
+ * on failure. See @ref fhost_tx_frame_result for the ownership rule on
+ * @p cfm_cb_arg.
  ****************************************************************************************
  */
 uint32_t fhost_send_80211_frame(int fvif_idx, const uint8_t *frame, uint32_t length,
@@ -906,4 +928,3 @@ int fhost_ftm(struct fhost_cntrl_link *link, int fvif_idx,
 /// @}
 
 #endif // _FHOST_API_H_
-

@@ -4,6 +4,7 @@
 #include <nethub_types.h>
 
 #include "qcc74x_core.h"
+#include "nh_credit_flow.h"
 #include "nh_msg_ctrl.h"
 #include "nh_frame_buff_ctrl.h"
 
@@ -24,7 +25,7 @@
 #define WIFI_DNLD_CREDIT_MAX                  (22)//34
 
 /* Flow control report trigger threshold */
-#define WIFI_DNLD_CREDIT_UPDATE_THRESHOLD     (2)//(WIFI_DNLD_CREDIT_MAX / 4)
+#define WIFI_DNLD_CREDIT_UPDATE_THRESHOLD     (3)//(WIFI_DNLD_CREDIT_MAX / 4)
 
 /** Queue depth for receiving data from msg */
 #define WIFI_MSG_QUEUE_DEPTH                  (32)
@@ -112,11 +113,7 @@ typedef struct wifi_wifista_priv {
 
     int wifi_status; /**< Current WiFi device status */
 
-    uint8_t device_dnld_credit_limit;    /**< Device download credit limit */
-    uint8_t credit_limit_update_last;    /**< Last credit limit update value */
-    int credit_cnt;                      /**< Download credit counter */
-    uint8_t host_upld_credit_limit;      /**< Host upload credit limit */
-    uint8_t device_upld_credit_consumed; /**< Device upload credit consumed */
+    nh_flow_cntrl_t flow_ctrl;         /**< Shared credit flow control state */
 
     TaskHandle_t wifi_proc_task;       /**< WiFi processing task handle */
     TaskHandle_t frame_free_task;      /**< Frame free task handle */
@@ -133,10 +130,6 @@ typedef struct wifi_wifista_priv {
                             void *data, uint32_t len,
                             void (*free_cb)(void *arg), void *cb_arg);
     int (*wifi_recv_frame)(struct wifi_wifista_priv *priv, void *data, uint32_t len);
-
-    /* Flow control related */
-    bool flow_control_enabled;           /**< Flow control enable flag */
-    uint8_t flow_control_threshold;      /**< Flow control threshold */
 } wifi_wifista_priv_t;
 
 /*****************************************************************************
@@ -207,20 +200,6 @@ int transportsdio_linkup(void);
  * @retval <0 Error code
  */
 int transportsdio_linkdown(void);
-
-/**
- * @brief Set flow control parameters
- * @param[in] enabled Whether to enable flow control
- * @param[in] threshold Flow control threshold
- */
-void transportsdio_set_flow_control(bool enabled, uint8_t threshold);
-
-/**
- * @brief Get current flow control status
- * @param[out] enabled Flow control enable status
- * @param[out] threshold Flow control threshold
- */
-void transportsdio_get_flow_control(bool *enabled, uint8_t *threshold);
 
 /**
  * @brief User call interface: send WiFi data to host (upld)
@@ -301,5 +280,6 @@ uint32_t transportsdio_get_payload_offset(uint8_t *payload);
  *          flow control status and other key information
  */
 void transportsdio_dump_priv(void);
+void transportsdio_reset_stats(void);
 
 #endif /* __transportsdio_H_ */

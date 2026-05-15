@@ -7,6 +7,7 @@
 #include "task.h"
 #include "queue.h"
 #include <stdlib.h>
+#include <string.h>
 
 #ifdef CONFIG_WL80211
 #define FHOST_RX_BUF_CNT 20// fixme
@@ -34,13 +35,12 @@
 #define DEBUG_BYPASS_WIFI_RX     (0)// 1-not send to wifi fw. 0-normal
 #define DEBUG_DUMP_WIFITX_ENABLE (0)// 1-dump wifi tx data. 0-not dump wifi tx data
 #define DEBUG_DUMP_WIFIRX_ENABLE (0)// 1-dump wifi rx data. 0-not dump wifi rx data
-
 /* Debug output for example program */
 #define EXAMPLE_PRINTF printf
 #if DEBUG_SDIO_LOG_ENABLE
-#define EXAMPLE_DEBUG       LOG_D//(fmt, ...) printf("[transport debug] " fmt, ##__VA_ARGS__)
-#define EXAMPLE_INFO        LOG_I//(fmt, ...) printf("[TRANSSDIO] " fmt, ##__VA_ARGS__)
-#define EXAMPLE_ERR         LOG_E//(fmt, ...) printf("[TRANSSDIO] " fmt, ##__VA_ARGS__)
+#define EXAMPLE_DEBUG(fmt, ...) //LOG_I("[transport debug] " fmt, ##__VA_ARGS__)
+#define EXAMPLE_INFO(fmt, ...)  //LOG_I("[transportsdio] " fmt, ##__VA_ARGS__)
+#define EXAMPLE_ERR(fmt, ...)   //LOG_E("[transportsdio] " fmt, ##__VA_ARGS__)
 #else
 #define EXAMPLE_DEBUG(fmt, ...)
 #define EXAMPLE_INFO(fmt, ...)
@@ -87,7 +87,7 @@ static void wifi_proc_task(void *arg);
 static void frame_free_task(void *arg);
 
 static int msg_dnld_recv_done_cb(frame_elem_t *frame_elem, void *arg);
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg);
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success);
 static int transportsdio_hwreset(frame_elem_t *frame_elem, void *arg);
 
 /* WiFi TX completion callback */
@@ -147,11 +147,10 @@ static void wifi_tx_done_cb(frame_elem_t *frame_elem)
     /* Free frame from message */
     frame_queue_free_elem(frame_elem);
 
-    priv->credit_cnt += 1;
-    priv->device_dnld_credit_limit += 1;
+    nh_rx_credit_reclaim(&priv->flow_ctrl);
 
     /* Flow control threshold reached, wake up thread to update flow control */
-    if ((int8_t)(priv->device_dnld_credit_limit - priv->credit_limit_update_last) > WIFI_DNLD_CREDIT_UPDATE_THRESHOLD) {
+    if (nh_rx_credit_need_update(&priv->flow_ctrl)) {
         wifi_proc_task_wakeup(priv);
     }
 }
@@ -330,10 +329,23 @@ static int msg_upld_send_done_customfree(frame_elem_t *frame_elem)
     return 0;
 }
 
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg)
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success)
 {
+    struct wifi_wifista_priv *priv = (struct wifi_wifista_priv *)arg;
+    struct nh_wifi_msg_packt *msg_packt;
+
     EXAMPLE_DEBUG("%s, frame_elem:%p, frame_elem->skb_free:%p\r\n",
         __FUNCTION__, frame_elem, frame_elem->skb_free);
+
+    if (!frame_elem) {
+        return -1;
+    }
+
+    msg_packt = (struct nh_wifi_msg_packt *)frame_elem->buff_addr;
+    if (!success && priv && msg_packt->flag == nh_WIFI_FLAG_UPLD_DATA) {
+        nh_tx_credit_put(&priv->flow_ctrl);
+    }
+
     if (frame_elem && (frame_elem->skb_free == NULL)) {
         return frame_queue_free_elem(frame_elem);
     }
@@ -342,6 +354,17 @@ static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg)
 
 static int transportsdio_hwreset(frame_elem_t *frame_elem, void *arg)
 {
+    struct wifi_wifista_priv *priv = (struct wifi_wifista_priv *)arg;
+
+    (void)frame_elem;
+
+    if (priv == NULL) {
+        return -1;
+    }
+
+    priv->wifi_status = nh_WIFI_DSTA_IDLE;
+    nh_credit_reset(&priv->flow_ctrl);
+
     return 0;
 }
 
@@ -352,10 +375,9 @@ static int transportsdio_hwreset(frame_elem_t *frame_elem, void *arg)
  * @retval 0 Success
  * @retval <0 Error
  */
-static int msg_upld_send_cmd_packet(struct wifi_wifista_priv *priv, uint8_t wifi_flag, uint8_t tofront)
+static int msg_upld_send_cmd_packet(struct wifi_wifista_priv *priv, uint8_t wifi_flag, uint8_t tofront, int credit)
 {
     int ret;
-    uintptr_t flag;
     frame_elem_t *frame_elem;
     struct nh_wifi_msg_packt *msg_tx_packt;
 
@@ -387,22 +409,15 @@ static int msg_upld_send_cmd_packet(struct wifi_wifista_priv *priv, uint8_t wifi
     msg_tx_packt->msg_packt.sub_tag = 0;
     msg_tx_packt->flag = wifi_flag;
 
-    /* Lock to prevent flow control competition and disorder with UPLD_DATA */
-    flag = qcc74x_irq_save();
-    if (wifi_flag == nh_WIFI_FLAG_CREDIT_UPDATE || wifi_flag == nh_WIFI_FLAG_DEVICE_START) {
-        if (priv->credit_limit_update_last == priv->device_dnld_credit_limit) {
-            msg_tx_packt->credit_update_flag = false;
-            msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-        } else {
-            msg_tx_packt->credit_update_flag = true;
-            msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-            priv->credit_limit_update_last = priv->device_dnld_credit_limit;
-            EXAMPLE_DEBUG("Sending CREDIT_UPDATE message, credit limit: %d\r\n", priv->device_dnld_credit_limit);
-        }
+    if (credit >= 0) {
+        msg_tx_packt->credit_update_flag = true;
+        msg_tx_packt->credit_limit_cnt = (uint8_t)credit;
+    } else {
+        msg_tx_packt->credit_update_flag = false;
+        msg_tx_packt->credit_limit_cnt = 0;
     }
 
     ret = nh_msg_ctrl_send(priv->msg_ctrl, frame_elem, tofront);
-    qcc74x_irq_restore(flag);
 
     if (ret < 0) {
         EXAMPLE_ERR("Failed to send DEVICE_READY message\r\n");
@@ -464,10 +479,9 @@ static void wifi_proc_task(void *arg)
             LOG_W("Received host %s command\r\n", msg_packt->flag == nh_WIFI_FLAG_HOST_RESET ? "RESET" : "STOP");
 
             priv->wifi_status = nh_WIFI_DSTA_IDLE;
-            priv->device_dnld_credit_limit = WIFI_DNLD_CREDIT_MAX;
-            priv->credit_limit_update_last = 0;
 
             frame_queue_free_elem(frame_elem);
+            nh_credit_reset(&priv->flow_ctrl);
             msg_packt = NULL;
             continue;
         }
@@ -483,8 +497,18 @@ static void wifi_proc_task(void *arg)
 
             case nh_WIFI_DSTA_HOST_READY:
                 /* Host ready, send DEVICE_READY */
-                EXAMPLE_INFO("Host ready, sending DEVICE_READY\r\n");
-                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_READY, 0);
+
+                if (msg_packt) {
+                    nh_credit_init(&priv->flow_ctrl, "ETH",
+                               msg_packt->credit_limit_cnt,
+                               WIFI_DNLD_CREDIT_UPDATE_THRESHOLD,
+                               WIFI_DNLD_CREDIT_MAX,
+                               WIFI_DNLD_CREDIT_UPDATE_THRESHOLD);
+                }
+
+                LOG_W("Host ready (credit=%d), sending DEVICE_READY\r\n",
+                      priv->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_limit_cnt);
+                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_READY, 0, -1);
                 if (ret < 0) {
                     EXAMPLE_ERR("Failed to send DEVICE_READY message\r\n");
                     break;
@@ -501,27 +525,28 @@ static void wifi_proc_task(void *arg)
 
                 EXAMPLE_INFO("WiFi connected, sending DEVICE_START\r\n");
 
-                priv->device_dnld_credit_limit = WIFI_DNLD_CREDIT_MAX;
-                priv->credit_limit_update_last = 0;
-                priv->credit_cnt = WIFI_DNLD_CREDIT_MAX;
-
-                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_START, 0);
+                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_START, 0, WIFI_DNLD_CREDIT_MAX);
                 if (ret < 0) {
                     EXAMPLE_ERR("Failed to send DEVICE_START message\r\n");
                     break;
                 }
 
+                nh_msg_ctrl_reset_stream_stat(priv->msg_ctrl, priv->msg_tag);
                 priv->wifi_status = nh_WIFI_DSTA_DEVICE_RUN;
+                nh_credit_enable(&priv->flow_ctrl, NH_CREDIT_EN_RX | NH_CREDIT_EN_TX);
                 break;
 
             case nh_WIFI_DSTA_DEVICE_RUN:
                 //EXAMPLE_INFO("Run here, nh_WIFI_DSTA_DEVICE_RUN %d\r\n", priv->wifi_connected);
+                if (msg_packt && msg_packt->credit_update_flag) {
+                    nh_tx_credit_update(&priv->flow_ctrl, msg_packt->credit_limit_cnt);
+                }
                 if (priv->wifi_connected == true) {
                     break;
                 }
                 EXAMPLE_INFO("WiFi disconnected, sending DEVICE_STOP\r\n");
 
-                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_STOP, 0);
+                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_DEVICE_STOP, 0, -1);
                 if (ret < 0) {
                     EXAMPLE_ERR("Failed to send DEVICE_STOP message\r\n");
                     break;
@@ -552,8 +577,11 @@ static void wifi_proc_task(void *arg)
 
         /* Actively send flow control update, needed when no uplink data */
         if (priv->wifi_status == nh_WIFI_DSTA_DEVICE_RUN &&
-            (int8_t)(priv->device_dnld_credit_limit - priv->credit_limit_update_last) > WIFI_DNLD_CREDIT_UPDATE_THRESHOLD) {// todo: double check
-            ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_CREDIT_UPDATE, 1);
+            nh_rx_credit_need_update(&priv->flow_ctrl)) {
+            ret = nh_rx_credit_update(&priv->flow_ctrl);
+            if (ret >= 0) {
+                ret = msg_upld_send_cmd_packet(priv, nh_WIFI_FLAG_CREDIT_UPDATE, 1, ret);
+            }
             if (ret < 0) {
                 EXAMPLE_ERR("Failed to send CREDIT_UPDATE message\r\n");
             }
@@ -630,8 +658,7 @@ int transportsdio_init(wifi_wifista_priv_t *ctx, nh_msg_ctrl_t *msg_ctrl, uint8_
     priv->wifi_connected = true;
     priv->wifi_send_frame = NULL;
     priv->wifi_recv_frame = NULL;
-    priv->flow_control_enabled = true;
-    priv->flow_control_threshold = WIFI_DNLD_CREDIT_UPDATE_THRESHOLD;
+
     /* MAC address is set by user or obtained through other mechanisms */
     EXAMPLE_INFO("Using MAC address: %02X:%02X:%02X:%02X:%02X:%02X\r\n",
             priv->mac_addr[0], priv->mac_addr[1], priv->mac_addr[2],
@@ -746,6 +773,7 @@ int transportsdio_deinit(void)
         vQueueDelete(g_wifi_priv->msg_dnld_queue);
         vQueueDelete(g_wifi_priv->frame_free_queue);
         frame_queue_remove(g_wifi_priv->rx_frame_ctrl);
+        nh_credit_deinit(&g_wifi_priv->flow_ctrl);
 
         free(g_wifi_priv);
         g_wifi_priv = NULL;
@@ -801,41 +829,6 @@ void transportsdio_set_wifi_recv_cb(int (*recv_func)(struct wifi_wifista_priv *,
     if (g_wifi_priv) {
         g_wifi_priv->wifi_recv_frame = recv_func;
     }
-}
-
-/**
- * @brief Set flow control parameters
- * @param[in] enabled Whether to enable flow control
- * @param[in] threshold Flow control threshold
- */
-void transportsdio_set_flow_control(bool enabled, uint8_t threshold)
-{
-    if (!g_wifi_priv) {
-        EXAMPLE_ERR("WiFi device not initialized\r\n");
-        return;
-    }
-
-    g_wifi_priv->flow_control_enabled = enabled;
-    g_wifi_priv->flow_control_threshold = threshold > WIFI_DNLD_CREDIT_MAX ? WIFI_DNLD_CREDIT_MAX : threshold;
-
-    EXAMPLE_INFO("Flow control %s, threshold: %d\r\n",
-          enabled ? "enabled" : "disabled", g_wifi_priv->flow_control_threshold);
-}
-
-/**
- * @brief Get current flow control status
- * @param[out] enabled Flow control enable status
- * @param[out] threshold Flow control threshold
- */
-void transportsdio_get_flow_control(bool *enabled, uint8_t *threshold)
-{
-    if (!g_wifi_priv || !enabled || !threshold) {
-        EXAMPLE_ERR("Invalid parameters\r\n");
-        return;
-    }
-
-    *enabled = g_wifi_priv->flow_control_enabled;
-    *threshold = g_wifi_priv->flow_control_threshold;
 }
 
 /**
@@ -966,6 +959,12 @@ int transportsdio_send_upld_skb(nh_skb_t *skb)
         return -4;
     }
 
+    ret = nh_tx_credit_get(&g_wifi_priv->flow_ctrl, portMAX_DELAY);
+    if (ret < 0) {
+        EXAMPLE_ERR("Failed to get upld credit.\r\n");
+        return -4;
+    }
+
     /* Assign based on head */
     transportsdio_register_payload_offset(payload, FRAME_BUFF_ELEM_SIZE + sizeof(struct nh_wifi_msg_packt));
     frame_elem   = (frame_elem_t *)(payload - FRAME_BUFF_ELEM_SIZE - sizeof(struct nh_wifi_msg_packt));
@@ -999,15 +998,9 @@ int transportsdio_send_upld_skb(nh_skb_t *skb)
     msg_tx_packt->flag = nh_WIFI_FLAG_UPLD_DATA;
 
     /* Set flow control information */
-
-    if (g_wifi_priv->credit_limit_update_last == g_wifi_priv->device_dnld_credit_limit) {
-        msg_tx_packt->credit_update_flag = false;
-        msg_tx_packt->credit_limit_cnt = g_wifi_priv->device_dnld_credit_limit;
-    } else {
-        msg_tx_packt->credit_update_flag = true;
-        msg_tx_packt->credit_limit_cnt = g_wifi_priv->device_dnld_credit_limit;
-        g_wifi_priv->credit_limit_update_last = g_wifi_priv->device_dnld_credit_limit;
-    }
+    ret = nh_rx_credit_update(&g_wifi_priv->flow_ctrl);
+    msg_tx_packt->credit_limit_cnt = (ret >= 0) ? (uint8_t)ret : 0;
+    msg_tx_packt->credit_update_flag = (ret >= 0) ? true : false;
 
 #if 1//ETHSTA_DBGLOG
     if (msg_tx_packt->msg_packt.len >= 14) {
@@ -1029,6 +1022,7 @@ int transportsdio_send_upld_skb(nh_skb_t *skb)
 
     ret = nh_msg_ctrl_send(g_wifi_priv->msg_ctrl, frame_elem, 0);
     if (ret < 0) {
+        nh_tx_credit_put(&g_wifi_priv->flow_ctrl);
         EXAMPLE_ERR("\x1b[33m%s:%d\x1b[0m Failed to send upld data, ret:%d.\r\n", __func__, __LINE__, ret);
         msg_upld_send_done_customfree(frame_elem);
         return ret;
@@ -1059,8 +1053,15 @@ int transportsdio_send_upld(const void *data, uint32_t len)
         return -4;
     }
 
+    ret = nh_tx_credit_get(&g_wifi_priv->flow_ctrl, portMAX_DELAY);
+    if (ret < 0) {
+        EXAMPLE_ERR("Failed to get upld credit\r\n");
+        return -4;
+    }
+
     ret = frame_queue_alloc_elem(g_wifi_priv->rx_frame_ctrl, &frame_elem, 1000);
     if (ret < 0) {
+        nh_tx_credit_put(&g_wifi_priv->flow_ctrl);
         EXAMPLE_ERR("Failed to allocate frame element\r\n");
         return -3;
     }
@@ -1081,8 +1082,9 @@ int transportsdio_send_upld(const void *data, uint32_t len)
     msg_tx_packt->flag = nh_WIFI_FLAG_UPLD_DATA;
 
     /* Set flow control information */
-    msg_tx_packt->credit_update_flag = false;
-    msg_tx_packt->credit_limit_cnt = g_wifi_priv->device_dnld_credit_limit;
+    ret = nh_rx_credit_update(&g_wifi_priv->flow_ctrl);
+    msg_tx_packt->credit_limit_cnt = (ret >= 0) ? (uint8_t)ret : 0;
+    msg_tx_packt->credit_update_flag = (ret >= 0) ? true : false;
 
 #if 0//ETHSTA_DBGLOG
     if (msg_tx_packt->msg_packt.len >= 14) {
@@ -1098,6 +1100,7 @@ int transportsdio_send_upld(const void *data, uint32_t len)
     /* Send data to host */
     ret = nh_msg_ctrl_send(g_wifi_priv->msg_ctrl, frame_elem, 0);
     if (ret < 0) {
+        nh_tx_credit_put(&g_wifi_priv->flow_ctrl);
         EXAMPLE_ERR("Failed to send upld data: %d\r\n", ret);
         frame_queue_free_elem(frame_elem);
         return ret;
@@ -1108,6 +1111,177 @@ int transportsdio_send_upld(const void *data, uint32_t len)
 }
 
 #ifdef CONFIG_NETHUB_DEBUG
+static void transportsdio_dump_queue_state(const char *name, QueueHandle_t queue, UBaseType_t depth)
+{
+    UBaseType_t used;
+    UBaseType_t free_cnt;
+
+    if (queue == NULL) {
+        EXAMPLE_PRINTF("  %s: NULL\r\n", name);
+        return;
+    }
+
+    used = uxQueueMessagesWaiting(queue);
+    free_cnt = uxQueueSpacesAvailable(queue);
+    if (depth == 0U) {
+        depth = used + free_cnt;
+    }
+
+    EXAMPLE_PRINTF("  %s: %p (used: %lu/%lu, free: %lu)\r\n",
+                   name,
+                   queue,
+                   (unsigned long)used,
+                   (unsigned long)depth,
+                   (unsigned long)free_cnt);
+}
+
+static void transportsdio_dump_frame_ctrl_state(const char *name, frame_queue_ctrl_t *ctrl)
+{
+    UBaseType_t pool_free = 0;
+    UBaseType_t output_wait = 0;
+    UBaseType_t input_wait = 0;
+    UBaseType_t inflight = 0;
+
+    if (ctrl == NULL) {
+        EXAMPLE_PRINTF("  %s: NULL\r\n", name);
+        return;
+    }
+
+    if (ctrl->pool_queue != NULL) {
+        pool_free = uxQueueMessagesWaiting(ctrl->pool_queue);
+        inflight = (ctrl->frame_elem_cnt >= pool_free) ? (ctrl->frame_elem_cnt - pool_free) : 0;
+    }
+    if (ctrl->output_queue != NULL) {
+        output_wait = uxQueueMessagesWaiting(ctrl->output_queue);
+    }
+    if (ctrl->input_queue != NULL) {
+        input_wait = uxQueueMessagesWaiting(ctrl->input_queue);
+    }
+
+    EXAMPLE_PRINTF("  %s: %p (name: %s, type: 0x%04X, elem: %u)\r\n",
+                   name,
+                   ctrl,
+                   ctrl->name ? ctrl->name : "?",
+                   ctrl->frame_type,
+                   ctrl->frame_elem_cnt);
+    EXAMPLE_PRINTF("    pool_queue: %p (free: %lu/%u, inflight: %lu)\r\n",
+                   ctrl->pool_queue,
+                   (unsigned long)pool_free,
+                   ctrl->frame_elem_cnt,
+                   (unsigned long)inflight);
+    EXAMPLE_PRINTF("    output_queue: %p (wait: %lu)\r\n",
+                   ctrl->output_queue,
+                   (unsigned long)output_wait);
+    EXAMPLE_PRINTF("    input_queue: %p (wait: %lu)\r\n",
+                   ctrl->input_queue,
+                   (unsigned long)input_wait);
+}
+
+static void transportsdio_dump_credit_state(const char *name, const nh_credit_t *credit, bool enabled, bool is_tx)
+{
+    uint8_t credit_delta;
+    UBaseType_t sem_cnt = 0;
+
+    if (credit == NULL) {
+        EXAMPLE_PRINTF("  %s: NULL\r\n", name);
+        return;
+    }
+
+    if (credit->wait_sem != NULL) {
+        sem_cnt = uxQueueMessagesWaiting((QueueHandle_t)credit->wait_sem);
+    }
+
+    credit_delta = is_tx
+        ? (uint8_t)(credit->credit_limit_cnt - credit->credit_consumed_cnt)
+        : (uint8_t)(credit->credit_consumed_cnt - credit->credit_limit_cnt);
+
+    EXAMPLE_PRINTF("  %s: %s\r\n", name, enabled ? "enabled" : "disabled");
+    EXAMPLE_PRINTF("    init_credit: %u, threshold: %u, credit_limit_cnt: %u, credit_consumed_cnt: %u\r\n",
+                   credit->init_credit,
+                   credit->threshold,
+                   credit->credit_limit_cnt,
+                   credit->credit_consumed_cnt);
+    EXAMPLE_PRINTF("    wait_sem: %p, wait_sem_cnt: %lu, %s: %u\r\n",
+                   credit->wait_sem,
+                   (unsigned long)sem_cnt,
+                   is_tx ? "credit_left" : "pending_update",
+                   credit_delta);
+}
+
+static const char *transportsdio_msg_tag_name(uint8_t tag)
+{
+    switch (tag) {
+        case nh_MSG_TAG_SYS:
+            return "SYS";
+        case nh_MSG_TAG_WIFI:
+            return "WIFI";
+        case nh_MSG_TAG_ETH:
+            return "ETH";
+        case nh_MSG_TAG_TTY:
+            return "TTY";
+        case nh_MSG_TAG_NETLINK:
+            return "NETLINK";
+        case nh_MSG_TAG_HCI:
+            return "HCI";
+        default:
+            return "?";
+    }
+}
+
+static void transportsdio_dump_stream_packets(nh_msg_ctrl_t *msg_ctrl)
+{
+    int i;
+
+    if (msg_ctrl == NULL) {
+        EXAMPLE_PRINTF("Stream Packets:\r\n");
+        EXAMPLE_PRINTF("  msg_ctrl: N/A\r\n");
+        return;
+    }
+
+    EXAMPLE_PRINTF("Stream Packets:\r\n");
+    for (i = 0; i < nh_MSG_TAG_MAX; i++) {
+        const nh_msg_stream_stat_t *stat = &msg_ctrl->stream_stats[i];
+        bool active = (msg_ctrl->nh_msg_dnld_recv_cb[i] != NULL) ||
+                      (msg_ctrl->nh_msg_upld_send_cb[i] != NULL) ||
+                      (msg_ctrl->nh_msg_hw_reset_cb[i] != NULL) ||
+                      (stat->tx_data_packets != 0U) ||
+                      (stat->tx_ctrl_packets != 0U) ||
+                      (stat->rx_data_packets != 0U) ||
+                      (stat->rx_ctrl_packets != 0U);
+
+        if (!active) {
+            continue;
+        }
+
+        EXAMPLE_PRINTF("tag %d (%s):\r\n",
+                       i,
+                       transportsdio_msg_tag_name(i));
+        EXAMPLE_PRINTF("       data pkt tx=%lu rx=%lu, bytes tx=%lu rx=%lu\r\n",
+                       (unsigned long)stat->tx_data_packets,
+                       (unsigned long)stat->rx_data_packets,
+                       (unsigned long)stat->tx_data_bytes,
+                       (unsigned long)stat->rx_data_bytes);
+        EXAMPLE_PRINTF("       ctrl pkt tx=%lu rx=%lu, bytes tx=%lu rx=%lu\r\n",
+                       (unsigned long)stat->tx_ctrl_packets,
+                       (unsigned long)stat->rx_ctrl_packets,
+                       (unsigned long)stat->tx_ctrl_bytes,
+                       (unsigned long)stat->rx_ctrl_bytes);
+    }
+}
+
+void transportsdio_reset_stats(void)
+{
+    if (g_wifi_priv == NULL) {
+        return;
+    }
+
+    if (g_wifi_priv->msg_ctrl != NULL) {
+        nh_msg_ctrl_reset_stream_stats(g_wifi_priv->msg_ctrl);
+    }
+
+    memset(&g_nethub_stats, 0, sizeof(g_nethub_stats));
+}
+
 /**
  * @brief Dump g_wifi_priv structure parameters for debugging
  * @details Print important parameters including queue status, connection state,
@@ -1115,93 +1289,174 @@ int transportsdio_send_upld(const void *data, uint32_t len)
  */
 void transportsdio_dump_priv(void)
 {
+    wifi_wifista_priv_t *priv = g_wifi_priv;
+    nh_msg_ctrl_t *msg_ctrl;
+    nh_msg_ctrl_ops_t *sdio_ops;
+    UBaseType_t wifi_upld_inflight = 0;
+    UBaseType_t msg_dnld_pool_inflight = 0;
+    int upld_sdio_pending = 0;
+    int upld_free_pending = 0;
+    int dnld_pending = 0;
+    int sdio_ready = -1;
+    int sdio_upld_busy = -1;
+    int sdio_dnld_busy = -1;
+
     if (!g_wifi_priv) {
         EXAMPLE_PRINTF("g_wifi_priv is NULL - device not initialized\r\n");
         return;
+    }
+
+    msg_ctrl = priv->msg_ctrl;
+    sdio_ops = (msg_ctrl != NULL) ? msg_ctrl->msg_sdio_ops : NULL;
+
+    if (priv->rx_frame_ctrl != NULL && priv->rx_frame_ctrl->pool_queue != NULL &&
+        priv->rx_frame_ctrl->frame_elem_cnt >= uxQueueMessagesWaiting(priv->rx_frame_ctrl->pool_queue)) {
+        wifi_upld_inflight = priv->rx_frame_ctrl->frame_elem_cnt -
+            uxQueueMessagesWaiting(priv->rx_frame_ctrl->pool_queue);
+    }
+
+    if (msg_ctrl != NULL && msg_ctrl->dnld_queue_ctrl != NULL &&
+        msg_ctrl->dnld_queue_ctrl->pool_queue != NULL &&
+        msg_ctrl->dnld_queue_ctrl->frame_elem_cnt >= uxQueueMessagesWaiting(msg_ctrl->dnld_queue_ctrl->pool_queue)) {
+        msg_dnld_pool_inflight = msg_ctrl->dnld_queue_ctrl->frame_elem_cnt -
+            uxQueueMessagesWaiting(msg_ctrl->dnld_queue_ctrl->pool_queue);
+    }
+
+    upld_sdio_pending = (int)g_nethub_stats.upld_start_consume - (int)g_nethub_stats.upld_transfer_complete;
+    if (upld_sdio_pending < 0) {
+        upld_sdio_pending = 0;
+    }
+
+    upld_free_pending = (int)g_nethub_stats.upld_transfer_complete - (int)g_nethub_stats.upld_free_count;
+    if (upld_free_pending < 0) {
+        upld_free_pending = 0;
+    }
+
+    dnld_pending = (int)g_nethub_stats.dnld_producer_count -
+        (int)(g_nethub_stats.dnld_consumer_free_normal + g_nethub_stats.dnld_consumer_free_abnormal);
+    if (dnld_pending < 0) {
+        dnld_pending = 0;
+    }
+
+    if (sdio_ops != NULL) {
+        if (sdio_ops->sdio_is_ready != NULL) {
+            sdio_ready = sdio_ops->sdio_is_ready();
+        }
+        if (sdio_ops->sdio_upld_is_busy != NULL) {
+            sdio_upld_busy = sdio_ops->sdio_upld_is_busy();
+        }
+        if (sdio_ops->sdio_dnld_is_busy != NULL) {
+            sdio_dnld_busy = sdio_ops->sdio_dnld_is_busy();
+        }
     }
 
     EXAMPLE_PRINTF("=== WiFi Private Structure Dump ===\r\n");
 
     /* Basic information */
     EXAMPLE_PRINTF("Basic Info:\r\n");
-    EXAMPLE_PRINTF("  msg_ctrl: %p\r\n", g_wifi_priv->msg_ctrl);
-    EXAMPLE_PRINTF("  msg_tag: %d\r\n", g_wifi_priv->msg_tag);
-    EXAMPLE_PRINTF("  wifi_status: %d\r\n", g_wifi_priv->wifi_status);
-    EXAMPLE_PRINTF("  stop_requested: %s\r\n", g_wifi_priv->stop_requested ? "true" : "false");
+    EXAMPLE_PRINTF("  msg_ctrl: %p\r\n", msg_ctrl);
+    EXAMPLE_PRINTF("  msg_tag: %d\r\n", priv->msg_tag);
+    EXAMPLE_PRINTF("  wifi_status: %d\r\n", priv->wifi_status);
+    EXAMPLE_PRINTF("  stop_requested: %s\r\n", priv->stop_requested ? "true" : "false");
 
     /* MAC address and connection status */
     EXAMPLE_PRINTF("MAC & Connection:\r\n");
     EXAMPLE_PRINTF("  mac_addr: %02X:%02X:%02X:%02X:%02X:%02X\r\n",
-          g_wifi_priv->mac_addr[0], g_wifi_priv->mac_addr[1], g_wifi_priv->mac_addr[2],
-          g_wifi_priv->mac_addr[3], g_wifi_priv->mac_addr[4], g_wifi_priv->mac_addr[5]);
-    EXAMPLE_PRINTF("  wifi_connected: %s\r\n", g_wifi_priv->wifi_connected ? "connected" : "disconnected");
+                   priv->mac_addr[0], priv->mac_addr[1], priv->mac_addr[2],
+                   priv->mac_addr[3], priv->mac_addr[4], priv->mac_addr[5]);
+    EXAMPLE_PRINTF("  wifi_connected: %s\r\n", priv->wifi_connected ? "connected" : "disconnected");
 
     /* Flow control information */
     EXAMPLE_PRINTF("Flow Control:\r\n");
-    EXAMPLE_PRINTF("  flow_control_enabled: %s\r\n", g_wifi_priv->flow_control_enabled ? "enabled" : "disabled");
-    EXAMPLE_PRINTF("  flow_control_threshold: %d\r\n", g_wifi_priv->flow_control_threshold);
-    EXAMPLE_PRINTF("  device_dnld_credit_limit: %d\r\n", g_wifi_priv->device_dnld_credit_limit);
-    EXAMPLE_PRINTF("  credit_limit_update_last: %d\r\n", g_wifi_priv->credit_limit_update_last);
-    EXAMPLE_PRINTF("  credit_cnt: %d\r\n", g_wifi_priv->credit_cnt);
-    EXAMPLE_PRINTF("  host_upld_credit_limit: %d\r\n", g_wifi_priv->host_upld_credit_limit);
-    EXAMPLE_PRINTF("  device_upld_credit_consumed: %d\r\n", g_wifi_priv->device_upld_credit_consumed);
+    EXAMPLE_PRINTF("  tag: %s, enable_mask: 0x%02X\r\n",
+                   priv->flow_ctrl.tag ? priv->flow_ctrl.tag : "?",
+                   priv->flow_ctrl.enable);
+    transportsdio_dump_credit_state("tx_credit", &priv->flow_ctrl.credit[NH_CREDIT_DIR_TX],
+                                    (priv->flow_ctrl.enable & NH_CREDIT_EN_TX) != 0U, true);
+    transportsdio_dump_credit_state("rx_credit", &priv->flow_ctrl.credit[NH_CREDIT_DIR_RX],
+                                    (priv->flow_ctrl.enable & NH_CREDIT_EN_RX) != 0U, false);
+    transportsdio_dump_stream_packets(msg_ctrl);
+
+    EXAMPLE_PRINTF("Flow Summary:\r\n");
+    EXAMPLE_PRINTF("  wifi_upld_pool_inflight: %lu/%u\r\n",
+                   (unsigned long)wifi_upld_inflight,
+                   priv->rx_frame_ctrl ? priv->rx_frame_ctrl->frame_elem_cnt : 0U);
+    EXAMPLE_PRINTF("  msg_dnld_pool_inflight: %lu/%u\r\n",
+                   (unsigned long)msg_dnld_pool_inflight,
+                   (msg_ctrl && msg_ctrl->dnld_queue_ctrl) ? msg_ctrl->dnld_queue_ctrl->frame_elem_cnt : 0U);
+    EXAMPLE_PRINTF("  upld_sdio_pending: %d, upld_free_pending: %d, dnld_pending: %d\r\n",
+                   upld_sdio_pending,
+                   upld_free_pending,
+                   dnld_pending);
+    EXAMPLE_PRINTF("  stats: dnld_prod=%lu dnld_free_ok=%lu dnld_free_err=%lu upld_prod=%lu upld_start=%lu upld_done=%lu upld_free=%lu\r\n",
+                   (unsigned long)g_nethub_stats.dnld_producer_count,
+                   (unsigned long)g_nethub_stats.dnld_consumer_free_normal,
+                   (unsigned long)g_nethub_stats.dnld_consumer_free_abnormal,
+                   (unsigned long)g_nethub_stats.upld_producer_count,
+                   (unsigned long)g_nethub_stats.upld_start_consume,
+                   (unsigned long)g_nethub_stats.upld_transfer_complete,
+                   (unsigned long)g_nethub_stats.upld_free_count);
 
     /* Task information */
     EXAMPLE_PRINTF("Tasks:\r\n");
-    EXAMPLE_PRINTF("  wifi_proc_task: %p", g_wifi_priv->wifi_proc_task);
-    if (g_wifi_priv->wifi_proc_task) {
+    EXAMPLE_PRINTF("  wifi_proc_task: %p", priv->wifi_proc_task);
+    if (priv->wifi_proc_task) {
         EXAMPLE_PRINTF(" (state: %d)",
-              eTaskGetState(g_wifi_priv->wifi_proc_task));
+              eTaskGetState(priv->wifi_proc_task));
 #if (INCLUDE_uxTaskGetStackHighWaterMark == 1)
         EXAMPLE_PRINTF(", stack_high_water_mark: %u",
-              uxTaskGetStackHighWaterMark(g_wifi_priv->wifi_proc_task));
+              uxTaskGetStackHighWaterMark(priv->wifi_proc_task));
 #endif
     }
     EXAMPLE_PRINTF("\r\n");
 
-    EXAMPLE_PRINTF("  frame_free_task: %p", g_wifi_priv->frame_free_task);
-    if (g_wifi_priv->frame_free_task) {
+    EXAMPLE_PRINTF("  frame_free_task: %p", priv->frame_free_task);
+    if (priv->frame_free_task) {
         EXAMPLE_PRINTF(" (state: %d)",
-              eTaskGetState(g_wifi_priv->frame_free_task));
+              eTaskGetState(priv->frame_free_task));
 #if (INCLUDE_uxTaskGetStackHighWaterMark == 1)
         EXAMPLE_PRINTF(", stack_high_water_mark: %u",
-              uxTaskGetStackHighWaterMark(g_wifi_priv->frame_free_task));
+              uxTaskGetStackHighWaterMark(priv->frame_free_task));
 #endif
     }
     EXAMPLE_PRINTF("\r\n");
 
     /* Queue information */
     EXAMPLE_PRINTF("Queues:\r\n");
-    if (g_wifi_priv->msg_dnld_queue) {
-        UBaseType_t msg_dnld_count = uxQueueMessagesWaiting(g_wifi_priv->msg_dnld_queue);
-        UBaseType_t msg_dnld_spaces = uxQueueSpacesAvailable(g_wifi_priv->msg_dnld_queue);
-        EXAMPLE_PRINTF("  msg_dnld_queue: %p (used: %lu/%u, free: %lu)\r\n",
-              g_wifi_priv->msg_dnld_queue, msg_dnld_count, WIFI_MSG_QUEUE_DEPTH, msg_dnld_spaces);
+    transportsdio_dump_queue_state("eth.msg_dnld_queue", priv->msg_dnld_queue, WIFI_MSG_QUEUE_DEPTH);
+    transportsdio_dump_queue_state("eth.frame_free_queue", priv->frame_free_queue, WIFI_MSG_QUEUE_DEPTH);
+    if (msg_ctrl != NULL) {
+        transportsdio_dump_queue_state("msg_ctrl.upld_queue", msg_ctrl->upld_queue, nh_MSG_CTRL_UPLD_QUEUE_DEPTH);
+        transportsdio_dump_queue_state("msg_ctrl.dnld_queue", msg_ctrl->dnld_queue, nh_MSG_CTRL_DNLD_FRAME_NUM);
     } else {
-        EXAMPLE_PRINTF("  msg_dnld_queue: NULL\r\n");
-    }
-
-    if (g_wifi_priv->frame_free_queue) {
-        UBaseType_t frame_free_count = uxQueueMessagesWaiting(g_wifi_priv->frame_free_queue);
-        UBaseType_t frame_free_spaces = uxQueueSpacesAvailable(g_wifi_priv->frame_free_queue);
-        EXAMPLE_PRINTF("  frame_free_queue: %p (used: %lu/%u, free: %lu)\r\n",
-              g_wifi_priv->frame_free_queue, frame_free_count, WIFI_MSG_QUEUE_DEPTH, frame_free_spaces);
-    } else {
-        EXAMPLE_PRINTF("  frame_free_queue: NULL\r\n");
+        EXAMPLE_PRINTF("  msg_ctrl.upld_queue: N/A\r\n");
+        EXAMPLE_PRINTF("  msg_ctrl.dnld_queue: N/A\r\n");
     }
 
     /* Frame buffer information */
     EXAMPLE_PRINTF("Frame Buffer:\r\n");
-    EXAMPLE_PRINTF("  rx_frame_ctrl: %p\r\n", g_wifi_priv->rx_frame_ctrl);
-    if (g_wifi_priv->rx_frame_ctrl) {
-        /* More information can be added here according to frame_queue_ctrl_t structure */
-        EXAMPLE_PRINTF("  rx_frame_ctrl is valid\r\n");
+    transportsdio_dump_frame_ctrl_state("eth.rx_frame_ctrl", priv->rx_frame_ctrl);
+    if (msg_ctrl != NULL) {
+        transportsdio_dump_frame_ctrl_state("msg_ctrl.dnld_queue_ctrl", msg_ctrl->dnld_queue_ctrl);
+    } else {
+        EXAMPLE_PRINTF("  msg_ctrl.dnld_queue_ctrl: N/A\r\n");
     }
+
+    EXAMPLE_PRINTF("SDIO State:\r\n");
+    EXAMPLE_PRINTF("  hw_reset_flag: %s\r\n",
+                   (msg_ctrl != NULL && msg_ctrl->hw_reset_flag) ? "true" : "false");
+    EXAMPLE_PRINTF("  sdio_ops: %p, sdio_name: %s\r\n",
+                   sdio_ops,
+                   (sdio_ops != NULL && sdio_ops->sdio_name != NULL) ? sdio_ops->sdio_name : "?");
+    EXAMPLE_PRINTF("  sdio_is_ready: %d, sdio_upld_busy: %d, sdio_dnld_busy: %d\r\n",
+                   sdio_ready,
+                   sdio_upld_busy,
+                   sdio_dnld_busy);
 
     /* Callback function information */
     EXAMPLE_PRINTF("Callbacks:\r\n");
-    EXAMPLE_PRINTF("  wifi_send_frame: %p\r\n", g_wifi_priv->wifi_send_frame);
-    EXAMPLE_PRINTF("  wifi_recv_frame: %p\r\n", g_wifi_priv->wifi_recv_frame);
+    EXAMPLE_PRINTF("  wifi_send_frame: %p\r\n", priv->wifi_send_frame);
+    EXAMPLE_PRINTF("  wifi_recv_frame: %p\r\n", priv->wifi_recv_frame);
 
     EXAMPLE_PRINTF("=== End of WiFi Private Structure Dump ===\r\n");
 }
@@ -1269,4 +1524,3 @@ void transportsdio3_reset_handler_isr(void *arg)
     _sdio3_reinit();
 }
 #endif
-

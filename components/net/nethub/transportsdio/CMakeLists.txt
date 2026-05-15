@@ -1,6 +1,7 @@
 sdk_generate_library()
 
 # source
+sdk_library_add_sources(nh_credit_flow.c)
 sdk_library_add_sources(frame_buff_ctrl/nh_frame_buff_ctrl.c)
 sdk_library_add_sources(msg_ctrl/nh_msg_ctrl.c)
 sdk_library_add_sources(nh_eth/transportsdio.c)
@@ -9,14 +10,17 @@ sdk_library_add_sources_ifdef(CONFIG_NETHUB_NETLINK nh_netlink/nh_netlink.c)
 sdk_library_add_sources_ifdef(CONFIG_NETHUB_NETLINK nh_netlink/nh_netlink_cli.c)
 sdk_library_add_sources(nh_tty/nh_tty.c)
 sdk_library_add_sources(nh_tty/nh_tty_cli.c)
+sdk_library_add_sources_ifdef(CONFIG_NXSDIO_HCI nh_hci/transporthci.c)
 
 # include
+sdk_add_include_directories(.)
 sdk_add_include_directories(frame_buff_ctrl)
 sdk_add_include_directories(msg_ctrl)
 sdk_add_include_directories(sdio_driver)
 sdk_add_include_directories(nh_eth)
 sdk_add_include_directories_ifdef(CONFIG_NETHUB_NETLINK nh_netlink)
 sdk_add_include_directories(nh_tty)
+sdk_add_include_directories_ifdef(CONFIG_NXSDIO_HCI nh_hci)
 
 #sdk_add_compile_definitions(-DCONFIG_NETHUB_DUMP_DNLDDATA=1)
 

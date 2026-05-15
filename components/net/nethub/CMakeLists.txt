@@ -6,6 +6,7 @@ sdk_library_add_sources(channel/sdio.c)
 sdk_library_add_sources_ifdef(CONFIG_FHOST channel/wifi.c)
 sdk_library_add_sources_ifdef(CONFIG_WL80211 channel/wifi_wl80211.c)
 sdk_library_add_sources(channel/tcpip.c)
+sdk_library_add_sources_ifdef(CONFIG_NXSDIO_HCI channel/hci.c)
 sdk_library_add_sources(port/port_sys.c)
 sdk_library_add_sources(port/nhsdiowifi.c)
 sdk_library_add_sources(port/nhsdiowifi_cli.c)
@@ -16,5 +17,8 @@ sdk_library_add_sources(nethub/src/nhif_manager.c)
 sdk_add_include_directories(nethub/include port)
 
 sdk_add_compile_definitions(-DCONFIG_NETHUB_DEBUG)
+
+# Enable HCI support
+sdk_add_compile_definitions(-DCONFIG_NXSDIO_HCI=1)
 
 add_subdirectory(transportsdio)

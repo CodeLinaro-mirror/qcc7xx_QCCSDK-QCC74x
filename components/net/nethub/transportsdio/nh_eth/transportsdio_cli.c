@@ -758,7 +758,23 @@ int cmd_rcp_test(int argc, char **argv)
 
 int cmd_eth_dump(int argc, char **argv)
 {
+    if (argc > 2) {
+        printf("Usage: eth_dump [clear]\r\n");
+        return -1;
+    }
+
+    if (argc == 2) {
+        if (strcmp(argv[1], "clear") != 0) {
+            printf("Usage: eth_dump [clear]\r\n");
+            return -1;
+        }
+
+        transportsdio_reset_stats();
+        printf("transport dump counters cleared\r\n");
+    }
+
     transportsdio_dump_priv();
+    return 0;
 }
 
 SHELL_CMD_EXPORT_ALIAS(cmd_rcp_test, rcp_test, standalone SDIO ETH throughput test);

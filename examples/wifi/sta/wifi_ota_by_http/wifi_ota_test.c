@@ -6,23 +6,25 @@
 
 const char ca_cert[] =
     "-----BEGIN CERTIFICATE-----\n"
-    "MIIDAzCCAeugAwIBAgIUSIynf9c+C4TGvBNrpOGW0EsWKRUwDQYJKoZIhvcNAQEL\n"
-    "BQAwETEPMA0GA1UEAwwGTXlDQV8xMB4XDTI0MDUyMzAxNTIzOFoXDTI1MDUyMzAx\n"
-    "NTIzOFowETEPMA0GA1UEAwwGTXlDQV8xMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8A\n"
-    "MIIBCgKCAQEAj7Xp94L7VLyo6m4AdvKIa1pOjZQUzPnfgkAJhdHmupIMhdx8/L/i\n"
-    "Yn55tZhPOzk7S+CYuYoH1Bx/tvmP+HJ9J8qeNOPm+QbiYNUSJcs2vXkKMFgiSqh4\n"
-    "zE6B80+clSSR0de80s7td0PTL9k/emQSu+mV1q2JrXyhcP6/fumt1TzrmTb2SxiB\n"
-    "rMQh76v8NfV0a0Y78QDd+S0JIhJ27S610DCSnl+B1pgI8sMuwtSSNOyNYFbym2PO\n"
-    "LYUYaN9Lup7i2pxPi/p/tIwBq3mbs01JawBMFArTkidxIK+xkf4NVUT1weurw+s8\n"
-    "3yC+pomUtvKpCNxdgSslnCxNhoUYxxCrawIDAQABo1MwUTAdBgNVHQ4EFgQUz1kI\n"
-    "khTZxHjVYlOk16H7v57pJCowHwYDVR0jBBgwFoAUz1kIkhTZxHjVYlOk16H7v57p\n"
-    "JCowDwYDVR0TAQH/BAUwAwEB/zANBgkqhkiG9w0BAQsFAAOCAQEASyul5PoQ8V0M\n"
-    "+lKOCxeL8qbYTTLJzcIGcN7FQzTWHYqfmdlc+9IZ7mHk1RR+fxNll3EpHaqA/U9J\n"
-    "bRUiBIzsMRWaCl0g3NCcZOILQ/hfgh6TgFyo5bOUKNOjBKGrV4/mnOOyPvPc5n/H\n"
-    "BW3LjqmfE2CFeUruXutOPIkY8YDiPRFwCSaNapO4Bc6+kgYQz7dPEWOF0b2IcJ7O\n"
-    "vD2JPeKSoUxPs71TUNzGBQx+mbXxULrhFkSs9jRdPUJQpJqaq+SVLLXOU+RsQab0\n"
-    "dqud+4N3VgjA1tI/Oi23sF4xMotaWH4VrWIxuu0O8I3GYx+ZhFyhRa33ma7JxZtu\n"
-    "VlA0gHsH5Q==\n"
+    "MIIDcTCCAlmgAwIBAgIUcWUm8jVNxpvTBgXPBEJdhDvP1AYwDQYJKoZIhvcNAQEL\n"
+    "BQAwQDEdMBsGA1UEAwwUQm91ZmZhbG8gT1RBIFRlc3QgQ0ExETAPBgNVBAoMCEJv\n"
+    "dWZmYWxvMQwwCgYDVQQLDANPVEEwHhcNMjYwNDExMTA0NDI1WhcNMzYwNDA4MTA0\n"
+    "NDI1WjBAMR0wGwYDVQQDDBRCb3VmZmFsbyBPVEEgVGVzdCBDQTERMA8GA1UECgwI\n"
+    "Qm91ZmZhbG8xDDAKBgNVBAsMA09UQTCCASIwDQYJKoZIhvcNAQEBBQADggEPADCC\n"
+    "AQoCggEBALYEX4vreaIMDwWEvR3eB+c9EiA6/bdBymQZDFMIoc1DphTskZNi55Fv\n"
+    "MC6cwMGSKnTcNQ6OgXYnEeWhNHrzu8E3e8bSfM0/ElWH2ooqxGNy4g5ZaJewlIhq\n"
+    "fpsRwByfhneEsnxR9LoD7QaDCN+FGziv3kvDC1gFiVbCHxOxUAhhyyk7gjA6wZr1\n"
+    "xrUc4yg86JAKR6dfhU8qzZP+URUN7/Ftdg8K+l+AZOYI2l5xOEcVewGD8G8y1vu1\n"
+    "INERgmk0gxahbnyznl6Kh0pzqTqcirOufbpCF7IFXTBciBuNsVLms7mCoPrsMAxj\n"
+    "tEfZmaC2y1tbycLqc1SA/6oTRPhBFmkCAwEAAaNjMGEwDwYDVR0TAQH/BAUwAwEB\n"
+    "/zAOBgNVHQ8BAf8EBAMCAQYwHQYDVR0OBBYEFCHQY0eaMvT69MCafwE0TFFehNvg\n"
+    "MB8GA1UdIwQYMBaAFCHQY0eaMvT69MCafwE0TFFehNvgMA0GCSqGSIb3DQEBCwUA\n"
+    "A4IBAQCl9GfXX5B5nu4tbtDevztTldsrgJA+WuWUhRkj4JwJRVaNkjAMgVJnK5Gu\n"
+    "PyU4G621K1n7SkTWE3cGr/sl5MomXMXY+l+4d8Y6Vh0HbRXf8WmBmDL59NTvTV+6\n"
+    "DiqpsA6HBZpyAZmFSxGjEmnr28LkBQfQiBiLrmDPjSNZnpPJMzU2SnNkVon4d5TW\n"
+    "appergWniOiblmVBdg4ioMuHzH4ezFE1X7fME2FNwMq3FoG36tDmjpOx+B9fV8GR\n"
+    "Ubt4cSN1pHd+WY7lcS6ZUqM09cxi4QxVRHZQuWrV+LvhYanh8Dd61YNsUrdt/XfO\n"
+    "ugs11OvPXb26kSRAOON3AxXR/zTr\n"
     "-----END CERTIFICATE-----\n";
 
 static void __ota_status_cb(void *arg, https_fota_status_t event)
@@ -94,7 +96,7 @@ int cmd_wifi_ota_test(int argc, char **argv)
 
     config.callback = __ota_status_cb;
     config.user_arg = &ota_progress;
-    config.ca_pem = &ca_cert;
+    config.ca_pem = ca_cert;
     config.ca_len = sizeof(ca_cert);
 	ret = https_fota(url, &config);
 

@@ -35,7 +35,6 @@ bool schedule_tx(enum rcp_bus bus, enum rcp_msg_type stream, buffer_mgmt_elem_t 
 		RCP_LOG_ERR("TX queue not initialized");
 		return false;
 	}
-
 	if (rcp_os_queue_send(&tx_queue, &event, timeout_ms) != 0) {
 		RCP_LOG_ERR("No available TX event slots, Used=%d", MAX_TX_EVENTS);
 		return false;
@@ -70,4 +69,18 @@ bool tx_event_is_empty(void)
 	}
 
 	return (rcp_os_queue_messages_waiting(&tx_queue) == 0);
+}
+
+int tx_event_pending_count(void)
+{
+	if (!tx_queue_initialized) {
+		return 0;
+	}
+
+	return rcp_os_queue_messages_waiting(&tx_queue);
+}
+
+int tx_event_capacity(void)
+{
+	return MAX_TX_EVENTS;
 }

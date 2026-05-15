@@ -19,5 +19,7 @@ bool schedule_tx(enum rcp_bus bus, enum rcp_msg_type stream, buffer_mgmt_elem_t 
 bool get_tx_event(rcp_schedule_evt_t *event, uint32_t timeout_ms);
 bool peek_tx_event(rcp_schedule_evt_t *event, uint32_t timeout_ms);
 bool tx_event_is_empty(void);
+int tx_event_pending_count(void);
+int tx_event_capacity(void);
 
 #endif

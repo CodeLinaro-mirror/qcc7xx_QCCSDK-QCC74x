@@ -30,7 +30,6 @@ static bool enqueue_stream_rx_event(const rcp_msg_t *rx_msg, lnk_sts_t *lnk_sts_
 			    rx_msg->msg_type, rx_msg->flag);
 		return false;
 	}
-
 	return true;
 }
 

@@ -54,6 +54,39 @@
 
 /* Private application code --------------------------------------------------*/
 /* USER CODE BEGIN Application */
+/*
+ * BLE Stack required FreeRTOS hooks
+ */
+
+void vApplicationMallocFailedHook(void)
+{
+  /* Called when malloc fails - required by BLE Stack */
+  taskDISABLE_INTERRUPTS();
+  for( ;; );
+}
+
+void vApplicationStackOverflowHook(xTaskHandle xTask, char *pcTaskName)
+{
+  /* Called when stack overflows - required by BLE Stack */
+  (void)xTask;
+  (void)pcTaskName;
+  taskDISABLE_INTERRUPTS();
+  for( ;; );
+}
+
+void vApplicationIdleHook(void)
+{
+  /* Idle hook - optional */
+}
+
+/* Runtime statistics support (optional, for debugging) */
+__weak void configureTimerForRunTimeStats(void)
+{
+}
+
+__weak unsigned long getRunTimeCounterValue(void)
+{
+  return 0;
+}
 
 /* USER CODE END Application */
-

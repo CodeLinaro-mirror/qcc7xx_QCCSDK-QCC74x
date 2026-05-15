@@ -5,6 +5,7 @@
 
 #include <stdio.h>
 #include "nhsdiowifi.h"
+#include <transporthci.h>
 
 /* Function declaration for getting forwarding rule configuration */
 const nh_forward_config_t* sdiowifi_get_forward_config(void);
@@ -65,6 +66,17 @@ static int nhsdiowifi_register_all_interfaces(void)
         return ret;
     }
     USER_LOG("TCPIPAP interface registered successfully\n");
+
+#ifdef CONFIG_NXSDIO_HCI
+    /* Initialize HCI channel */
+    ret = hci_channel_init();
+    if (ret != NH_OK) {
+        USER_LOG("Failed to initialize HCI channel: %d\n", ret);
+        /* HCI is optional, continue without it */
+    } else {
+        USER_LOG("HCI channel initialized successfully\n");
+    }
+#endif
 
     USER_LOG("All interfaces registration completed\n");
     return NH_OK;

@@ -186,6 +186,54 @@ Relevant implementation:
 - `components/net/nethub/host/stm32_host/RCP/Src/rcp_wifi_mgmt.c`
 - `components/net/nethub/host/stm32_host/RCP/Src/rcp_lwip_netif.c`
 
+## OTA Test
+
+The STM32 host shell provides an `ota_start` command. The host connects to a TCP
+server, receives the OTA image, and forwards it to the qcc743 over the SDIO RCP
+link.
+
+Prerequisites:
+
+- The qcc743 image has already been built
+- The host has already connected to Wi-Fi and can reach the OTA server
+- The OTA image is available at `build/build_out/nethub_sdio_wifi_qcc743.bin.ota`
+
+### PC Command
+
+Run the command below from `examples/wifi/nethub_sdio_wifi`:
+
+```bash
+ncat -klp 3365 < build/build_out/nethub_sdio_wifi_qcc743.bin.ota
+```
+
+### Host Shell Command
+
+Optional: query the current partition table before OTA:
+
+```text
+RCP_PART
+```
+
+Start OTA from the STM32 host shell. The default port is `3365`:
+
+```text
+ota_start <server_ip> [port]
+```
+
+Example:
+
+```text
+ota_start 192.168.31.112
+```
+
+Expected host log:
+
+```text
+[OTA] header sent, body size=..., type=RAW
+[OTA] progress: .../... bytes
+[OTA] OTA transfer finished, module will reboot if validation passes
+```
+
 ## System Notes
 
 - This example should be understood as an SDIO RCP solution

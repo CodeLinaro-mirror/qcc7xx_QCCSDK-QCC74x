@@ -47,6 +47,8 @@ enum {
 
     nh_MSG_TAG_NETLINK, /**< Netlink message tag */
 
+    nh_MSG_TAG_HCI, /**< HCI message tag */
+
     nh_MSG_TAG_MAX /**< Maximum message tag */
 };
 
@@ -65,13 +67,23 @@ typedef struct nh_msg_packt {
 #pragma pack(pop)
 
 /**
- * @brief Message callback function type (used for both download receive and upload send done)
+ * @brief Message callback function type for download receive and hardware reset
  * @param frame_elem Frame element
  * @param arg Callback argument
  * @retval 0 Success
  * @retval -1 Error
  */
 typedef int (*nh_msg_cb_t)(frame_elem_t *frame_elem, void *arg);
+
+/**
+ * @brief Message callback function type for upload send done
+ * @param frame_elem Frame element
+ * @param arg Callback argument
+ * @param success Upload success flag
+ * @retval 0 Success
+ * @retval -1 Error
+ */
+typedef int (*nh_msg_upld_cb_t)(frame_elem_t *frame_elem, void *arg, bool success);
 
 /**
  * @brief Message controller operations structure for SDIO interaction
@@ -87,6 +99,17 @@ typedef struct
     int (*sdio_feature_control)(struct nh_device_s *dev, int cmd, uintptr_t arg);
     const char *sdio_name;
 } nh_msg_ctrl_ops_t;
+
+typedef struct {
+    volatile uint32_t tx_data_packets;
+    volatile uint32_t tx_data_bytes;
+    volatile uint32_t tx_ctrl_packets;
+    volatile uint32_t tx_ctrl_bytes;
+    volatile uint32_t rx_data_packets;
+    volatile uint32_t rx_data_bytes;
+    volatile uint32_t rx_ctrl_packets;
+    volatile uint32_t rx_ctrl_bytes;
+} nh_msg_stream_stat_t;
 
 /**
  * @brief Message controller structure
@@ -106,11 +129,13 @@ typedef struct {
     nh_msg_cb_t nh_msg_dnld_recv_cb[nh_MSG_TAG_MAX]; /**< Download receive callback functions */
     void *nh_msg_dnld_recv_arg[nh_MSG_TAG_MAX];      /**< Download receive callback arguments */
 
-    nh_msg_cb_t nh_msg_upld_send_cb[nh_MSG_TAG_MAX]; /**< Upload send done callback functions */
-    void *nh_msg_upld_send_arg[nh_MSG_TAG_MAX];      /**< Upload send done callback arguments */
+    nh_msg_upld_cb_t nh_msg_upld_send_cb[nh_MSG_TAG_MAX]; /**< Upload send done callback functions */
+    void *nh_msg_upld_send_arg[nh_MSG_TAG_MAX];           /**< Upload send done callback arguments */
 
     nh_msg_cb_t nh_msg_hw_reset_cb[nh_MSG_TAG_MAX]; /**< Hardware reset callback function */
     void *nh_msg_hw_reset_arg[nh_MSG_TAG_MAX];      /**< Hardware reset callback argument */
+
+    nh_msg_stream_stat_t stream_stats[nh_MSG_TAG_MAX];
 
     nh_msg_ctrl_ops_t *msg_sdio_ops;
 } nh_msg_ctrl_t;
@@ -168,7 +193,7 @@ int nh_msg_ctrl_send(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, uint8_t 
  */
 int nh_msg_cb_register(nh_msg_ctrl_t *msg_ctrl, uint8_t tag,
                        nh_msg_cb_t dnld_recv_cb, void *dnld_recv_arg,
-                       nh_msg_cb_t upld_send_cb, void *upld_send_arg,
+                       nh_msg_upld_cb_t upld_send_cb, void *upld_send_arg,
                        nh_msg_cb_t hw_reset_cb, void *hw_reset_arg);
 
 /**
@@ -197,6 +222,13 @@ int nh_msg_upld_send_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, 
  * @retval -1 Error
  */
 int nh_msg_dnld_recv_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, bool success);
+
+/**
+ * @brief Reset per-stream statistics counters
+ * @param msg_ctrl Message controller instance
+ */
+void nh_msg_ctrl_reset_stream_stats(nh_msg_ctrl_t *msg_ctrl);
+void nh_msg_ctrl_reset_stream_stat(nh_msg_ctrl_t *msg_ctrl, uint8_t tag);
 
 /**
  * @brief Message host reset callback

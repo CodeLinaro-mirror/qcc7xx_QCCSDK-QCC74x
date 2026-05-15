@@ -9,12 +9,9 @@
 #include "qcc74x_gpio.h"
 #include "qcc74x_sdio2.h"
 
-#if defined(BL616)
-#include "bl616_glb.h"
-#elif defined(BL616L)
-#include "bl616l_glb.h"
+#if defined(QCC743)
+#include "qcc743_glb.h"
 #endif
-
 #include "board.h"
 
 #include "nh_frame_buff_ctrl.h"
@@ -194,12 +191,8 @@ nh_msg_ctrl_ops_t *sdio2_driver_init(void)
     LOG_I("sdio2_driver_init\r\n");
 
     /* Enable SDIO clock */
-#if defined(BL616)
+#if defined(QCC743)
     GLB_PER_Clock_UnGate(GLB_AHB_CLOCK_USB20_SDU);
-#elif defined(BL616L)
-    GLB_PER_Clock_UnGate(GLB_AHB_CLOCK_SDU);
-#elif defined(BL602)
-    /* No clock gating for BL602 */
 #endif
 
     /* Initialize SDIO GPIO */

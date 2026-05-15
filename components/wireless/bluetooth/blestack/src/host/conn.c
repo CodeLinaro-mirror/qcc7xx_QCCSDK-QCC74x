@@ -1392,7 +1392,7 @@ int bt_conn_set_security(struct bt_conn *conn, bt_security_t sec)
 
 	/* reset required security level in case of error */
 	if (err) {
-		#if defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
+		#if !defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
 		conn->required_sec_level = conn->sec_level;
 		#else
 		conn->required_sec_level = bt_dev.default_sec_level;

@@ -1,15 +1,3 @@
-/**
- * @file nh_netlink_protocol.h
- * @brief Netlink Protocol Definitions (Device Side)
- * @details This file defines the Netlink protocol data structures and constants
- *          used for communication between device and host. Must be kept in sync
- *          with userspace side's netlink_protocol.h.
- *
- * @note Protocol Version: 1.0
- * @note Alignment: 1-byte packing (no padding)
- * @note Endianness: Little-endian (Bouffalo SDK default)
- */
-
 #ifndef __nh_NETLINK_PROTOCOL_H__
 #define __nh_NETLINK_PROTOCOL_H__
 

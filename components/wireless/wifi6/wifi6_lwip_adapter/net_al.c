@@ -693,6 +693,7 @@ int net_al_tx_req(struct net_al_tx_req req)
     }
     return 0;
 #else
+    fhost_tx_release_buf(ibuf, 0, cfm_cb, cfm_cb_arg, buf_rx);
     return -1;
 #endif // FHOST_BUFFER_COPY
 }

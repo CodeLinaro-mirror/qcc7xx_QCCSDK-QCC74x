@@ -61,8 +61,11 @@ int at_ble_config_init(void)
     at_ble_config->scan_param.filter_policy = 0;
     at_ble_config->scan_param.scan_interval = 40;
     at_ble_config->scan_param.scan_window = 40;
+
+    at_ble_config->use_static_random_addr = false;
     at_ble_config->ble_sec_param = 0x03;
     at_ble_config->ble_sec_lvl = 1;
+    at_ble_config->ble_bond_enable = true;
     #if defined(CONFIG_BT_BAS_SERVER)
     at_ble_config->ble_bas_init=0;
     #endif
@@ -145,6 +148,8 @@ int at_ble_config_default(void)
     at_ble_config->scan_param.scan_window = 40;
     at_ble_config->ble_sec_param = 0x03;
     at_ble_config->ble_sec_lvl = 1;
+    at_ble_config->ble_bond_enable = true;
+    at_ble_config->use_static_random_addr = false;
     #if defined(CONFIG_BT_BAS_SERVER)
     at_ble_config->ble_bas_init=0;
     #endif

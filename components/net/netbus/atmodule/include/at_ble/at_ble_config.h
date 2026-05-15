@@ -92,6 +92,8 @@ typedef struct {
     ble_scan_rsp_data scan_rsp_data;
     int ble_sec_param;
     int ble_sec_lvl;
+    bool ble_bond_enable;
+    bool use_static_random_addr;
 #if defined(CONFIG_BT_BAS_SERVER)
     int ble_bas_init;
 #endif

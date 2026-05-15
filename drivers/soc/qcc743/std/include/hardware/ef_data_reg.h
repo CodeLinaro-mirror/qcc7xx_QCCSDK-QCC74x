@@ -651,11 +651,16 @@
 
 /* 0xDC : ef_key_slot_9_w3 */
 #define EF_DATA_EF_KEY_SLOT_9_W3_OFFSET                         (0xDC)
-#define EF_DATA_EF_KEY_SLOT_9_W3                                EF_DATA_EF_KEY_SLOT_9_W3
-#define EF_DATA_EF_KEY_SLOT_9_W3_POS                            (0U)
-#define EF_DATA_EF_KEY_SLOT_9_W3_LEN                            (32U)
-#define EF_DATA_EF_KEY_SLOT_9_W3_MSK                            (((1U<<EF_DATA_EF_KEY_SLOT_9_W3_LEN)-1)<<EF_DATA_EF_KEY_SLOT_9_W3_POS)
-#define EF_DATA_EF_KEY_SLOT_9_W3_UMSK                           (~(((1U<<EF_DATA_EF_KEY_SLOT_9_W3_LEN)-1)<<EF_DATA_EF_KEY_SLOT_9_W3_POS))
+#define EF_DATA_EF_APP_SIGN_MODE                                EF_DATA_EF_APP_SIGN_MODE
+#define EF_DATA_EF_APP_SIGN_MODE_POS                            (26U)
+#define EF_DATA_EF_APP_SIGN_MODE_LEN                            (2U)
+#define EF_DATA_EF_APP_SIGN_MODE_MSK                            (((1U<<EF_DATA_EF_APP_SIGN_MODE_LEN)-1)<<EF_DATA_EF_APP_SIGN_MODE_POS)
+#define EF_DATA_EF_APP_SIGN_MODE_UMSK                           (~(((1U<<EF_DATA_EF_APP_SIGN_MODE_LEN)-1)<<EF_DATA_EF_APP_SIGN_MODE_POS))
+#define EF_DATA_EF_APP_ENCRYPT_MODE                             EF_DATA_EF_APP_ENCRYPT_MODE
+#define EF_DATA_EF_APP_ENCRYPT_MODE_POS                         (28U)
+#define EF_DATA_EF_APP_ENCRYPT_MODE_LEN                         (4U)
+#define EF_DATA_EF_APP_ENCRYPT_MODE_MSK                         (((1U<<EF_DATA_EF_APP_ENCRYPT_MODE_LEN)-1)<<EF_DATA_EF_APP_ENCRYPT_MODE_POS)
+#define EF_DATA_EF_APP_ENCRYPT_MODE_UMSK                        (~(((1U<<EF_DATA_EF_APP_ENCRYPT_MODE_LEN)-1)<<EF_DATA_EF_APP_ENCRYPT_MODE_POS))
 
 /* 0xE0 : ef_key_slot_10_w0 */
 #define EF_DATA_EF_KEY_SLOT_10_W0_OFFSET                        (0xE0)
@@ -1567,7 +1572,9 @@ struct  ef_data_reg {
     /* 0xDC : ef_key_slot_9_w3 */
     union {
         struct {
-            uint32_t ef_key_slot_9_w3               : 32; /* [31: 0],        r/w,        0x0 */
+            uint32_t reserved_0_25                  : 26; /* [25: 0],       rsvd,        0x0 */
+            uint32_t ef_app_sign_mode               :  2; /* [27:26],        r/w,        0x0 */
+            uint32_t ef_app_encrypt_mode            :  4; /* [31:28],        r/w,        0x0 */
         }BF;
         uint32_t WORD;
     } ef_key_slot_9_w3;

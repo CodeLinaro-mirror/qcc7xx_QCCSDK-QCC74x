@@ -99,11 +99,16 @@ typedef struct {
 
 /* Semaphore APIs */
 bool rcp_os_sem_init(rcp_sem_t *sem, uint32_t cnt, uint32_t limit);
+void rcp_os_sem_deinit(rcp_sem_t *sem);
+bool rcp_os_sem_reset(rcp_sem_t *sem);
 bool rcp_os_sem_give(rcp_sem_t *sem);
 bool rcp_os_sem_take(rcp_sem_t *sem, uint32_t timeout);
+rcp_sem_t *rcp_os_sem_create(uint32_t limit, uint32_t cnt);
+void rcp_os_sem_delete(rcp_sem_t *sem);
 
 /* Mutex APIs */
 bool rcp_os_mutex_init(rcp_mutex_t *mutex);
+void rcp_os_mutex_deinit(rcp_mutex_t *mutex);
 bool rcp_os_mutex_lock(rcp_mutex_t *mutex, uint32_t timeout);
 bool rcp_os_mutex_unlock(rcp_mutex_t *mutex);
 
@@ -133,6 +138,7 @@ bool rcp_os_event_wait_bits(rcp_event_t *event, uint32_t flags, bool wait_all,
 /* Thread APIs */
 bool rcp_os_thread_create(rcp_thread_t *thread, rcp_thread_entry_t entry, void *arg,
 			   const char *name, uint32_t stack_size, uint32_t priority);
+void rcp_os_thread_delete(rcp_thread_t *thread);
 
 /* One-shot timer APIs */
 bool rcp_os_timer_init(rcp_timer_t *timer, rcp_timer_callback_t cb, void *arg);
@@ -144,6 +150,8 @@ void rcp_os_timer_deinit(rcp_timer_t *timer);
 bool rcp_os_in_isr(void);
 void rcp_os_disable_irq(void);
 void rcp_os_enable_irq(void);
+uintptr_t rcp_os_irq_save(void);
+void rcp_os_irq_restore(uintptr_t flags);
 
 /* Memory APIs */
 void *rcp_os_malloc(size_t size);

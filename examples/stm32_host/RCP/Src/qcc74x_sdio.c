@@ -13,30 +13,6 @@
 #include "log.h"
 #include "sdio_hal.h"
 
-#define QCC74x_SDIO_FUNC     1
-#define QCC74x_SDIO_PORT_NUM 16
-#define QCC74x_SDIO_PORT_MASK (QCC74x_SDIO_PORT_NUM - 1)
-
-#define QCC74x_REG_SCRATCH_0_0  	0x60 /* Scratch register. Master ready signal. */
-#define QCC74x_REG_SCRATCH_0_1  	0x61 /* Scratch 0x61 - MAC addr ? */
-#define QCC74x_REG_SCRATCH_0_2      0x62
-#define QCC74x_REG_SCRATCH_0_3      0x63
-#define QCC74x_REG_IOPORT       	0x78 /* Value of RW port base - 3 bytes. */
-#define QCC74x_REG_READ_BITMAP  	0x04 /* Current RD bitmap - 2 bytes.*/
-#define QCC74x_REG_WRITE_BITMAP 	0x06 /* Current WR bitmap - 2 bytes. */
-#define QCC74x_REG_CARD_EVT		    0x30 /* Card event mask register */
-#define QCC74x_REG_HOST_IRQ_RSR		0x01
-#define QCC74x_REG_HOST_IRQ_MASK 	0x02 /* MCU->Host interrupt mask register */
-#define QCC74x_REG_HOST_IRQ_STATUS	0x03 /* MCU->Host interrupt status register */
-
-/* Amount of data to read. 2 bytes for each port. */
-#define QCC74x_REG_DATA_LEN_PORTx(port) (0x08 + (port * 2))
-
-#define QCC74x_MASTER_READY      0x01
-#define QCC74x_MASTER_READY_MASK 0xFF
-#define QCC74x_SIZE_CONSULT_MULTIPLE 64
-#define QCC74x_FLAG_RD_LEN_COMPRESS_SUP (1 << 5)
-
 extern void delay_us(uint32_t us);
 static bool qcc74x_write_reg(struct qcc74x_sdio *hd, uint32_t reg, uint8_t val);
 static bool qcc74x_read_reg(struct qcc74x_sdio *hd, uint32_t reg, uint8_t *val);
@@ -46,16 +22,35 @@ static bool qcc74_sdio_write_port(struct qcc74x_sdio *hd, uint8_t *data, uint16_
 static bool qcc74_sdio_read_port(struct qcc74x_sdio *hd, uint8_t *data, uint16_t len, uint8_t port);
 static void sdio_func_callback(uint8_t func, void *data);
 static int qcc74x_get_read_port(struct qcc74x_sdio *hd);
+static bool sdio_hw_init(struct qcc74x_sdio *hd);
 uint8_t qcc74x_sdio_get_irq_status(struct qcc74x_sdio *hd);
 
 bool qcc74x_sdio_init(struct qcc74x_sdio *hd)
 {
-	enum sdio_bus_width bus_width = RCP_SDIO_BUS_WIDE ? SDIO_BUS_WIDTH_4B : SDIO_BUS_WIDTH_1B;
-	uint8_t val;
-
 	sdio_hal_init(&hd->sdio);
 
 	HAL_Delay(50);
+
+	sdio_hw_init(hd);
+
+	return true;
+}
+
+bool qcc74x_sdio_reinit(struct qcc74x_sdio *hd)
+{
+	sdio_hal_reinit(&hd->sdio);
+
+	HAL_Delay(50);
+
+	sdio_hw_init(hd);
+
+	return true;
+}
+
+static bool sdio_hw_init(struct qcc74x_sdio *hd)
+{
+	enum sdio_bus_width bus_width = RCP_SDIO_BUS_WIDE ? SDIO_BUS_WIDTH_4B : SDIO_BUS_WIDTH_1B;
+	uint8_t val;
 
 	if (!sdio_set_bus_width(&hd->sdio, bus_width)) {
 		LOG_ERR("Failed to set bus width for SDIO\n");
@@ -138,6 +133,11 @@ bool qcc74x_sdio_init(struct qcc74x_sdio *hd)
 	}
 	hd->rd_len_compress = (val & QCC74x_FLAG_RD_LEN_COMPRESS_SUP) ? true:false;
 	return true;
+}
+
+bool qcc74x_sdio_detect(struct qcc74x_sdio *hd)
+{
+	return sdio_hal_rescan(&hd->sdio);
 }
 
 bool qcc74x_sdio_register_irq_cb(struct qcc74x_sdio *hd, qcc74x_sdio_irq_cb cb)

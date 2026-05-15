@@ -118,19 +118,21 @@ int qcc74x_sdio2_dnld_port_push(struct qcc74x_device_s *dev, qcc74x_sdio2_trans_
         return -2;
     }
 
+    /* lock */
+    flag = qcc74x_irq_save();
+
     /* get dnld_port_tail */
     if (sdio2_ctrl.sdio_dnld_port_tail - sdio2_ctrl.sdio_dnld_port_head >= SDIO2_MAX_PORT_NUM) {
         /* the ring queue is full */
+        qcc74x_irq_restore(flag);
         return -1;
     }
     port_tail = sdio2_ctrl.sdio_dnld_port_tail & SDIO2_MAX_PORT_MASK;
 
     sdio2_ctrl.sdio_dnld_port_table[port_tail] = *trans_desc;
-    sdio2_ctrl.sdio_upld_port_table[port_tail].data_len = 0;
+    sdio2_ctrl.sdio_dnld_port_table[port_tail].data_len = 0;
 
-    /* lock */
-    flag = qcc74x_irq_save();
-
+    //printf("push %p %p\r\n", trans_desc->buff, trans_desc->user_arg);
     /* attach buffer address */
     putreg8(port_tail, reg_base + SDIO2_WRITE_INDEX_OFFSET);
     putreg32((uint32_t)(uintptr_t)(trans_desc->buff), reg_base + SDIO2_SQ_WRITE_BASE_OFFSET);
@@ -173,15 +175,6 @@ int qcc74x_sdio2_upld_port_push(struct qcc74x_device_s *dev, qcc74x_sdio2_trans_
         return -1;
     }
 
-    /* get upld_port_tail */
-    if (sdio2_ctrl.sdio_upld_port_tail - sdio2_ctrl.sdio_upld_port_head >= SDIO2_MAX_PORT_NUM) {
-        /* the ring queue is full */
-        return -2;
-    }
-    port_tail = sdio2_ctrl.sdio_upld_port_tail & SDIO2_MAX_PORT_MASK;
-
-    sdio2_ctrl.sdio_upld_port_table[port_tail] = *trans_desc;
-
     /* set upld len */
     uint16_t blk_size, upld_elem;
     blk_size = (uint16_t)qcc74x_sdio2_feature_control(dev, SDIO2_CMD_GET_FUNC_BLK_SIZE, 0);
@@ -204,6 +197,16 @@ int qcc74x_sdio2_upld_port_push(struct qcc74x_device_s *dev, qcc74x_sdio2_trans_
     /* lock */
     flag = qcc74x_irq_save();
 
+    /* get upld_port_tail */
+    if (sdio2_ctrl.sdio_upld_port_tail - sdio2_ctrl.sdio_upld_port_head >= SDIO2_MAX_PORT_NUM) {
+        /* the ring queue is full */
+        qcc74x_irq_restore(flag);
+        return -2;
+    }
+    port_tail = sdio2_ctrl.sdio_upld_port_tail & SDIO2_MAX_PORT_MASK;
+
+    sdio2_ctrl.sdio_upld_port_table[port_tail] = *trans_desc;
+
     /* set read_len */
     putreg16(upld_elem, reg_base + (SDIO2_RD_LEN_OFFSET + port_tail * 2));
 
@@ -217,7 +220,7 @@ int qcc74x_sdio2_upld_port_push(struct qcc74x_device_s *dev, qcc74x_sdio2_trans_
     /* update upld_port_tail */
     sdio2_ctrl.sdio_upld_port_tail += 1;
 
-    /* trig dnld card2host int */
+    /* trig upld card2host int */
     qcc74x_sdio2_trig_host_int(dev, SDIO2_HOST_INT_EVENT_UPLD_RDY);
 
     /* unlock */
@@ -274,6 +277,7 @@ int qcc74x_sdio2_feature_control(struct qcc74x_device_s *dev, int cmd, uintptr_t
     int ret = 0;
     uint32_t reg_base = dev->reg_base;
     uint32_t regval;
+    uintptr_t flag;
 
     switch (cmd) {
         case SDIO2_CMD_GET_BUS_WIDTH:
@@ -328,19 +332,27 @@ int qcc74x_sdio2_feature_control(struct qcc74x_device_s *dev, int cmd, uintptr_t
             break;
 
         case SDIO2_CMD_GET_DNLD_QUEUE_WAIT_NUM:
+            flag = qcc74x_irq_save();
             ret = sdio2_ctrl.sdio_dnld_port_tail - sdio2_ctrl.sdio_dnld_port_head;
+            qcc74x_irq_restore(flag);
             break;
 
         case SDIO2_CMD_GET_DNLD_QUEUE_AVAILABLE:
+            flag = qcc74x_irq_save();
             ret = SDIO2_MAX_PORT_NUM - (sdio2_ctrl.sdio_dnld_port_tail - sdio2_ctrl.sdio_dnld_port_head);
+            qcc74x_irq_restore(flag);
             break;
 
         case SDIO2_CMD_GET_UPLD_QUEUE_WAIT_NUM:
+            flag = qcc74x_irq_save();
             ret = sdio2_ctrl.sdio_upld_port_tail - sdio2_ctrl.sdio_upld_port_head;
+            qcc74x_irq_restore(flag);
             break;
 
         case SDIO2_CMD_GET_UPLD_QUEUE_AVAILABLE:
+            flag = qcc74x_irq_save();
             ret = SDIO2_MAX_PORT_NUM - (sdio2_ctrl.sdio_upld_port_tail - sdio2_ctrl.sdio_upld_port_head);
+            qcc74x_irq_restore(flag);
             break;
 
         default:
@@ -400,7 +412,6 @@ static void qcc74x_sdio2_isr(int irq, void *arg)
                 /* upld done, isr callback */
                 if (sdio2_irq_event_cb != NULL) {
                     sdio2_irq_event_cb(sdio2_irq_arg, SDIO2_IRQ_EVENT_UPLD_CPL, &upld_trans_desc);
-                    // sdio2_upld_irq_callback(sdio2_ctrl.sdio2_upld_irq_callback_arg, &upld_trans_desc);
                 }
             }
         }
@@ -439,6 +450,12 @@ static void qcc74x_sdio2_isr(int irq, void *arg)
             }
         }
     }
+
+    /* update dnld/upld out ptr for host */
+    uint8_t dnld_out_ptr = sdio2_ctrl.sdio_dnld_port_head & SDIO2_MAX_PORT_MASK;
+    uint8_t upld_out_ptr = sdio2_ctrl.sdio_upld_port_head & SDIO2_MAX_PORT_MASK;
+    uint8_t host_out_ptr = (dnld_out_ptr << 4 | upld_out_ptr);
+    putreg8(host_out_ptr, reg_base + SDIO2_SCRATCH0_3_OFFSET);
 
     if (crcerror & SDIO2_CCR_HOST_INT_DnLdCRC_err) {
         SDIO2_DRV_DBG("sdio dnld crc error int\r\n");

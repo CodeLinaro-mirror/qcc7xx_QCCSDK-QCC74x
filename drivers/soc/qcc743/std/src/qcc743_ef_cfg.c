@@ -595,10 +595,21 @@ uint32_t qcc74x_efuse_get_adc_tsen_trim(void)
 void qcc74x_efuse_read_secure_boot(uint8_t *sign, uint8_t *aes)
 {
     uint32_t tmpval = 0;
+    uint32_t tmpval1 = 0;
 
     qcc74x_ef_ctrl_read_direct(NULL, EF_DATA_EF_CFG_0_OFFSET, &tmpval, 1, 1);
-    *sign = ((tmpval & EF_DATA_EF_SBOOT_SIGN_MODE_MSK) >> EF_DATA_EF_SBOOT_SIGN_MODE_POS) & 0x01;
+    qcc74x_ef_ctrl_read_direct(NULL, EF_DATA_EF_SW_USAGE_0_OFFSET, &tmpval1, 1, 1);
+    *sign = ((tmpval1 & EF_DATA_EF_SBOOT_SIGN_MODE_MSK) >> EF_DATA_EF_SBOOT_SIGN_MODE_POS) & 0x01;
     *aes = ((tmpval & EF_DATA_EF_SF_AES_MODE_MSK) >> EF_DATA_EF_SF_AES_MODE_POS);
+}
+
+void qcc74x_efuse_read_secure_boot_app(uint8_t *sign, uint8_t *aes)
+{
+    uint32_t tmpval = 0;
+
+    qcc74x_ef_ctrl_read_direct(NULL, EF_DATA_EF_KEY_SLOT_9_W3_OFFSET, &tmpval, 1, 1);
+    *sign = (tmpval & EF_DATA_EF_APP_SIGN_MODE_MSK) >> EF_DATA_EF_APP_SIGN_MODE_POS;
+    *aes = (tmpval & EF_DATA_EF_APP_ENCRYPT_MODE_MSK) >> EF_DATA_EF_APP_ENCRYPT_MODE_POS;
 }
 
 int qcc74x_efuse_enable_aes(uint8_t aes_type, uint8_t xts_mode)

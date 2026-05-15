@@ -1891,7 +1891,11 @@ static void smp_reset(struct bt_smp *smp)
 	if (conn->required_sec_level != conn->sec_level) {
 		/* TODO report error */
 		/* reset required security level in case of error */
+		#if !defined(QCC74x_BLE_SET_DEFAULT_SEC_LEVEL)
 		conn->required_sec_level = conn->sec_level;
+		#else
+		conn->required_sec_level = bt_dev.default_sec_level;
+		#endif
 	}
 
 	if (IS_ENABLED(CONFIG_BT_CENTRAL) &&

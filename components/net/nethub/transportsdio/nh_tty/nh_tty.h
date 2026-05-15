@@ -1,17 +1,8 @@
-/**
- * @file nh_tty.h
- * @brief Bouffalo Lab TTY device header definitions
- * @author mlwang
- * @date 2025-08-08
- * @details This file contains TTY device structures, state machine
- *          definitions, and packet format specifications for device-side TTY
- *          communication with message controller integration.
- */
-
 #ifndef __nh_TTY_H_
 #define __nh_TTY_H_
 
 #include "qcc74x_core.h"
+#include "nh_credit_flow.h"
 #include "nh_msg_ctrl.h"
 #include "nh_frame_buff_ctrl.h"
 
@@ -124,11 +115,7 @@ struct nh_tty_priv {
 
     int tty_status; /**< Current TTY device status */
 
-    uint8_t device_dnld_credit_limit;    /**< Device download credit limit */
-    uint8_t credit_limit_update_last;    /**< Last credit limit update value */
-    int credit_cnt;                      /**< Download credit counter */
-    uint8_t host_upld_credit_limit;      /**< Host upload credit limit */
-    uint8_t device_upld_credit_consumed; /**< Device upload credit consumed */
+    nh_flow_cntrl_t flow_ctrl; /**< Shared credit flow control state */
 
     TaskHandle_t tty_proc_task;        /**< TTY processing task handle */
     QueueHandle_t msg_dnld_queue;      /**< Message download processing queue */

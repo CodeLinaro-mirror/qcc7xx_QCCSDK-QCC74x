@@ -48,6 +48,15 @@ static char g_scan_filter_ssid[33];
 static uint8_t g_scan_filter_channel = 0;
 static uint32_t g_scan_tick = 0;
 
+static void at_scan_filter_clear(void)
+{
+    g_scan_filter_mac_flag = 0;
+    g_scan_filter_ssid_flag = 0;
+    g_scan_filter_channel = 0;
+    memset(g_scan_filter_mac, 0, sizeof(g_scan_filter_mac));
+    memset(g_scan_filter_ssid, 0, sizeof(g_scan_filter_ssid));
+}
+
 static int get_mac_from_string(char *string, uint8_t mac[6])
 {
     int i, j = 0;
@@ -442,6 +451,7 @@ void at_scan_done_event_tigger(void)
 {
     wifi_mgmr_sta_scanlist();
     at_scan_dump(rtos_now(0) - g_scan_tick);
+    at_scan_filter_clear();
     g_scan_tick = 0;
 }
 
@@ -691,20 +701,11 @@ static int at_setup_cmd_cwlap(int argc, const char **argv)
     AT_CMD_PARSE_OPT_NUMBER(4, &scan_time_min, scan_time_min_valid);
     AT_CMD_PARSE_OPT_NUMBER(5, &scan_time_max, scan_time_max_valid);
 
-    if (ssid_valid) {
-        strlcpy(g_scan_filter_ssid, ssid, sizeof(g_scan_filter_ssid));
-        g_scan_filter_ssid_flag = 1;
-    }
+    at_scan_filter_clear();
     if (mac_valid) {
-        if (get_mac_from_string(mac, g_scan_filter_mac) != 0) {
+    if (get_mac_from_string(mac, mac_addr) != 0) {
             return AT_RESULT_WITH_SUB_CODE(AT_SUB_OP_ADDR_ERROR);
         }
-        memcpy(mac_addr, g_scan_filter_mac, sizeof(mac_addr));
-        g_scan_filter_mac_flag = 1;
-    }
-    if (channel_valid) {
-        scan_channels = channel;
-        g_scan_filter_channel = channel;
     }
     if (scan_type_valid) {
         AT_WIFI_CMD_PRINTF("scan_type = %d\r\n", scan_type);
@@ -743,22 +744,31 @@ static int at_setup_cmd_cwlap(int argc, const char **argv)
     }
     AT_WIFI_CMD_PRINTF("scan_mode = %d, scan_time = %d\r\n", scan_mode, scan_time);
 
+  if (ssid_valid) {
+    strlcpy(g_scan_filter_ssid, ssid, sizeof(g_scan_filter_ssid));
+    g_scan_filter_ssid_flag = 1;
+  }
+  if (mac_valid) {
+    memcpy(g_scan_filter_mac, mac_addr, sizeof(g_scan_filter_mac));
+    g_scan_filter_mac_flag = 1;
+  }
+  if (channel_valid) {
+    scan_channels = channel;
+    g_scan_filter_channel = channel;
+  }
+
     if (scan_channels != 0) {
         ret = at_scan_wifi(&scan_channels, 1, mac_valid?mac_addr:NULL, ssid_valid?ssid:NULL, scan_mode, scan_time);
     } else {
         ret = at_scan_wifi(NULL, 0, mac_valid?mac_addr:NULL, ssid_valid?ssid:NULL, scan_mode, scan_time);
     }
     if (ret != 0) {
-        g_scan_filter_mac_flag = 0;
-        g_scan_filter_ssid_flag = 0;
-        g_scan_filter_channel = 0;
+        at_scan_filter_clear();
         AT_WIFI_CMD_PRINTF("scan fail\r\n");
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_ALLOWED);
     }
 
     //at_scan_dump();
-    g_scan_filter_mac_flag = 0;
-    g_scan_filter_ssid_flag = 0;
     return AT_RESULT_CODE_OK;
 }
 

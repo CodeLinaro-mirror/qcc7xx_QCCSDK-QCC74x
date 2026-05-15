@@ -5,7 +5,11 @@
 extern "C" {
 #endif
 
+#ifdef CONFIG_WFA
+#define ELOOP_MSG_INBUF_LEN     800
+#else
 #define ELOOP_MSG_INBUF_LEN     600
+#endif
 #define ELOOP_MSG_OUTBUF_LEN    260
 
 enum {

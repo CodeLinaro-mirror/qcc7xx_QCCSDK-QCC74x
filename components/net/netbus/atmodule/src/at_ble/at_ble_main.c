@@ -630,7 +630,7 @@ static struct bt_conn_auth_cb auth_cb_display = {
 	.pairing_complete = NULL,
 };
 
-int at_ble_sec_paramter_setup(int sec, int level)
+int at_ble_sec_paramter_setup(int sec, int level, bool bond)
 {
     int err = 0;
     switch(sec)
@@ -679,11 +679,13 @@ int at_ble_sec_paramter_setup(int sec, int level)
     auth_cb_display.pairing_failed   = auth_pairing_failed;
 	auth_cb_display.pairing_complete = auth_pairing_complete;
     auth_cb_display.cancel           = auth_cancel;
-    
+
     err = bt_conn_auth_cb_register(&auth_cb_display);
 
     if(err != 0)
         return err;
+
+    bt_set_bondable(bond);
 
     err = bt_conn_set_security_level_all(level);
 
@@ -887,6 +889,38 @@ int at_ble_set_random_addr(uint8_t *addr)
 {
     //do nothing, default is random address
     return 0;
+}
+
+int at_ble_set_static_addr(const bt_addr_le_t *addr)
+{
+	if (!addr) {
+		return -EINVAL;
+	}
+
+	int err = bt_set_local_random_address(addr);
+	if (err) {
+		return err;
+	}
+
+	at_ble_config->use_static_random_addr = true;
+
+	if (at_ble_config->scan_param.own_addr_type == 0) {
+		at_ble_config->scan_param.own_addr_type = 1;
+		AT_BLE_PRINTF("Auto-updated scan own_addr_type to 1 (Random Address)\r\n");
+	}
+
+	return 0;
+}
+
+int at_ble_get_static_addr(bt_addr_le_t *addr)
+{
+	if (!addr) {
+		return -EINVAL;
+	}
+
+	bt_get_local_ramdon_address(addr);
+
+	return 0;
 }
 
 int at_ble_set_tx_power(int power)
@@ -2741,7 +2775,7 @@ int at_ble_init(int role)
             #endif
             // Initialize BLE Host stack
             hci_driver_init();
-            bt_enable(bt_enable_cb);  
+            bt_enable(bt_enable_cb);
         }
         g_ble_is_inited = 1;
     }

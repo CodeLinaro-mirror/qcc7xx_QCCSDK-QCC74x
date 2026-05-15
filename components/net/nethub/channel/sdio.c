@@ -151,6 +151,9 @@ static int _sdio_init(void)
     transportsdio_init(g_sdio_ctx_p, msg_ctrl, nh_MSG_TAG_ETH);
     transportsdio_set_wifi_send_cb(callback_wifi_dnld);
 
+    /* Note: HCI channel initialization moved to nhsdiowifi_register_all_interfaces()
+     * for unified interface registration */
+
     return NH_OK;
 
 __sdio_init_failed:

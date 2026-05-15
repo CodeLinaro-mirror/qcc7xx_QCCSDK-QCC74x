@@ -2,6 +2,7 @@
 #define __RCP_PROTOCOL_H__
 
 #include "buffer_mgmt_ctrl.h"
+#include "nh_credit_flow.h"
 #include "rcp_definitions.h"
 #include "rcp_bus.h"
 
@@ -75,11 +76,19 @@ typedef struct {
 	//rcp_seq_num_t seq_nums;
 	link_result_t error;
 	enum rcp_bus bus;
-	uint8_t credit_limit_cnt;
-	uint8_t credit_consumed_cnt;
+	nh_flow_cntrl_t flow_ctrl;
+	uint8_t rx_wnd;
 	buffer_mgmt_ctrl_t *buffer_ctrl;
 	bool rx_queue_enabled;
 	rcp_queue_t rx_queue;
+	volatile uint32_t tx_data_packets;
+	volatile uint32_t tx_data_bytes;
+	volatile uint32_t tx_ctrl_packets;
+	volatile uint32_t tx_ctrl_bytes;
+	volatile uint32_t rx_data_packets;
+	volatile uint32_t rx_data_bytes;
+	volatile uint32_t rx_ctrl_packets;
+	volatile uint32_t rx_ctrl_bytes;
 } lnk_sts_t;
 
 typedef rcp_msg_t *rcp_msg_ptr_t;
@@ -126,7 +135,7 @@ bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms);
  * \return true if tx was successful.
  * \return false in case the bus reported an error.
  */
-bool tx_rcp_msg(enum rcp_bus bus, buffer_mgmt_elem_t *tx_buffer);
+enum rcp_bus_status tx_rcp_msg(enum rcp_bus bus, buffer_mgmt_elem_t *tx_buffer);
 
 uint8_t inc_seq_num(uint8_t current_value);
 

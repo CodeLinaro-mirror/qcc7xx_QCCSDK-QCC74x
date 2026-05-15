@@ -153,7 +153,7 @@ void board_sdh_gpio_init()
 
 void board_sdio_gpio_init(void)
 {
-    struct qcc74x_device_s *gpio;
+    struct bflb_device_s *gpio;
 
     gpio = qcc74x_device_get_by_name("gpio");
     qcc74x_gpio_init(gpio, GPIO_PIN_10, GPIO_FUNC_SDU | GPIO_ALTERNATE | GPIO_PULLUP | GPIO_SMT_EN | GPIO_DRV_1);

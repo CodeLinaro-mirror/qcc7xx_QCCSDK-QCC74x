@@ -1,4 +1,13 @@
 # Changes
+## 2026-04-17
+1.[blestack] serialize mtu and data len exchange for oad and atvv.
+
+## 2026-04-01
+1.[blestack] Add support for setting BLE static random address via bt_set_local_random_address API.
+
+## 2026-03-27
+1.[blestack] resolve MITM bit not set when requesting L3 security.
+
 ## 2026-02-26
 1.[blestack]support set all connection default security level.
 

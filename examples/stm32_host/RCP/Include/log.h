@@ -4,6 +4,10 @@
 #include <stdio.h>
 #include "rcp_user_config.h"
 
+#ifndef __FILE_NAME__
+#define __FILE_NAME__ __FILE__
+#endif
+
 #ifndef LOG_LEVEL
 #define LOG_LEVEL 3
 #endif
@@ -25,7 +29,7 @@
 
 #else
 #define LOG_DBG(...)
-#define LOG_HEXDUMP_DBG(...)
+#define LOG_HEXDUMP_DBG(data, len, msg)
 #endif /* LOG_LEVEL >= 4 */
 
 #if LOG_LEVEL >= 3

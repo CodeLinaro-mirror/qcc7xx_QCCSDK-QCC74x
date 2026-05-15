@@ -6156,6 +6156,8 @@ extern const struct wpa_driver_ops wpa_driver_none_ops; /* driver_none.c */
 #endif /* CONFIG_DRIVER_NONE */
 #ifdef CONFIG_DRIVER_RWNX
 extern const struct wpa_driver_ops wpa_driver_rwnx_ops; /* driver_rwnx.c */
+bool rwnx_hw_feature_uses_static_rates(const int *rates);
+bool rwnx_hw_feature_uses_static_channels(const struct hostapd_channel_data *channels);
 #endif /* CONFIG_DRIVER_RWNX */
 
 uint16_t wpa_supplicant_get_status_code(void *ctx);

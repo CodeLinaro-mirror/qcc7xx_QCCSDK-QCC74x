@@ -108,12 +108,32 @@ uint8_t *put_payld_size_in_buff(uint8_t *buffer_ptr, uint16_t payload_length)
 void build_rcp_msg(rcp_msg_ptr_t msg_ptr, uint8_t msg_type, enum rcp_flag flag,
 		buffer_mgmt_elem_t *payload_ptr)
 {
+	int credit;
+	lnk_sts_t *lnk;
+
 	msg_ptr->flag = flag;
 	msg_ptr->msg_type = msg_type;
 	msg_ptr->msg_subtype = 0;
 	msg_ptr->credit_update_flag = 0;
 	msg_ptr->credit_limit_cnt = 0;
 	msg_ptr->payload_ptr = payload_ptr;
+
+	if (flag == RCP_FLAG_HOST_RESET) {
+		return;
+	}
+
+    if ((flag != RCP_FLAG_DNLD_DATA) && (flag != RCP_FLAG_CREDIT_UPDATE) && (flag != RCP_FLAG_HOST_READY)) {
+		return;
+	}
+
+	lnk = link_get_status(msg_type);
+	if (lnk == NULL) {
+		return;
+	}
+
+    credit = nh_rx_credit_update(&lnk->flow_ctrl);
+    msg_ptr->credit_limit_cnt = (credit >= 0) ? (uint8_t)credit : 0;
+    msg_ptr->credit_update_flag = (credit >= 0) ? true : false;
 }
 
 void build_cntrl_rcp_msg(rcp_msg_ptr_t msg_ptr,
@@ -156,12 +176,9 @@ bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms)
 	return true;
 }
 
-bool tx_rcp_msg(enum rcp_bus bus, buffer_mgmt_elem_t *tx_buffer)
+enum rcp_bus_status tx_rcp_msg(enum rcp_bus bus, buffer_mgmt_elem_t *tx_buffer)
 {
-	if (RCP_BUS_OK != rcp_bus_write(bus, (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(tx_buffer))) {
-		return false;
-	}
-	return true;
+	return rcp_bus_write(bus, (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(tx_buffer));
 }
 
 uint8_t inc_seq_num(uint8_t current_value)

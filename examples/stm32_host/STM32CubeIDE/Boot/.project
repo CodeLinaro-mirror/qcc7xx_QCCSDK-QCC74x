@@ -44,7 +44,7 @@
 	<variableList>
 		<variable>
 			<name>copy_PARENT</name>
-			<value>file:/Z:/release/sdk_qc/components/net/nethub/host/stm32_host</value>
+			<value>file:/Z:/release/bouffalo_sdk_qc/components/net/nethub/host/stm32_host</value>
 		</variable>
 	</variableList>
 </projectDescription>

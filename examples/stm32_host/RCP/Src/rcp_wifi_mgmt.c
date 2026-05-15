@@ -3,6 +3,7 @@
 
 #include "wifi/rcp_wifi_mgmt.h"
 #include "buffer_mgmt_ctrl.h"
+#include "rcp_config.h"
 #include "rcp_interface.h"
 #include "rcp_log.h"
 #include "rcp_os.h"
@@ -15,7 +16,7 @@ enum rcp_tty_flag {
 
 #define RCP_WIFI_CTRL_STREAM      RCP_MSG_TYPE_TTY
 #define RCP_WIFI_CTRL_NUM_BUFFERS 3
-#define RCP_WIFI_CTRL_PAYLOAD_SIZE 256
+#define RCP_WIFI_CTRL_PAYLOAD_SIZE 1024
 #define RCP_WIFI_CTRL_BUFFER_SIZE (RCP_WIFI_CTRL_PAYLOAD_SIZE + FRAME_BUFF_PAYLOAD_OFFSET)
 #define RCP_WIFI_CMD_TIMEOUT_MS   1000
 
@@ -60,7 +61,7 @@ static int rcp_wifi_escape_at_arg(char *dst, size_t dst_size, const char *src)
 	return (int)out_idx;
 }
 
-static int rcp_wifi_send_bytes(const uint8_t *data, uint16_t len, uint32_t timeout_ms)
+int rcp_wifi_send_bytes(const uint8_t *data, uint16_t len, uint32_t timeout_ms)
 {
 	buffer_mgmt_elem_t *msg_buffer = NULL;
 	link_result_t send_result;
@@ -85,7 +86,6 @@ static int rcp_wifi_send_bytes(const uint8_t *data, uint16_t len, uint32_t timeo
 		buffer_mgmt_free_elem(msg_buffer);
 		return RCP_BUS_ERR_INVALID;
 	}
-
 	send_result = link_send(RCP_WIFI_CTRL_STREAM, msg_buffer, timeout_ms);
 	if (send_result == RCP_LNK_SUCCESS) {
 		return RCP_BUS_OK;
@@ -100,7 +100,6 @@ static int rcp_wifi_send_bytes(const uint8_t *data, uint16_t len, uint32_t timeo
 	if (send_result == RCP_LNK_ERR_TX_NO_RESOURCES || send_result == RCP_LNK_TX_BUSY) {
 		return RCP_BUS_ERR_MEMORY;
 	}
-
 	return RCP_BUS_ERR_IO;
 }
 
@@ -140,7 +139,7 @@ static uint8_t handle_rcp_msg(uint8_t msg_flags, const buffer_mgmt_elem_t *paylo
 		return RCP_RX_NO_ACTION;
 	}
 
-	printf("%.*s", (int)payload_len, (const char *)payload);
+	//printf("%.*s", (int)payload_len, (const char *)payload);
 
 	if (strncmp((const char *)payload, "+CW:CONNECTED\r\n", payload_len) == 0) {
 		rcp_lwip_dhcp_start(RCP_WIFI_DHCP_TIMEOUT_MS);
@@ -148,7 +147,7 @@ static uint8_t handle_rcp_msg(uint8_t msg_flags, const buffer_mgmt_elem_t *paylo
 		rcp_lwip_dhcp_done();
 	}
 
-	return RCP_RX_NO_ACTION;
+	return RCP_RX_UPLOAD;
 }
 
 static int rcp_wifi_send_at_cmd(const char *cmd)
@@ -167,7 +166,7 @@ static int rcp_wifi_send_at_cmd(const char *cmd)
 	return rcp_wifi_send_bytes((const uint8_t *)cmd, (uint16_t)cmd_len, RCP_WIFI_CMD_TIMEOUT_MS);
 }
 
-static int rcp_wifi_connect_ap(const char *ssid, const char *psk)
+static int rcp_wifi_connect_ap(const char *ssid, const char *psk, uint8_t pmf)
 {
 	char escaped_ssid[(WIFI_MAX_SSID_SIZE * 2) + 1];
 	char escaped_psk[(WIFI_MAX_PSK_SIZE * 2) + 1];
@@ -192,19 +191,20 @@ static int rcp_wifi_connect_ap(const char *ssid, const char *psk)
 		return RCP_BUS_ERR_INVALID;
 	}
 
-	ret = snprintf(cmd, sizeof(cmd), "AT+CWMODE=1\r\n");
+	ret = snprintf(cmd, sizeof(cmd), "AT+CWMODE=1\r\n\r\n");
 	if (ret <= 0 || ret >= (int)sizeof(cmd)) {
 		return RCP_BUS_ERR_INVALID;
 	}
 	(void)rcp_wifi_send_at_cmd(cmd);
 
-	ret = snprintf(cmd, sizeof(cmd), "AT+CWDHCP=0,1\r\n");
+	ret = snprintf(cmd, sizeof(cmd), "AT+CWDHCP=0,1\r\n\r\n");
 	if (ret <= 0 || ret >= (int)sizeof(cmd)) {
 		return RCP_BUS_ERR_INVALID;
 	}
 	(void)rcp_wifi_send_at_cmd(cmd);
 
-	ret = snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"\r\n", escaped_ssid, escaped_psk);
+	ret = snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\",,,,,,%d\r\n\r\n", escaped_ssid, escaped_psk, pmf);
+	//ret = snprintf(cmd, sizeof(cmd), "AT+CWJAP=\"%s\",\"%s\"\r\n", escaped_ssid, escaped_psk);
 	if (ret <= 0 || ret >= (int)sizeof(cmd)) {
 		return RCP_BUS_ERR_INVALID;
 	}
@@ -282,7 +282,7 @@ enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req)
 		psk_arg = psk;
 	}
 
-	return rcp_wifi_status_from_send_result(rcp_wifi_connect_ap(ssid, psk_arg));
+	return rcp_wifi_status_from_send_result(rcp_wifi_connect_ap(ssid, psk_arg, req->pmf));
 }
 
 enum rcp_wifi_status rcp_wifi_disconnect(void)
@@ -313,7 +313,8 @@ enum rcp_wifi_status rcp_wifi_init(void)
 		return RCP_WIFI_ERR_MEM;
 	}
 
-	g_rcp_wifi.lnk_sts = rcp_stream_create(g_rcp_wifi.buffer_ctrl, RCP_WIFI_CTRL_STREAM);
+	g_rcp_wifi.lnk_sts = rcp_stream_create(RCP_WIFI_CTRL_STREAM, g_rcp_wifi.buffer_ctrl,
+					      RCP_TTY_RX_WND);
 	if (g_rcp_wifi.lnk_sts == NULL) {
 		return RCP_WIFI_ERR;
 	}

@@ -344,7 +344,7 @@ static int at_setup_cmd_cipstart(int argc, const char **argv)
     int local_port_valid = 0, local_port = 0;
     int mode_valid = 0, mode = 0;
     int timeout_valid = 0, timeout = AT_NET_CIPSTART_TIMEOUT_DEFAULT_MS;
-    char local_ip[16];
+    char local_ip[48]={0};
     int local_ip_valid = 0;
     ip_addr_t remote_ipaddr;
     int argc_index = 0, ret = 0;
@@ -454,7 +454,7 @@ static int at_setup_cmd_cipstartex(int argc, const char **argv)
     int local_port_valid = 0, local_port = 0;
     int mode_valid = 0, mode = 0;
     int timeout_valid = 0, timeout = AT_NET_CIPSTART_TIMEOUT_DEFAULT_MS;
-    char local_ip[16];
+    char local_ip[48]={0};
     int local_ip_valid = 0;
     ip_addr_t remote_ipaddr = {0};
     int argc_index = 0, ret = 0;
@@ -489,7 +489,16 @@ static int at_setup_cmd_cipstartex(int argc, const char **argv)
         argc_index++;
         AT_CMD_PARSE_OPT_STRING(argc_index, local_ip, sizeof(local_ip), local_ip_valid);
         argc_index++;
-    }else if (strcasecmp(type, "UDP") == 0) {
+  } else if (strcasecmp(type, "UDP") == 0) {
+        AT_CMD_PARSE_OPT_NUMBER(argc_index, &local_port, local_port_valid);
+        argc_index++;
+        AT_CMD_PARSE_OPT_NUMBER(argc_index, &mode, mode_valid);
+        argc_index++;
+        AT_CMD_PARSE_OPT_NUMBER(argc_index, &keepalive, keepalive_valid);
+        argc_index++;
+        AT_CMD_PARSE_OPT_STRING(argc_index, local_ip, sizeof(local_ip), local_ip_valid);
+        argc_index++;
+  } else if (strcasecmp(type, "UDPv6") == 0 && at_net_config->ipv6_enable) {
         AT_CMD_PARSE_OPT_NUMBER(argc_index, &local_port, local_port_valid);
         argc_index++;
         AT_CMD_PARSE_OPT_NUMBER(argc_index, &mode, mode_valid);
@@ -2331,8 +2340,8 @@ static const at_cmd_struct at_net_cmd[] = {
     {"+CIPDNS", NULL, at_query_cmd_cipdns, at_setup_cmd_cipdns, NULL, 1, 4},
     {"+CIPDOMAIN", NULL, NULL, at_setup_cmd_cipdomain, NULL, 1, 2},
     {"+CIPSTATE", NULL, at_query_cmd_cipstate, NULL, NULL, 0, 0},
-    {"+CIPSTART", NULL, at_query_cmd_cipstart, at_setup_cmd_cipstart, NULL, 3, 7},
-    {"+CIPSTARTEX", NULL, NULL, at_setup_cmd_cipstartex, NULL, 3, 6},
+    {"+CIPSTART", NULL, at_query_cmd_cipstart, at_setup_cmd_cipstart, NULL, 3, 9},
+    {"+CIPSTARTEX", NULL, NULL, at_setup_cmd_cipstartex, NULL, 3, 8},
     {"+CIPTCPOPT", NULL, at_query_cmd_ciptcport, at_setup_cmd_ciptcport, NULL, 1, 5},
     {"+CIPCLOSE", NULL, NULL, at_setup_cmd_cipclose, at_exe_cmd_cipclose, 1, 1},
     {"+CIPSENDL", NULL, NULL, at_setup_cmd_cipsendl, NULL, 1, 4},

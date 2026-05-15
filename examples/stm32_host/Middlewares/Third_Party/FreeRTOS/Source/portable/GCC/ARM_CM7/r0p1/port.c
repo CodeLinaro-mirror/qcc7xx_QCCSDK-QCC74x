@@ -458,8 +458,10 @@ void xPortPendSVHandler( void )
         "   ldr r2, [r3]                        \n"
         "                                       \n"
         "   tst r14, #0x10                      \n" /* Is the task using the FPU context?  If so, push high vfp registers. */
+#if( configENABLE_FPU )
         "   it eq                               \n"
         "   vstmdbeq r0!, {s16-s31}             \n"
+#endif
         "                                       \n"
         "   stmdb r0!, {r4-r11, r14}            \n" /* Save the core registers. */
         "   str r0, [r2]                        \n" /* Save the new top of stack into the first member of the TCB. */
@@ -482,8 +484,10 @@ void xPortPendSVHandler( void )
         "   ldmia r0!, {r4-r11, r14}            \n" /* Pop the core registers. */
         "                                       \n"
         "   tst r14, #0x10                      \n" /* Is the task using the FPU context?  If so, pop the high vfp registers too. */
+#if( configENABLE_FPU )
         "   it eq                               \n"
         "   vldmiaeq r0!, {s16-s31}             \n"
+#endif
         "                                       \n"
         "   msr psp, r0                         \n"
         "   isb                                 \n"

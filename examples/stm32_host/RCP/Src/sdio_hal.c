@@ -267,6 +267,12 @@ bool sdio_enable_int(struct sdio_hal *handle, uint8_t func, sdio_int_callback cb
 	return true;
 }
 
+bool sdio_hal_rescan(struct sdio_hal *handle)
+{
+	uint32_t Resp4;
+	return (SDMMC_CmdSendOperationcondition(hsdio->Instance, 0U, &Resp4) == HAL_SDIO_ERROR_NONE);
+}
+
 /* The function is simply a copy of the default handler but performs SDIO reset at the
  * beginning.
  */
@@ -462,5 +468,11 @@ bool sdio_hal_init(struct sdio_hal *handle)
 		return false;
 	}
 
+	return true;
+}
+
+bool sdio_hal_reinit(struct sdio_hal *handle)
+{
+	MX_SDMMC1_SDIO_Init(&handle->sdio);
 	return true;
 }

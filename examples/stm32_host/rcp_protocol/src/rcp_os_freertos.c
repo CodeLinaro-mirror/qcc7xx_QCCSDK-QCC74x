@@ -38,6 +38,26 @@ bool rcp_os_sem_init(rcp_sem_t *sem, uint32_t cnt, uint32_t limit)
 	return (sem->_sem != NULL);
 }
 
+void rcp_os_sem_deinit(rcp_sem_t *sem)
+{
+	if (sem == NULL || sem->_sem == NULL) {
+		return;
+	}
+
+	vSemaphoreDelete(sem->_sem);
+	sem->_sem = NULL;
+}
+
+bool rcp_os_sem_reset(rcp_sem_t *sem)
+{
+	if (sem == NULL || sem->_sem == NULL || xPortIsInsideInterrupt()) {
+		return false;
+	}
+
+	xQueueReset((QueueHandle_t)sem->_sem);
+	return true;
+}
+
 bool rcp_os_sem_give(rcp_sem_t *sem)
 {
 	if (xPortIsInsideInterrupt()) {
@@ -68,6 +88,32 @@ bool rcp_os_sem_take(rcp_sem_t *sem, uint32_t timeout)
 	return true;
 }
 
+rcp_sem_t *rcp_os_sem_create(uint32_t limit, uint32_t cnt)
+{
+	rcp_sem_t *sem = rcp_os_malloc(sizeof(*sem));
+
+	if (sem == NULL) {
+		return NULL;
+	}
+
+	if (!rcp_os_sem_init(sem, cnt, limit)) {
+		rcp_os_free(sem);
+		return NULL;
+	}
+
+	return sem;
+}
+
+void rcp_os_sem_delete(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return;
+	}
+
+	rcp_os_sem_deinit(sem);
+	rcp_os_free(sem);
+}
+
 bool rcp_os_mutex_init(rcp_mutex_t *mutex)
 {
 	if (mutex == NULL) {
@@ -76,6 +122,16 @@ bool rcp_os_mutex_init(rcp_mutex_t *mutex)
 
 	mutex->_mutex = xSemaphoreCreateMutex();
 	return (mutex->_mutex != NULL);
+}
+
+void rcp_os_mutex_deinit(rcp_mutex_t *mutex)
+{
+	if (mutex == NULL || mutex->_mutex == NULL) {
+		return;
+	}
+
+	vSemaphoreDelete(mutex->_mutex);
+	mutex->_mutex = NULL;
 }
 
 bool rcp_os_mutex_lock(rcp_mutex_t *mutex, uint32_t timeout)
@@ -98,12 +154,22 @@ bool rcp_os_mutex_unlock(rcp_mutex_t *mutex)
 
 uint32_t rcp_os_time_ms(void)
 {
+	if (xPortIsInsideInterrupt()) {
+		return (xTaskGetTickCountFromISR() * portTICK_PERIOD_MS);
+	}
+
 	return (xTaskGetTickCount() * portTICK_PERIOD_MS);
 }
 
 void rcp_os_delay_ms(uint32_t time_ms)
 {
-	vTaskDelay((time_ms / portTICK_PERIOD_MS));
+	TickType_t ticks = pdMS_TO_TICKS(time_ms);
+
+	if (time_ms != 0U && ticks == 0U) {
+		ticks = 1U;
+	}
+
+	vTaskDelay(ticks);
 }
 
 bool rcp_os_queue_init(rcp_queue_t *queue, uint32_t item_size, uint32_t max_items)
@@ -228,6 +294,8 @@ uint32_t rcp_os_event_set_bits(rcp_event_t *event, uint32_t flags)
 		if (pxHigherPriorityTaskWoken) {
 			portYIELD_FROM_ISR(pxHigherPriorityTaskWoken);
 		}
+
+		return xEventGroupGetBitsFromISR(event->_event);
 	} else {
 	    return xEventGroupSetBits(event->_event, flags);
     }
@@ -297,6 +365,18 @@ bool rcp_os_thread_create(rcp_thread_t *thread, rcp_thread_entry_t entry, void *
 			  (UBaseType_t)priority, &thread->_thread);
 
 	return (ret == pdPASS);
+}
+
+void rcp_os_thread_delete(rcp_thread_t *thread)
+{
+	if (thread == NULL || thread->_thread == NULL) {
+		return;
+	}
+
+	vTaskDelete(thread->_thread);
+	thread->_thread = NULL;
+	thread->_entry = NULL;
+	thread->_arg = NULL;
 }
 
 bool rcp_os_timer_init(rcp_timer_t *timer, rcp_timer_callback_t cb, void *arg)
@@ -378,4 +458,24 @@ void rcp_os_enable_irq(void)
 	if (!xPortIsInsideInterrupt()) {
 		taskEXIT_CRITICAL();
 	}
+}
+
+uintptr_t rcp_os_irq_save(void)
+{
+	if (xPortIsInsideInterrupt()) {
+		return (uintptr_t)taskENTER_CRITICAL_FROM_ISR();
+	}
+
+	taskENTER_CRITICAL();
+	return 0;
+}
+
+void rcp_os_irq_restore(uintptr_t flags)
+{
+	if (xPortIsInsideInterrupt()) {
+		taskEXIT_CRITICAL_FROM_ISR((UBaseType_t)flags);
+		return;
+	}
+
+	taskEXIT_CRITICAL();
 }

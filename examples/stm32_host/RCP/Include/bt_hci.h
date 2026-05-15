@@ -2,27 +2,37 @@
 #define __BT_HCI_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
-typedef void (*bt_evt_callback)(uint8_t evt, void *data);
+/* HCI H4 packet types */
+#define BT_HCI_H4_CMD    0x01  /* HCI Command */
+#define BT_HCI_H4_ACL    0x02  /* HCI ACL Data */
+#define BT_HCI_H4_SCO    0x03  /* HCI SCO Data */
+#define BT_HCI_H4_EVT    0x04  /* HCI Event */
 
-struct bt_hci_cmd {
-	uint16_t opcode;
-	uint8_t payload_len;
-	uint8_t *payload;
-};
+/* Callback for receiving HCI data - receives complete H4 packet (type + payload) */
+typedef void (*bt_evt_cb)(const uint8_t *data, uint16_t len);
 
-/* HCI CMD immediate response (0x0E or 0x0F event) */
-struct bt_hci_resp {
-	uint8_t status;        /* Status (for 0x0F event) */
-	uint8_t response_len;  /* Response length (for 0x0E) */
-	uint8_t response[255]; /* Response (for 0x0E) */
-};
-
-/* Callback for BT asynchronous events */
-typedef void (*bt_evt_cb)(uint8_t evt, uint8_t *data, uint8_t len);
-
+/**
+ * @brief Initialize HCI transport
+ * @param evt_cb Callback for receiving HCI data (any H4 type)
+ * @return true on success
+ */
 bool bt_hci_init(bt_evt_cb evt_cb);
 
-bool bt_hci_cmd_send(struct bt_hci_cmd *cmd, struct bt_hci_resp **resp);
+/**
+ * @brief Send raw HCI data (any H4 type: CMD/ACL/SCO/Event)
+ * @param data HCI data in H4 format (type + payload)
+ * @param len Length of data
+ * @return true on success
+ *
+ * This is the generic interface for BLE host communication.
+ * Supports all HCI packet types:
+ * - 0x01: HCI Command
+ * - 0x02: HCI ACL Data
+ * - 0x03: HCI SCO Data
+ * - 0x04: HCI Event
+ */
+bool bt_hci_send(const uint8_t *data, uint16_t len);
 
-#endif
+#endif /* __BT_HCI_H__ */

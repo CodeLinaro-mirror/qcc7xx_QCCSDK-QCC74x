@@ -237,11 +237,13 @@ struct rcp_wifi_evt_iface_status {
 
 
 typedef void (*rcp_wifi_event_callback)(enum rcp_wifi_evt evt, const void *data);
+typedef void (*rcp_wifi_tty_forwarder_t)(const uint8_t *data, uint16_t len, void *arg);
 
 struct rcp_wifi_conn_req {
 	uint8_t ssid[WIFI_MAX_SSID_SIZE];
 	uint8_t ssid_len;
 	enum rcp_wifi_sec_type sec_type;
+	enum rcp_wifi_mfp_options pmf;
 	uint32_t channel;
 	uint8_t psk[WIFI_MAX_PSK_SIZE];
 	uint8_t psk_len;
@@ -344,5 +346,4 @@ void rcp_wifi_set_mac(const uint8_t mac[6]);
 
 /* Wait until a valid MAC address is available. */
 bool rcp_wifi_get_mac(uint8_t mac[6], uint32_t timeout_ms);
-
 #endif

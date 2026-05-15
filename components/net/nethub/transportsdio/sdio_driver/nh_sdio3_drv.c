@@ -9,14 +9,6 @@
 #include "nh_gpio.h"
 #include "nh_sdio3.h"
 
-#if defined(BL616)
-#include "bl616_glb.h"
-#elif defined(BL616L)
-#include "bl616l_glb.h"
-#elif defined(BL616D)
-#include "bl616d_glb.h"
-#endif
-
 #include "board.h"
 
 #include "nh_frame_buff_ctrl.h"
@@ -217,11 +209,6 @@ nh_msg_ctrl_ops_t *sdio3_driver_init(void)
     LOG_I("sdio3_driver_init\r\n");
 
     /* Enable SDIO clock */
-#if defined(BL628)
-    nh_glb_per_clock_ungate(GLB_AHB_CLOCK_SDU);
-    nh_glb_per_clock_ungate(GLB_AHB_CLOCK_USB20_SDU);
-    nh_glb_per_clock_ungate(GLB_AHB_CLOCK_USB_SDIO);
-#endif
 
     /* Initialize SDIO GPIO */
     board_sdio_gpio_init();

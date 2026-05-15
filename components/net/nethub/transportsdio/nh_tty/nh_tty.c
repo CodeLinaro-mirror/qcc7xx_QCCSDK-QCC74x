@@ -9,7 +9,6 @@
  */
 
 #include "qcc74x_core.h"
-#include "qcc74x_mtimer.h"
 
 #include "board.h"
 #include "shell.h"
@@ -44,7 +43,7 @@ static struct nh_tty_priv *g_tty_priv = NULL;
 static void tty_proc_task(void *arg);
 
 static int msg_dnld_recv_done_cb(frame_elem_t *frame_elem, void *arg);
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg);
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success);
 
 /**
  * @brief Wake up the TTY processing task
@@ -113,9 +112,11 @@ static void tty_dnld_data_output(struct nh_tty_priv *priv, frame_elem_t *frame_e
     frame_queue_free_elem(frame_elem);
 
 #if TTY_DNLD_CREDIT_MAX
-    /* Update flow control */
-    priv->credit_cnt += 1;
-    priv->device_dnld_credit_limit += 1;
+    nh_rx_credit_reclaim(&priv->flow_ctrl);
+
+    if (nh_rx_credit_need_update(&priv->flow_ctrl)) {
+        tty_proc_task_wakeup(priv);
+    }
 #endif
 }
 
@@ -156,13 +157,19 @@ static int msg_dnld_recv_done_cb(frame_elem_t *frame_elem, void *arg)
  * @retval 0 Success
  * @retval <0 Error
  */
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg)
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success)
 {
     int ret;
     struct nh_tty_priv *priv = (struct nh_tty_priv *)arg;
+    struct nh_tty_msg_packt *msg_packt;
 
     if (!priv || !frame_elem) {
         return -1;
+    }
+
+    msg_packt = (struct nh_tty_msg_packt *)frame_elem->buff_addr;
+    if (!success && msg_packt->flag == nh_TTY_FLAG_UPLD_DATA) {
+        nh_tx_credit_put(&priv->flow_ctrl);
     }
 
     /* Release back to pool */
@@ -178,10 +185,9 @@ static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg)
  * @retval 0 Success
  * @retval <0 Error
  */
-static int msg_upld_send_cmd_packt(struct nh_tty_priv *priv, uint8_t tty_flag, uint8_t tofront)
+static int msg_upld_send_cmd_packt(struct nh_tty_priv *priv, uint8_t tty_flag, uint8_t tofront, int credit)
 {
     int ret;
-    uintptr_t flag;
     frame_elem_t *frame_elem;
     struct nh_tty_msg_packt *msg_tx_packt;
 
@@ -201,24 +207,15 @@ static int msg_upld_send_cmd_packt(struct nh_tty_priv *priv, uint8_t tty_flag, u
     msg_tx_packt->flag = tty_flag;
 
 #if TTY_DNLD_CREDIT_MAX
-    /* Add flow control protection */
-    flag = qcc74x_irq_save();
-    if (tty_flag == nh_TTY_FLAG_CREDIT_UPDATE || tty_flag == nh_TTY_FLAG_DEVICE_START) {
-        if (priv->credit_limit_update_last == priv->device_dnld_credit_limit) {
-            msg_tx_packt->credit_update_flag = false;
-            msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-        } else {
-            msg_tx_packt->credit_update_flag = true;
-            msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-            priv->credit_limit_update_last = priv->device_dnld_credit_limit;
-        }
+    if (credit >= 0) {
+        msg_tx_packt->credit_update_flag = true;
+        msg_tx_packt->credit_limit_cnt = (uint8_t)credit;
     } else {
         msg_tx_packt->credit_update_flag = false;
-        msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
+        msg_tx_packt->credit_limit_cnt = 0;
     }
 
     ret = nh_msg_ctrl_send(priv->msg_ctrl, frame_elem, tofront);
-    qcc74x_irq_restore(flag);
 #else
     msg_tx_packt->credit_update_flag = false;
     msg_tx_packt->credit_limit_cnt = 0;
@@ -245,7 +242,6 @@ static int msg_upld_send_cmd_packt(struct nh_tty_priv *priv, uint8_t tty_flag, u
 static int tty_upld_data_send(struct nh_tty_priv *priv, const uint8_t *data_buff, uint32_t data_size)
 {
     int ret;
-    uintptr_t flag;
     frame_elem_t *frame_elem;
     struct nh_tty_msg_packt *msg_tx_packt;
 
@@ -253,8 +249,15 @@ static int tty_upld_data_send(struct nh_tty_priv *priv, const uint8_t *data_buff
         return -1;
     }
 
+    ret = nh_tx_credit_get(&priv->flow_ctrl, portMAX_DELAY);
+    if (ret < 0) {
+        LOG_E("Failed to get TTY upld credit\r\n");
+        return -1;
+    }
+
     ret = frame_queue_alloc_elem(priv->rx_frame_ctrl, &frame_elem, 10);
     if (ret < 0) {
+        nh_tx_credit_put(&priv->flow_ctrl);
         return -1; /* No available buffer, try later */
     }
 
@@ -270,21 +273,13 @@ static int tty_upld_data_send(struct nh_tty_priv *priv, const uint8_t *data_buff
     msg_tx_packt->flag = nh_TTY_FLAG_UPLD_DATA;
 
 #if TTY_DNLD_CREDIT_MAX
-    /* Protect with a lock to avoid racing and reordering against UPLD_DATA flow control. */
-    flag = qcc74x_irq_save();
-    if (priv->credit_limit_update_last == priv->device_dnld_credit_limit) {
-        msg_tx_packt->credit_update_flag = false;
-        msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-    } else {
-        msg_tx_packt->credit_update_flag = true;
-        msg_tx_packt->credit_limit_cnt = priv->device_dnld_credit_limit;
-        priv->credit_limit_update_last = priv->device_dnld_credit_limit;
-    }
+
+    ret = nh_rx_credit_update(&priv->flow_ctrl);
+    msg_tx_packt->credit_limit_cnt = (ret >= 0) ? (uint8_t)ret : 0;
+    msg_tx_packt->credit_update_flag = (ret >= 0) ? true : false;
 
     /* Send through msg ctrl */
     ret = nh_msg_ctrl_send(priv->msg_ctrl, frame_elem, 0);
-    qcc74x_irq_restore(flag);
-
 #else
     msg_tx_packt->credit_update_flag = false;
     msg_tx_packt->credit_limit_cnt = 0;
@@ -293,6 +288,7 @@ static int tty_upld_data_send(struct nh_tty_priv *priv, const uint8_t *data_buff
 #endif
 
     if (ret < 0) {
+        nh_tx_credit_put(&priv->flow_ctrl);
         LOG_E("Failed to send TTY upld data to msg_ctrl: %d\r\n", ret);
         frame_queue_free_elem(frame_elem);
         return -1;
@@ -312,6 +308,7 @@ static int msg_hw_reset_cb(frame_elem_t *unused, void *arg)
 {
     struct nh_tty_priv *priv = (struct nh_tty_priv *)arg;
 
+    nh_credit_reset(&priv->flow_ctrl);
     priv->reset_flag = true;
     tty_proc_task_wakeup(priv);
 
@@ -323,6 +320,10 @@ static int msg_hw_reset_cb(frame_elem_t *unused, void *arg)
 int nh_tty_upld_send(uint8_t *data_buff, uint32_t data_size)
 {
     struct nh_tty_priv *priv = g_tty_priv;
+
+    if (!priv) {
+        return -1;
+    }
 
     if (priv->tty_status != nh_TTY_DSTA_DEVICE_RUN) {
         printf("%s, drop data_size:%d, because of tty_status:%d\r\n", __FUNCTION__, data_size, priv->tty_status);
@@ -383,6 +384,7 @@ static void tty_proc_task(void *arg)
             priv->reset_flag = false;
             priv->tty_ready = false;
             priv->tty_status = nh_TTY_DSTA_IDLE;
+            nh_credit_reset(&priv->flow_ctrl);
         }
 
         /* Get message from queue */
@@ -402,8 +404,7 @@ static void tty_proc_task(void *arg)
 
             priv->tty_status = nh_TTY_DSTA_IDLE;
             priv->tty_ready = false;
-            priv->device_dnld_credit_limit = TTY_DNLD_CREDIT_MAX;
-            priv->credit_limit_update_last = TTY_DNLD_CREDIT_MAX;
+            nh_credit_reset(&priv->flow_ctrl);
 
             frame_queue_free_elem(frame_elem);
             continue;
@@ -422,8 +423,19 @@ static void tty_proc_task(void *arg)
                 // break;
 
             case nh_TTY_DSTA_HOST_READY:
+
+                if (msg_packt) {
+                    nh_credit_init(&priv->flow_ctrl, "TTY",
+                               msg_packt->credit_limit_cnt,
+                               TTY_DNLD_CREDIT_UPDATE_THRESHOLD,
+                               TTY_DNLD_CREDIT_MAX,
+                               TTY_DNLD_CREDIT_UPDATE_THRESHOLD);
+                }
+
+                LOG_W("Host ready (credit=%d), sending DEVICE_READY\r\n",
+                      priv->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_limit_cnt);
                 /* Host ready, send DEVICE_START */
-                ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_DEVICE_READY, 0);
+                ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_DEVICE_READY, 0, -1);
                 if (ret < 0) {
                     LOG_E("Failed to send DEVICE_START command\r\n");
                     break;
@@ -433,27 +445,28 @@ static void tty_proc_task(void *arg)
                 break;
 
             case nh_TTY_DSTA_DEVICE_READY:
-
-                priv->device_dnld_credit_limit = TTY_DNLD_CREDIT_MAX;
-                priv->credit_limit_update_last = 0;
-                priv->credit_cnt = TTY_DNLD_CREDIT_MAX;
-
-                ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_DEVICE_START, 0);
+                ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_DEVICE_START, 0, TTY_DNLD_CREDIT_MAX);
                 if (ret < 0) {
                     LOG_W("Failed to send DEVICE_START message\r\n");
                     break;
                 }
 
 
+                nh_msg_ctrl_reset_stream_stat(priv->msg_ctrl, priv->msg_tag);
                 priv->tty_status = nh_TTY_DSTA_DEVICE_RUN;
+                nh_credit_enable(&priv->flow_ctrl, NH_CREDIT_EN_TX | NH_CREDIT_EN_RX);
                 break;
 
             case nh_TTY_DSTA_DEVICE_RUN:
-
                 if (msg_packt == NULL) {
                     break;
+                }
 
-                } else if (msg_packt->flag == nh_TTY_FLAG_OPEN) {
+                if (msg_packt->credit_update_flag) {
+                    nh_tx_credit_update(&priv->flow_ctrl, msg_packt->credit_limit_cnt);
+                }
+
+                if (msg_packt->flag == nh_TTY_FLAG_OPEN) {
                     LOG_I("Received tty OPEN message\r\n");
                     if (priv->tty_ready == false) {
                         priv->tty_ready = true;
@@ -502,23 +515,17 @@ static void tty_proc_task(void *arg)
 #if TTY_DNLD_CREDIT_MAX
         /* Send a proactive flow-control update */
         if (priv->tty_status == nh_TTY_DSTA_DEVICE_RUN && priv->tty_ready &&
-            (int8_t)(priv->device_dnld_credit_limit - priv->credit_limit_update_last) >= TTY_DNLD_CREDIT_UPDATE_THRESHOLD) {
-            ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_CREDIT_UPDATE, 1);
+            nh_rx_credit_need_update(&priv->flow_ctrl)) {
+            ret = nh_rx_credit_update(&priv->flow_ctrl);
+            if (ret >= 0) {
+                ret = msg_upld_send_cmd_packt(priv, nh_TTY_FLAG_CREDIT_UPDATE, 1, ret);
+            }
             if (ret < 0) {
                 LOG_E("Failed to send credit update message\r\n");
             }
         }
 #endif
 
-#if 0 /* Credit debug info */
-        static uint32_t time_ms = 0;
-        if (nh_mtimer_get_time_ms() - time_ms > 1000) {
-            time_ms = nh_mtimer_get_time_ms();
-            LOG_I("TTY status=%d, credit_cnt=%d, limit=%d, last=%d\r\n",
-                  priv->tty_status, priv->credit_cnt,
-                  priv->device_dnld_credit_limit, priv->credit_limit_update_last);
-        }
-#endif
     }
 
     LOG_I("TTY daemon thread exiting\r\n");
@@ -619,6 +626,17 @@ int nh_tty_init(nh_msg_ctrl_t *msg_ctrl, uint8_t msg_tag)
     priv->tty_status = nh_TTY_DSTA_IDLE;
     priv->stop_requested = false;
     priv->tty_ready = false;
+
+    ret = nh_credit_init(&priv->flow_ctrl, "TTY",
+                         0,
+                         TTY_DNLD_CREDIT_UPDATE_THRESHOLD,
+                         TTY_DNLD_CREDIT_MAX,
+                         TTY_DNLD_CREDIT_UPDATE_THRESHOLD);
+    if (ret < 0) {
+        LOG_E("Failed to init TTY flow control\r\n");
+        free(priv);
+        return -1;
+    }
 
     /* Initialize private memory pool */
     frame_queue_ctrl_init_cfg_t rx_cfg = {

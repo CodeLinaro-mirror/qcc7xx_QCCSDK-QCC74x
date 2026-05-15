@@ -3,8 +3,8 @@
 #include <rcp_bus.h>
 #include <rcp_os.h>
 #include "buffer_mgmt_ctrl.h"
-
 #include "qcc74x_sdio.h"
+
 #include "rcp_bus_sdio_master.h"
 
 #include "log.h"
@@ -77,6 +77,27 @@ bool rcp_bus_sdio_master_init(void)
 
 	printf("RCP SDIO bus registered.\n");
 	return true;
+}
+
+bool rcp_bus_sdio_master_reinit(void)
+{
+	if (!qcc74x_sdio_reinit(&ctx.sdiohd)) {
+		return false;
+	}
+
+	ctx.irq_pending = false;
+	ctx.irq_status = 0;
+	qcc74x_sdio_register_irq_cb(&ctx.sdiohd, qcc74x_irq_cb);
+
+	return true;
+}
+
+void rcp_bus_sdio_master_dump(void)
+{
+	printf("SDIO Master:\n");
+	printf("  open: %s\n", ctx.open ? "true" : "false");
+	printf("  irq_pending: %s\n", ctx.irq_pending ? "true" : "false");
+	printf("  irq_status: 0x%02X\n", ctx.irq_status);
 }
 
 static enum rcp_bus_status sdio_master_open(void)
@@ -180,6 +201,8 @@ static enum rcp_bus_status sdio_master_close(void)
 static enum rcp_bus_status sdio_master_get_caps(struct rcp_bus_caps *caps)
 {
 	caps->mtu = RCP_BUS_SDIO_MAX_MSG_SIZE;
+	caps->active = qcc74x_sdio_detect(&ctx.sdiohd);
+
 	return RCP_BUS_OK;
 }
 
@@ -209,4 +232,13 @@ static void sdio_master_update_rx_flag_locked(uint16_t remaining_len)
 	}
 	rcp_os_enable_irq();
 	ctx.irq_status = 0;
+}
+
+bool rcp_bus_runtime_recover(enum rcp_bus bus)
+{
+	if (bus != RCP_BUS_SDIO) {
+		return false;
+	}
+
+	return rcp_bus_sdio_master_reinit();
 }

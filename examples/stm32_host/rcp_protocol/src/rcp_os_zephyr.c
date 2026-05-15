@@ -36,6 +36,22 @@ bool rcp_os_sem_init(rcp_sem_t *sem, uint32_t cnt, uint32_t limit)
 	return true;
 }
 
+void rcp_os_sem_deinit(rcp_sem_t *sem)
+{
+	ARG_UNUSED(sem);
+}
+
+
+bool rcp_os_sem_reset(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return false;
+	}
+
+	k_sem_reset(&(sem->_sem));
+	return true;
+}
+
 bool rcp_os_sem_give(rcp_sem_t *sem)
 {
 	k_sem_give(&(sem->_sem));
@@ -50,10 +66,41 @@ bool rcp_os_sem_take(rcp_sem_t *sem, uint32_t timeout)
 	return true;
 }
 
+rcp_sem_t *rcp_os_sem_create(uint32_t limit, uint32_t cnt)
+{
+	rcp_sem_t *sem = rcp_os_malloc(sizeof(*sem));
+
+	if (sem == NULL) {
+		return NULL;
+	}
+
+	if (!rcp_os_sem_init(sem, cnt, limit)) {
+		rcp_os_free(sem);
+		return NULL;
+	}
+
+	return sem;
+}
+
+void rcp_os_sem_delete(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return;
+	}
+
+	rcp_os_sem_deinit(sem);
+	rcp_os_free(sem);
+}
+
 bool rcp_os_mutex_init(rcp_mutex_t *mutex)
 {
 	k_mutex_init(&(mutex->_mutex));
 	return true;
+}
+
+void rcp_os_mutex_deinit(rcp_mutex_t *mutex)
+{
+	ARG_UNUSED(mutex);
 }
 
 bool rcp_os_mutex_lock(rcp_mutex_t *mutex, uint32_t timeout)
@@ -138,6 +185,18 @@ bool rcp_os_thread_create(rcp_thread_t *thread, rcp_thread_entry_t entry, void *
 	return false;
 }
 
+void rcp_os_thread_delete(rcp_thread_t *thread)
+{
+	if (thread == NULL || thread->_thread == NULL) {
+		return;
+	}
+
+	k_thread_abort((k_tid_t)thread->_thread);
+	thread->_thread = NULL;
+	thread->_entry = NULL;
+	thread->_arg = NULL;
+}
+
 bool rcp_os_timer_init(rcp_timer_t *timer, rcp_timer_callback_t cb, void *arg)
 {
 	if (timer == NULL || cb == NULL) {
@@ -177,4 +236,37 @@ void rcp_os_timer_deinit(rcp_timer_t *timer)
 	(void)k_work_cancel_delayable(&(timer->_timer));
 	timer->_cb = NULL;
 	timer->_arg = NULL;
+}
+
+bool rcp_os_in_isr(void)
+{
+	return k_is_in_isr();
+}
+
+void *rcp_os_malloc(size_t size)
+{
+	return k_malloc(size);
+}
+
+void rcp_os_free(void *ptr)
+{
+	k_free(ptr);
+}
+
+void rcp_os_disable_irq(void)
+{
+}
+
+void rcp_os_enable_irq(void)
+{
+}
+
+uintptr_t rcp_os_irq_save(void)
+{
+	return irq_lock();
+}
+
+void rcp_os_irq_restore(uintptr_t flags)
+{
+	irq_unlock((unsigned int)flags);
 }

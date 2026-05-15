@@ -2,6 +2,8 @@
 #include <pthread.h>
 #include <semaphore.h>
 #include <stdbool.h>
+#include <stdlib.h>
+#include <string.h>
 #include <time.h>
 #include "rcp_os.h"
 
@@ -68,8 +70,30 @@ static void *rcp_os_thread_trampoline(void *arg)
 
 bool rcp_os_sem_init(rcp_sem_t *sem, uint32_t cnt, uint32_t limit)
 {
-	sem_init(&(sem->_sem), 0, 0);
+	(void)limit;
+	sem_init(&(sem->_sem), 0, cnt);
 	return true;
+}
+
+void rcp_os_sem_deinit(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return;
+	}
+
+	(void)sem_destroy(&(sem->_sem));
+}
+
+bool rcp_os_sem_reset(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return false;
+	}
+
+	while (sem_trywait(&(sem->_sem)) == 0) {
+	}
+
+	return (errno == EAGAIN || errno == 0);
 }
 
 bool rcp_os_sem_give(rcp_sem_t *sem)
@@ -80,13 +104,48 @@ bool rcp_os_sem_give(rcp_sem_t *sem)
 
 bool rcp_os_sem_take(rcp_sem_t *sem, uint32_t timeout)
 {
-	sem_wait(&(sem->_sem));
-	return true;
+	(void)timeout;
+	return (sem_wait(&(sem->_sem)) == 0);
+}
+
+rcp_sem_t *rcp_os_sem_create(uint32_t limit, uint32_t cnt)
+{
+	rcp_sem_t *sem = rcp_os_malloc(sizeof(*sem));
+
+	if (sem == NULL) {
+		return NULL;
+	}
+
+	if (!rcp_os_sem_init(sem, cnt, limit)) {
+		rcp_os_free(sem);
+		return NULL;
+	}
+
+	return sem;
+}
+
+void rcp_os_sem_delete(rcp_sem_t *sem)
+{
+	if (sem == NULL) {
+		return;
+	}
+
+	rcp_os_sem_deinit(sem);
+	rcp_os_free(sem);
 }
 
 bool rcp_os_mutex_init(rcp_mutex_t *mutex)
 {
 	return (pthread_mutex_init(&(mutex->_mutex), NULL) == 0);
+}
+
+void rcp_os_mutex_deinit(rcp_mutex_t *mutex)
+{
+	if (mutex == NULL) {
+		return;
+	}
+
+	(void)pthread_mutex_destroy(&(mutex->_mutex));
 }
 
 bool rcp_os_mutex_lock(rcp_mutex_t *mutex, uint32_t timeout)
@@ -239,6 +298,19 @@ bool rcp_os_thread_create(rcp_thread_t *thread, rcp_thread_entry_t entry, void *
 	thread->_arg = arg;
 
 	return (pthread_create(&thread->_thread, NULL, rcp_os_thread_trampoline, thread) == 0);
+}
+
+void rcp_os_thread_delete(rcp_thread_t *thread)
+{
+	if (thread == NULL) {
+		return;
+	}
+
+	(void)pthread_cancel(thread->_thread);
+	(void)pthread_join(thread->_thread, NULL);
+	memset(&(thread->_thread), 0, sizeof(thread->_thread));
+	thread->_entry = NULL;
+	thread->_arg = NULL;
 }
 
 bool rcp_os_timer_init(rcp_timer_t *timer, rcp_timer_callback_t cb, void *arg)

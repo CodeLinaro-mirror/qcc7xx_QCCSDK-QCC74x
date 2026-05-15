@@ -54,6 +54,8 @@ struct sdio_hal {
 /* Initialize HAL-based SDIO implementation */
 bool sdio_hal_init(struct sdio_hal *handle);
 
+bool sdio_hal_reinit(struct sdio_hal *handle);
+
 /* Custom callback to be registered with HAL_SDIO_RegisterIdentifyCardCallback */
 HAL_StatusTypeDef sdio_hal_init_card(SDIO_HandleTypeDef *hsdio);
 
@@ -62,6 +64,7 @@ void sdio_hal_disable_irq(struct sdio_hal *handle);
 /* Enable SDIO interrupts internally */
 void sdio_hal_enable_irq(struct sdio_hal *handle);
 void sdio_hal_irq_clear(struct sdio_hal *handle);
+bool sdio_hal_rescan(struct sdio_hal *handle);
 
 /* Set SDIO bus width. */
 bool sdio_set_bus_width(struct sdio_hal *handle, enum sdio_bus_width width);

@@ -14,7 +14,10 @@
 #include "qcc743_glb.h"
 #define DBG_TAG "appuser"
 #include "log.h"
-
+#if CONFIG_NXSDIO_HCI
+#include "btble_lib_api.h"
+#include "btble_sdio_uart.h"
+#endif
 #define WIFI_STACK_SIZE  (1536)
 #define TASK_PRIORITY_FW (16)
 
@@ -58,11 +61,14 @@ int app_user_init(void)
         LOG_I("Failed to init easyflash!\r\n");
         return -1;
     }
-
     /* nethub init */
     nethub_sdiowifi_init();
 
-    //transportsdio_perf_init();
+    #if CONFIG_NXSDIO_HCI
+    btble_sdio_uart_init();
+    btble_controller_init(configMAX_PRIORITIES - 1);
+    nethub_sdiohci_init();
+    #endif
 
     /* wifi start */
     app_atmodule_init();

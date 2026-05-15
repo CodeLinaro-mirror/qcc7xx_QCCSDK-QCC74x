@@ -79,6 +79,10 @@
 #define RCP_MAX_RX_EVENTS (RCP_RX_NUM_BUFFERS - 5)
 #endif
 
+#ifndef RCP_UPLD_CREDIT_UPDATE_THRESHOLD
+#define RCP_UPLD_CREDIT_UPDATE_THRESHOLD 2U
+#endif
+
 /* Maximum WiFi event callback functions. */
 #ifndef RCP_WIFI_MAX_CB_CNT
 #define RCP_WIFI_MAX_CB_CNT 2

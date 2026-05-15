@@ -143,7 +143,7 @@ void *qcc74x_realloc(struct mem_heap_s *heap, void *ptr, size_t nbytes)
     TLSF_MALLOC_ASSERT(heap, ret != NULL, nbytes);
     if (ret) {
         heap->free_bytes += previous_block_size;
-        heap->free_bytes -= tlsf_block_size(ptr);
+        heap->free_bytes -= tlsf_block_size(ret);
         update_historical_min_free(heap);
     }
 

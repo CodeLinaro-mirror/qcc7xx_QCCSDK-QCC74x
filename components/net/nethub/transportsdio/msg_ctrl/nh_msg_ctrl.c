@@ -13,6 +13,8 @@
 #include "FreeRTOS.h"
 #include "task.h"
 
+#include <string.h>
+
 #include "nh_frame_buff_ctrl.h"
 #include "nh_msg_ctrl.h"
 #include "nh_sdio_drv.h"
@@ -35,6 +37,20 @@ uint8_t msg_dnld_frame_buff[nh_MSG_CTRL_DNLD_FRAME_NUM][FRAME_BUFF_TOTALSIZE] FR
 static TaskHandle_t msg_proc_task_hd;
 
 static nh_msg_ctrl_t *g_msg_ctrl;
+
+typedef struct {
+    nh_msg_packt_t msg_packt;
+    uint8_t reserved[1];
+    uint8_t flag;
+    uint8_t credit_update_flag;
+    uint8_t credit_limit_cnt;
+} nh_msg_stat_packt_t;
+
+#define nh_MSG_FLAG_IS_DATA(flag) (((flag) == 1U) || ((flag) == 2U))
+#define nh_MSG_FLAG_IS_HANDSHAKE(flag) (((flag) >= 3U) && ((flag) <= 9U))
+#define nh_MSG_PROTO_META_SIZE ((uint32_t)(sizeof(nh_msg_stat_packt_t) - sizeof(nh_msg_packt_t)))
+#define nh_MSG_PAYLOAD_SIZE(msg_packt) \
+    ((uint32_t)(((msg_packt)->len >= nh_MSG_PROTO_META_SIZE) ? ((msg_packt)->len - nh_MSG_PROTO_META_SIZE) : 0U))
 
 /**
  * @brief Wake up message processing task
@@ -91,16 +107,12 @@ int nh_msg_host_reset_cb(void)
 int nh_msg_upld_send_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, bool success)
 {
     int ret = 0;
-    nh_msg_cb_t upld_send_cb = NULL;
+    nh_msg_upld_cb_t upld_send_cb = NULL;
     void *upld_send_arg = NULL;
     nh_msg_packt_t *msg_packt = (nh_msg_packt_t *)frame_elem->buff_addr;
 
     /* Wake up message processing task */
     msg_proc_task_wakeup();
-
-    if (success == false) {
-        goto err_exit;
-    }
 
     // printf("--------> %s, frame_elem:%p, skb_free:%p, skb:%p, frame_elem->buff_addr:%p\r\n",
     //     __func__,
@@ -117,9 +129,29 @@ int nh_msg_upld_send_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, 
     upld_send_cb = msg_ctrl->nh_msg_upld_send_cb[msg_packt->tag];
     upld_send_arg = msg_ctrl->nh_msg_upld_send_arg[msg_packt->tag];
 
+    if (success) {
+        nh_msg_stream_stat_t *stat = &msg_ctrl->stream_stats[msg_packt->tag];
+        uint8_t flag = 0;
+        uint32_t data_size = nh_MSG_PAYLOAD_SIZE(msg_packt);
+
+        if (frame_elem->data_size >= sizeof(nh_msg_stat_packt_t)) {
+            flag = ((nh_msg_stat_packt_t *)frame_elem->buff_addr)->flag;
+        }
+
+        if (!nh_MSG_FLAG_IS_HANDSHAKE(flag)) {
+            if (nh_MSG_FLAG_IS_DATA(flag)) {
+                stat->tx_data_packets++;
+                stat->tx_data_bytes += data_size;
+            } else {
+                stat->tx_ctrl_packets++;
+                stat->tx_ctrl_bytes += data_size;
+            }
+        }
+    }
+
     if (upld_send_cb != NULL) {
         /* Call the registered upload send done callback */
-        ret = upld_send_cb(frame_elem, upld_send_arg);
+        ret = upld_send_cb(frame_elem, upld_send_arg, success);
         if (ret < 0) {
             goto err_exit;
         }
@@ -176,7 +208,6 @@ int nh_msg_dnld_recv_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, 
     #endif
     if (msg_packt->tag >= nh_MSG_TAG_MAX) {
         LOG_E("msg dnld recv err: tag 0x%02X is invalid, drop it!\r\n", msg_packt->tag);
-        while(1);
         goto err_exit;
     }
 
@@ -184,6 +215,26 @@ int nh_msg_dnld_recv_done_cb(nh_msg_ctrl_t *msg_ctrl, frame_elem_t *frame_elem, 
         LOG_E("msg dnld recv err: frame size (%d < %d) is too small for tag 0x%02X, drop it!\r\n",
               frame_elem->data_size, msg_packt->len + sizeof(nh_msg_packt_t), msg_packt->tag);
         goto err_exit;
+    }
+
+    {
+        nh_msg_stream_stat_t *stat = &msg_ctrl->stream_stats[msg_packt->tag];
+        uint8_t flag = 0;
+        uint32_t data_size = nh_MSG_PAYLOAD_SIZE(msg_packt);
+
+        if (frame_elem->data_size >= sizeof(nh_msg_stat_packt_t)) {
+            flag = ((nh_msg_stat_packt_t *)frame_elem->buff_addr)->flag;
+        }
+
+        if (!nh_MSG_FLAG_IS_HANDSHAKE(flag)) {
+            if (nh_MSG_FLAG_IS_DATA(flag)) {
+                stat->rx_data_packets++;
+                stat->rx_data_bytes += data_size;
+            } else {
+                stat->rx_ctrl_packets++;
+                stat->rx_ctrl_bytes += data_size;
+            }
+        }
     }
 
     /* Send to message download queue */
@@ -194,6 +245,24 @@ err_exit:
     /* Free to pool_queue of message controller */
     frame_queue_free_elem(frame_elem);
     return 0;
+}
+
+void nh_msg_ctrl_reset_stream_stats(nh_msg_ctrl_t *msg_ctrl)
+{
+    if (msg_ctrl == NULL) {
+        return;
+    }
+
+    memset((void *)msg_ctrl->stream_stats, 0, sizeof(msg_ctrl->stream_stats));
+}
+
+void nh_msg_ctrl_reset_stream_stat(nh_msg_ctrl_t *msg_ctrl, uint8_t tag)
+{
+    if (msg_ctrl == NULL || tag >= nh_MSG_TAG_MAX) {
+        return;
+    }
+
+    memset((void *)&msg_ctrl->stream_stats[tag], 0, sizeof(msg_ctrl->stream_stats[tag]));
 }
 
 /**
@@ -325,7 +394,7 @@ wait_ready:
                 ret = msg_ctrl->msg_sdio_ops->sdio_upld_start(frame_elem, msg_ctrl);
                 if (ret < 0) {
                     LOG_W("%s upld start failed, ret: %d\r\n", msg_ctrl->msg_sdio_ops->sdio_name, ret);
-                    frame_queue_free_elem(frame_elem);
+                    nh_msg_upld_send_done_cb(msg_ctrl, frame_elem, false);
                 }
             }
         }
@@ -499,7 +568,7 @@ int nh_msg_ctrl_deinit(nh_msg_ctrl_t *msg_ctrl)
  */
 int nh_msg_cb_register(nh_msg_ctrl_t *msg_ctrl, uint8_t tag,
                        nh_msg_cb_t dnld_recv_cb, void *dnld_recv_arg,
-                       nh_msg_cb_t upld_send_cb, void *upld_send_arg,
+                       nh_msg_upld_cb_t upld_send_cb, void *upld_send_arg,
                        nh_msg_cb_t hw_reset_cb, void *hw_reset_arg)
 {
     uintptr_t flag;

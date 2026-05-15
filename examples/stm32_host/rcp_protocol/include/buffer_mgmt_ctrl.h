@@ -24,7 +24,7 @@ extern "C" {
 /** Frame buffer header room size in bytes */
 #define FRAME_BUFF_ELEM_SIZE        (32)
 #define FRAME_BUFF_PBUFCUSTOM       (32)
-#define FRAME_BUFF_HWDESCTAG        (388)
+#define FRAME_BUFF_HWDESCTAG        (0)
 #define FRAME_BUFF_MSGSTRUCT_OFFSET (FRAME_BUFF_ELEM_SIZE+FRAME_BUFF_PBUFCUSTOM+FRAME_BUFF_HWDESCTAG)// 452
 #define FRAME_BUFF_MSGSTRUCT        (8)
 #define FRAME_BUFF_PAYLOAD_OFFSET   (FRAME_BUFF_MSGSTRUCT_OFFSET+FRAME_BUFF_MSGSTRUCT)               // 460
@@ -56,6 +56,8 @@ struct buffer_mgmt_elem_t {
 
     void *buff_addr;                        /**< Buffer address */
     uint32_t offset;
+    buffer_mgmt_free_cb_t free_cb;   /**< Per-element before free callback */
+    void *cb_arg;                    /**< Per-element before free callback argument */
 
     /**** Fields that can be modified ****/
     uint16_t data_size;                     /**< Actual data size */
@@ -67,12 +69,6 @@ struct buffer_mgmt_elem_t {
  * @brief Buffer management controller structure
  */
 struct buffer_mgmt_ctrl_t {
-    buffer_mgmt_free_cb_t before_free_cb;   /**< Before free callback */
-    void *before_free_cb_arg;               /**< Before free callback argument */
-
-    buffer_mgmt_free_cb_t after_free_cb;    /**< After free callback */
-    void *after_free_cb_arg;                /**< After free callback argument */
-
     rcp_queue_t pool_queue;                 /**< Pool queue for memory block management */
     char *name;                             /**< Controller name */
 };
@@ -143,6 +139,18 @@ static inline bool buffer_mgmt_consume_data(buffer_mgmt_elem_t *buffer_elem, uin
 	return true;
 }
 
+static inline void buffer_mgmt_elem_set_free_cb(buffer_mgmt_elem_t *buffer_elem,
+						buffer_mgmt_free_cb_t free_cb,
+						void *free_cb_arg)
+{
+	if (!buffer_elem) {
+		return;
+	}
+
+	buffer_elem->free_cb = free_cb;
+	buffer_elem->cb_arg = free_cb_arg;
+}
+
 /* Compatibility aliases for legacy lowercase helper names. */
 #define buffer_mgmt_data_ptr(buffer) ((uint8_t *)BUFFER_MGMT_DATA_PTR(buffer))
 #define buffer_mgmt_data_ptr_const(buffer) ((const uint8_t *)BUFFER_MGMT_DATA_PTR(buffer))
@@ -164,22 +172,6 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg);
  * @retval -1 Error
  */
 int buffer_mgmt_remove(buffer_mgmt_ctrl_t *ctrl);
-
-/**
- * @brief Register buffer management free callbacks
- * @param ctrl Buffer management controller
- * @param before_free_cb Before free callback
- * @param before_free_cb_arg Before free callback argument
- * @param after_free_cb After free callback
- * @param after_free_cb_arg After free callback argument
- * @retval 0 Success
- * @retval -1 Error
- */
-int buffer_mgmt_free_cb_register(buffer_mgmt_ctrl_t *ctrl,
-                                 buffer_mgmt_free_cb_t before_free_cb,
-                                 void *before_free_cb_arg,
-                                 buffer_mgmt_free_cb_t after_free_cb,
-                                 void *after_free_cb_arg);
 
 /**
  * @brief Get available elements in the pool

@@ -297,29 +297,32 @@ static void wpa_rwnx_driver_release_tx_frame(struct wpa_rwnx_tx_frame *tx_frame)
 	os_free(tx_frame);
 }
 
+static const int rwnx_legacy_rates[] =
+	{ 10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540 };
+static const int rwnx_legacy_rates_11b_only[] = { 10, 20, 55, 110 };
+static struct hostapd_channel_data rwnx_2g_11b_channels[14];
+
 static int *rwnx_init_rates(int *num, bool is_11b_only)
 {
-	int leg_rate[] = {10, 20, 55, 110, 60, 90, 120, 180, 240, 360, 480, 540};
-	int leg_rate_11b_only[] = {10, 20, 55, 110};
-	int *rates;
-
 	/* Assume all legacy rates are supported */
-    if (is_11b_only) {
-	    rates = os_malloc(sizeof(leg_rate_11b_only));
-    } else {
-	    rates = os_malloc(sizeof(leg_rate));
-    }
-	if (!rates)
-		return NULL;
+	if (is_11b_only) {
+		*num = ARRAY_SIZE(rwnx_legacy_rates_11b_only);
+		return (int *) rwnx_legacy_rates_11b_only;
+	}
 
-    if (is_11b_only) {
-	    os_memcpy(rates, leg_rate_11b_only, sizeof(leg_rate_11b_only));
-	    *num = sizeof(leg_rate_11b_only) / sizeof(int);
-    } else {
-	    os_memcpy(rates, leg_rate, sizeof(leg_rate));
-	    *num = sizeof(leg_rate) / sizeof(int);
-    }
-	return rates;
+	*num = ARRAY_SIZE(rwnx_legacy_rates);
+	return (int *) rwnx_legacy_rates;
+}
+
+bool rwnx_hw_feature_uses_static_rates(const int *rates)
+{
+	return rates == rwnx_legacy_rates ||
+		rates == rwnx_legacy_rates_11b_only;
+}
+
+bool rwnx_hw_feature_uses_static_channels(const struct hostapd_channel_data *channels)
+{
+	return channels == rwnx_2g_11b_channels;
 }
 
 static void rwnx_ht_capabilities_init(struct hostapd_hw_modes *mode,
@@ -625,6 +628,7 @@ static bool _wpa_rwnx_driver_process_multi_bssid_scan_result(struct wpa_rwnx_dri
         max_bssid_ind = ((uint8_t*)mbssid_ie_addr)[MAC_MULTI_BSSID_MAX_INDICATOR_OFT];
         sub_ies = mbssid_ie_addr + MAC_MULTI_BSSID_SUB_IES_OFT;
         subies_len = mbssid_ie_len - MAC_MULTI_BSSID_SUB_IES_OFT;
+        uint8_t orig_bssid_last_byte = bssid[5];
 
         while (subies_len)
         {
@@ -679,7 +683,7 @@ static bool _wpa_rwnx_driver_process_multi_bssid_scan_result(struct wpa_rwnx_dri
                 // Get BSSID
                 bssid_index = co_read8p(bssid_index_ie_addr + MAC_MULTI_BSSID_INDEX_OFT);
                 bssid[5] &= ~(CO_BIT(max_bssid_ind)-1);
-                bssid[5] |= (bssid[5] + bssid_index) & (CO_BIT(max_bssid_ind)-1);
+                bssid[5] |= (orig_bssid_last_byte + bssid_index) & (CO_BIT(max_bssid_ind)-1);
                 // Save Beacon/Probe_resp
 				if (false == _wpa_rwnx_driver_process_scan_result(drv, res, ie, ie_len, is_beacon,
 								bssid_index, bssid, (u8*)ssid_ie_addr, capa)) {
@@ -1379,6 +1383,46 @@ int wpa_rwnx_driver_control_bcn(struct wpa_rwnx_driver_itf_data *drv,
        return res;
 }
 
+static int rwnx_populate_2g_mode(struct hostapd_hw_modes *mode,
+				  const struct cfgrwnx_hw_feature *feat,
+				  enum hostapd_hw_mode hw_mode,
+				  bool is_11b_only_rates)
+{
+	struct hostapd_channel_data *chan;
+	struct mac_chan_def *chan_tag;
+	int i;
+
+	mode->mode = hw_mode;
+	mode->num_channels = feat->chan->chan2G4_cnt;
+	if (hw_mode == HOSTAPD_MODE_IEEE80211B) {
+		mode->channels = rwnx_2g_11b_channels;
+	} else {
+		mode->channels = os_malloc(feat->chan->chan2G4_cnt *
+				   sizeof(struct hostapd_channel_data));
+		if (!mode->channels)
+			return -1;
+	}
+
+	chan = mode->channels;
+	chan_tag = feat->chan->chan2G4;
+	for (i = 0; i < feat->chan->chan2G4_cnt; i++, chan++, chan_tag++)
+		rwnx_to_hostapd_channel(chan_tag, chan);
+
+	mode->rates = rwnx_init_rates(&mode->num_rates, is_11b_only_rates);
+	if (!mode->rates)
+		return -1;
+
+	if (hw_mode == HOSTAPD_MODE_IEEE80211G && feat->me_config.ht_supp) {
+		rwnx_ht_capabilities_init(mode, &feat->me_config.ht_cap);
+
+		if (feat->me_config.he_supp)
+			rwnx_he_capabilities_init(mode, &feat->me_config.he_cap);
+	}
+
+	return 0;
+}
+
+
 static struct hostapd_hw_modes *wpa_rwnx_driver_get_hw_feature_data(void *priv,
 								    u16 *num_modes,
 								    u16 *flags, u8 *dfs)
@@ -1400,43 +1444,30 @@ static struct hostapd_hw_modes *wpa_rwnx_driver_get_hw_feature_data(void *priv,
 	if (fhost_cntrl_cfgrwnx_cmd_send(&cmd.hdr, &feat.hdr))
 		return NULL;
 
-	/* Don't create mode in B */
-	if (feat.chan->chan2G4_cnt && feat.chan->chan5G_cnt) {
-		modes = os_zalloc(2 * sizeof(struct hostapd_hw_modes));
-		*num_modes = 2;
-	} else {
-		modes = os_zalloc(sizeof(struct hostapd_hw_modes));
-		*num_modes = 1;
-	}
+	*num_modes = 0;
+	if (feat.chan->chan2G4_cnt)
+		*num_modes += 2;
+	if (feat.chan->chan5G_cnt)
+		*num_modes += 1;
+	modes = os_zalloc(*num_modes * sizeof(struct hostapd_hw_modes));
 	if (!modes)
 		return NULL;
 
 	mode = modes;
 	if (feat.chan->chan2G4_cnt) {
-        // support work on channel 14
-		mode->mode = HOSTAPD_MODE_IEEE80211B;
-		mode->num_channels = feat.chan->chan2G4_cnt;
-		mode->channels = os_malloc(feat.chan->chan2G4_cnt *
-					   sizeof(struct hostapd_channel_data));
-		if (!mode->channels)
+		/*
+		 * Export 2.4 GHz primarily as 11g so STA/AP capability
+		 * derivation keeps using the normal ERP path. Add a separate
+		 * 11b mode for channel 14 and explicit 11b-only AP operation.
+		 */
+		if (rwnx_populate_2g_mode(mode, &feat, HOSTAPD_MODE_IEEE80211G,
+					   feat.ap_11b_only))
 			goto err;
+		mode++;
 
-		chan = mode->channels;
-		chan_tag = feat.chan->chan2G4;
-		for (i = 0 ; i < feat.chan->chan2G4_cnt ; i++, chan++, chan_tag++) {
-			rwnx_to_hostapd_channel(chan_tag, chan);
-		}
-
-		mode->rates = rwnx_init_rates(&mode->num_rates, feat.ap_11b_only);
-		if (!mode->rates)
+		if (rwnx_populate_2g_mode(mode, &feat, HOSTAPD_MODE_IEEE80211B,
+					   true))
 			goto err;
-
-		if (feat.me_config.ht_supp) {
-			rwnx_ht_capabilities_init(mode, &feat.me_config.ht_cap);
-
-			if (feat.me_config.he_supp)
-				rwnx_he_capabilities_init(mode, &feat.me_config.he_cap);
-		}
 		mode++;
 	}
 
@@ -1474,9 +1505,9 @@ static struct hostapd_hw_modes *wpa_rwnx_driver_get_hw_feature_data(void *priv,
 
 err:
 	for (i = 0 ; i < *num_modes; i++) {
-		if (modes[i].channels)
+		if (!rwnx_hw_feature_uses_static_channels(modes[i].channels))
 			os_free(modes[i].channels);
-		if (modes[i].rates)
+		if (!rwnx_hw_feature_uses_static_rates(modes[i].rates))
 			os_free(modes[i].rates);
 	}
 
@@ -1953,8 +1984,18 @@ static int wpa_rwnx_driver_send_mlme(void *priv, const u8 *data, size_t data_len
 	}
 
     ret = fhost_send_80211_frame(drv->fhost_vif_idx, data, data_len, 0, cb, tx_frame);
-    if (ret < 4) {
+    if (ret < FHOST_TX_FRAME_ID_MIN) {
         wpa_extra_printf("[WPA]Fhost send failed, ret is %u\r\n", ret);
+        /*
+         * Ownership of tx_frame depends on the failure code:
+         *  - FHOST_TX_FRAME_REQ_FAILED: cfm_cb (wpa_rwnx_driver_tx_status)
+         *    was invoked synchronously inside fhost_send_80211_frame and
+         *    has already released tx_frame. Freeing again is a double-free.
+         *  - Any other failure: cfm_cb was never called; tx_frame is still
+         *    ours and must be released to avoid a leak.
+         */
+        if (tx_frame && ret != FHOST_TX_FRAME_REQ_FAILED)
+            wpa_rwnx_driver_release_tx_frame(tx_frame);
         return -1;
     }
 
@@ -2485,8 +2526,12 @@ static int wpa_rwnx_send_action(void *priv, unsigned int freq, unsigned int wait
 	os_memcpy(hdr->addr3, bssid, ETH_ALEN);
 
     ret = fhost_send_80211_frame(drv->fhost_vif_idx, tx_frame->data, IEEE80211_HDRLEN + data_len, no_cck, cb, tx_frame);
-    if (ret < 4)
+    if (ret < FHOST_TX_FRAME_ID_MIN) {
+        /* See ownership rule in wpa_rwnx_driver_send_mlme. */
+        if (ret != FHOST_TX_FRAME_REQ_FAILED)
+            wpa_rwnx_driver_release_tx_frame(tx_frame);
         return -1;
+    }
 
     return 0;
 }

@@ -3,6 +3,7 @@
 
 #include <lwip/netif.h>
 #include <rcp_bus.h>
+#include <rcp_protocol.h>
 #include <stdbool.h>
 
 err_t rcp_lwip_init(void);

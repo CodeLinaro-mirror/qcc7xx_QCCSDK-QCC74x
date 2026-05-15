@@ -12,6 +12,8 @@ sdk_add_compile_definitions(-DCONFIG_ATMODULE_TTY=1)
 sdk_add_compile_definitions(-DCONFIG_ATMODULE_WIFI=1)
 
 sdk_add_compile_definitions(-DCONFIG_NETHUB=1)
+sdk_add_compile_definitions(-DCONFIG_NXSDIO_HCI=1)
+sdk_add_compile_definitions(-DCONFIG_NETHUB_SDIO_WIFI_AT_PWR=1)
 
 target_sources(app PRIVATE
                    app/src/atmodule/app_atmodule.c

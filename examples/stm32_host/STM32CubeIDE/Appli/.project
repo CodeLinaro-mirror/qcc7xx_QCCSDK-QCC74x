@@ -34,6 +34,11 @@
 	</natures>
 	<linkedResources>
 		<link>
+			<name>BleApp</name>
+			<type>2</type>
+			<locationURI>PARENT-2-PROJECT_LOC/BleApp</locationURI>
+		</link>
+		<link>
 			<name>Drivers</name>
 			<type>2</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Drivers</locationURI>
@@ -57,41 +62,6 @@
 			<name>rcp_protocol</name>
 			<type>2</type>
 			<locationURI>PARENT-2-PROJECT_LOC/rcp_protocol</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/FreeRTOSConfig.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/FreeRTOSConfig.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/ethernetif.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/ethernetif.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/lwip.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/lwip.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/lwipopts.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/lwipopts.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/main.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/main.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/stm32h7rsxx_hal_conf.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/stm32h7rsxx_hal_conf.h</locationURI>
-		</link>
-		<link>
-			<name>Application/inc/stm32h7rsxx_it.h</name>
-			<type>1</type>
-			<locationURI>PARENT-2-PROJECT_LOC/Appli/Inc/stm32h7rsxx_it.h</locationURI>
 		</link>
 	</linkedResources>
 	<variableList>

@@ -2,6 +2,7 @@
 #define __RCP_BUS_H__
 
 #include <stdint.h>
+#include <stdbool.h>
 
 typedef struct rcp_msg_packt {
 	uint8_t tag;
@@ -35,7 +36,7 @@ enum rcp_msg_type {
     RCP_MSG_TYPE_ETH, /**< Ethernet message tag */
     RCP_MSG_TYPE_TTY, /**< TTY message tag */
     RCP_MSG_TYPE_NETLINK, /**< Netlink message tag */
-    RCP_MSG_TYPE_BT_HCI,
+    RCP_MSG_TYPE_BT_HCI, /**< HCI message tag */
     RCP_MSG_TYPE_MAX /**< Maximum message tag */
 };
 
@@ -62,6 +63,7 @@ struct rcp_bus_evt_rx_rdy {
 struct rcp_bus_caps {
 	/* Bus-specific MTU. */
 	uint16_t mtu;
+	bool active;
 };
 
 /* Bus instance API. */

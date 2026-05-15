@@ -7,6 +7,7 @@ add_library(qualcomm_rcp_protocol
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_bus.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_interface_impl.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_protocol.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/nh_credit_flow.c
     ${CMAKE_CURRENT_LIST_DIR}/src/buffer_mgmt_ctrl.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_mux_dispatcher.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_tx_scheduler.c

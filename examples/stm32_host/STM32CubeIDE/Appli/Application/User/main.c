@@ -33,8 +33,11 @@
 #endif /* __ICCARM__ */
 #include "stm32h7rsxx_hal_sdio.h"
 #include "rcp_bus.h"
+#include "app_ble.h"
 #include "rcp_bus_sdio_master.h"
 #include "rcp_interface.h"
+
+#include "rcp_api.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -52,6 +55,7 @@
 
 /* USER CODE END PM */
 
+static RCP_Object_t *p_Obj = NULL;
 UART_HandleTypeDef huart3;
 
 /* Definitions for Start */
@@ -340,6 +344,8 @@ PUTCHAR_PROTOTYPE
 /* USER CODE END Header_StartThread */
 void rcp_init_thread(void *argument)
 {
+	printf("SystemCoreClock :%lu\r\n", SystemCoreClock);
+
 	/* Initialize SDIO bus */
 	if (!rcp_bus_sdio_master_init()) {
 		printf("Failed to initialize RCP bus\n");
@@ -359,16 +365,21 @@ void rcp_init_thread(void *argument)
 		printf("Failed to initialize RCP lwIP netif\n");
 	}
 
+  BleAppInit();
+  osDelay(200);
+  BleAppAciInit();
+
+	p_Obj = RCP_ObjGet();
+
+	RCP_Init(p_Obj);
+
 	/* Initialize and start shell */
 	shell_commands_init();
 	shell_task_start();
 
-	for(;;)
-	{
 		/* Delete the Init Thread */
-		osThreadTerminate(StartHandle);
-	}
-    /* USER CODE END 5 */
+	osThreadTerminate(StartHandle);
+
 }
 
  /* MPU Configuration */

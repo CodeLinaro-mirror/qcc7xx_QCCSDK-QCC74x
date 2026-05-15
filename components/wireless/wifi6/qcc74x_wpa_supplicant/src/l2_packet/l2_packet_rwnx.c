@@ -28,7 +28,11 @@ static void l2_packet_receive(int sock, void *eloop_ctx, void *sock_ctx)
 {
 	struct l2_packet_data *l2 = eloop_ctx;
 	struct mac_eth_hdr *eth;
+#ifdef CONFIG_WFA
+	uint8_t buf[ELOOP_MSG_INBUF_LEN];
+#else
 	uint8_t buf[500];
+#endif
 	uint8_t *payload;
 	int len;
 

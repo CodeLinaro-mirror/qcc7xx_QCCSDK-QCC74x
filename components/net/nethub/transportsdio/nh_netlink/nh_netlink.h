@@ -1,11 +1,3 @@
-/**
- * @file nh_netlink.h
- * @brief Bouffalo Lab Netlink device header definitions
- * @details This file contains Netlink device structures and callback
- *          definitions for device-side Netlink communication with message
- *          controller integration.
- */
-
 #ifndef __nh_NETLINK_H_
 #define __nh_NETLINK_H_
 

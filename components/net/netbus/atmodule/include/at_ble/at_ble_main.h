@@ -28,6 +28,10 @@ int at_ble_get_public_addr(uint8_t *addr);
 
 int at_ble_set_random_addr(uint8_t *addr);
 
+int at_ble_set_static_addr(const bt_addr_le_t *addr);
+
+int at_ble_get_static_addr(bt_addr_le_t *addr);
+
 int at_ble_set_tx_power(int power);
 
 int at_ble_get_tx_power(void);
@@ -92,7 +96,7 @@ int at_ble_subscribe(int idx, int ccc_handle, int value_handle,int value);
 
 int at_ble_unsubscribe(int idx, int value_handle);
 
-int at_ble_sec_paramter_setup(int sec, int level);
+int at_ble_sec_paramter_setup(int sec, int level, bool bond);
 
 int at_ble_sec_auth_cancel(int idx);
 

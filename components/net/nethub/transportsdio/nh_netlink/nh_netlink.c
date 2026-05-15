@@ -42,7 +42,7 @@ static struct nh_netlink_priv *g_netlink_priv = NULL;
 static void netlink_proc_task(void *arg);
 
 static int msg_dnld_recv_done_cb(frame_elem_t *frame_elem, void *arg);
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg);
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success);
 static int msg_hw_reset_cb(frame_elem_t *unused, void *arg);
 
 /**
@@ -378,9 +378,11 @@ static int msg_dnld_recv_done_cb(frame_elem_t *frame_elem, void *arg)
  * @retval 0 Success
  * @retval <0 Error
  */
-static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg)
+static int msg_upld_send_done_cb(frame_elem_t *frame_elem, void *arg, bool success)
 {
     struct nh_netlink_priv *priv = (struct nh_netlink_priv *)arg;
+
+    (void)success;
 
     if (priv == NULL) {
         LOG_E("Invalid private structure\r\n");
@@ -565,6 +567,7 @@ static void netlink_proc_task(void *arg)
                     break;
                 }
 
+                nh_msg_ctrl_reset_stream_stat(priv->msg_ctrl, priv->msg_tag);
                 priv->netlink_status = nh_NETLINK_DSTA_DEVICE_RUN;
                 // break;
 
