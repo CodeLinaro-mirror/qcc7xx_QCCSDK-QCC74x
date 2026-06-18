@@ -44,7 +44,6 @@ sdk_library_add_sources(lhal/llib_core.c)
 sdk_library_add_sources(lhal/llib_mtimer.c)
 sdk_library_add_sources(lhal/llib_gpio.c)
 sdk_add_include_directories(lhal)
-sdk_add_compile_definitions(-DCONFIG_LUA_LHAL)
 endif()
 
 sdk_add_compile_definitions(-DCONFIG_LUA)

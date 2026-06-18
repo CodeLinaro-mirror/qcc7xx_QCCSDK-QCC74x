@@ -8,22 +8,19 @@ if(EXISTS "${CMAKE_CURRENT_SOURCE_DIR}/VERSION")
     string(REGEX MATCH "PROJECT_SDK_VERSION[ ]+\"([^\"]+)\"" _ ${VERSION_FILE_CONTENT})
     set(PROJECT_SDK_VERSION "${CMAKE_MATCH_1}")
 else()
-    # get git tag
-    # execute_process(
-    #     COMMAND git describe --abbrev=8 --tags --dirty --always
-    #     WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
-    #     OUTPUT_VARIABLE GIT_TAG
-    #     OUTPUT_STRIP_TRAILING_WHITESPACE
-    #     ERROR_QUIET
-    # )
+     execute_process(
+         COMMAND git describe --tags --abbrev=0
+         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}
+         OUTPUT_VARIABLE GIT_TAG
+         OUTPUT_STRIP_TRAILING_WHITESPACE
+         ERROR_QUIET
+     )
 
-    # if(GIT_TAG)
-    #     set(PROJECT_SDK_VERSION ${GIT_TAG})
-    # else()
-    #     message(WARNING "No Valid version info found for SDK!")
-    #     set(PROJECT_SDK_VERSION "version-unknown-panic")
-    # endif()
-    set(PROJECT_SDK_VERSION "2.0.0")
+     if(GIT_TAG)
+         set(PROJECT_SDK_VERSION ${GIT_TAG})
+     else()
+         set(PROJECT_SDK_VERSION "2.0.0")
+     endif()
 endif()
 message(STATUS "Project SDK Version: ${PROJECT_SDK_VERSION}")
 

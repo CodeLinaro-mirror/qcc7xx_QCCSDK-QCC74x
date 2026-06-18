@@ -1,11 +1,9 @@
 #include <stdio.h>
-#ifdef CONFIG_CLI_CMD_ENABLE
 #if defined(CONFIG_SHELL)
 #include "shell.h"
 #else
 #include "cli.h"
 #endif /* CONFIG_SHELL */
-#endif
 #include <easyflash.h>
 // #include <qcc74x_log.h>
 
@@ -106,7 +104,6 @@ kvbin_exit:
     ef_del_env(def_name);
 }
 
-#ifdef CONFIG_CLI_CMD_ENABLE
 #if defined(CONFIG_SHELL)
 SHELL_CMD_EXPORT_ALIAS(psmcli_set_cmd, psm_set, psm set cmd);
 SHELL_CMD_EXPORT_ALIAS(psmcli_unset_cmd, psm_unset, psm unset cmd);
@@ -122,7 +119,6 @@ const static struct cli_command cmds_user[] STATIC_CLI_CMD_ATTRIBUTE = {
         { "psm_erase", "psm dump", psm_erase_cmd },
         { "psm_test", "psm test", psm_test_cmd },
 };
-#endif
 #endif
 
 int easyflash_cli_init(void)

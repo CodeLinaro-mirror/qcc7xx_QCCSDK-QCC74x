@@ -539,9 +539,9 @@ typedef struct {
 } qcc74x_lp_fw_info_t;
 
 extern uint32_t __lpfw_load_addr[];     /* ld symbol */
-extern uint32_t __lpfw_share_start[];   /* ld symbol */
+extern uint32_t __lpfw_share_start__[];   /* ld symbol */
 extern uint32_t __lpfw_share_used[];    /* ld symbol */
-extern uint32_t __lpfw_share_end[];     /* ld symbol */
+extern uint32_t __lpfw_share_end__[];     /* ld symbol */
 
 qcc74x_lp_fw_info_t *qcc74x_lpfw_bin_get_info(void);
 int qcc74x_lpfw_bin_check(void);

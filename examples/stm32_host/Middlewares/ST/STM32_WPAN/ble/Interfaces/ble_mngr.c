@@ -1162,8 +1162,10 @@ static void BleMngrProcEvt(void* pEvt)
      {
        /* cast the recevied Event to correct Event Format */
        BleMngrEvtSerialAsynchPcktInd* Ind = (BleMngrEvtSerialAsynchPcktInd *)pEvt;
-       /* call BleStack's API */ 
+       /* call BleStack's API */
        BLE_MNGR_BLESTACK_INDICATIONFROMCONTROLLER(Ind->KeepPckt,Ind->InpPtr);
+       vPortFree(Ind->InpPtr);
+       Ind->InpPtr = NULL;
        /* Input Argument to be passed to Callback Function */
        Ind->BasicEvt.CbInpPtr = (void*)&(Ind->KeepPckt);
        break;
@@ -1345,6 +1347,7 @@ void BleMngr_BleSerialRxCb( uint8_t* Buf , uint16_t Size )
   {
      /* transfer response to the buffer passed by BleStack in BLECB_RequestToController */
     memcpy( BleMngrCntxt.ResponsePtr , Buf , Size );
+    vPortFree(Buf);
     /* Unblock BleMngr over the reception of Response */
     BleMngrUnBlock();
   }

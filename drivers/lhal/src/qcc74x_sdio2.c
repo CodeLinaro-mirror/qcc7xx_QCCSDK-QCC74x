@@ -355,6 +355,18 @@ int qcc74x_sdio2_feature_control(struct qcc74x_device_s *dev, int cmd, uintptr_t
             qcc74x_irq_restore(flag);
             break;
 
+        case SDIO2_CMD_DEVICE_STATUS_NOTIFY:
+            flag = qcc74x_irq_save();
+            putreg8((uint8_t)arg, reg_base + SDIO2_SCRATCH1_0_OFFSET);
+            qcc74x_sdio2_trig_host_int(dev, SDIO2_HOST_INT_EVENT_1);
+            qcc74x_irq_restore(flag);
+            break;
+
+        case SDIO2_CMD_HOST_STATUS_GET:
+            flag = qcc74x_irq_save();
+            ret = getreg8(reg_base + SDIO2_SCRATCH1_1_OFFSET);
+            qcc74x_irq_restore(flag);
+            break;
         default:
             ret = -1;
             break;

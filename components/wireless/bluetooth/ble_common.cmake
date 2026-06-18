@@ -984,9 +984,10 @@ if(("${CHIP}" STREQUAL "qcc743") OR ("${CHIP}" STREQUAL "qcc74x_undef") OR ("${C
 		set(CONFIG_BT_CONN 2)
 		set(CONFIG_BLE_TX_BUFF_DATA 4)
 		set(CONFIG_BLE_ACT_MAX 7)
-		set(CONFIG_BIS 1)
+		set(CONFIG_BIS 0)
 		set(CONFIG_CTE 0)
-		set(CONFIG_CIS 1)
+		set(CONFIG_CIS 0)
+		set(CONFIG_STM32_RCP_ACI_HAL 1)
 	endif()
 #
 #ifeq ($(PRIV_CONFIG_GEN_BLE),mfg)

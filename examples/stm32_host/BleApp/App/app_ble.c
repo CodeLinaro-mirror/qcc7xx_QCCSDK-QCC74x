@@ -315,6 +315,18 @@ tBleStatus aci_gatt_attribute_modified_event(uint16_t Connection_Handle,
   return BLE_STATUS_SUCCESS;
 }
 
+/* ACI_HAL_END_OF_RADIO_ACTIVITY_EVENT callback function */
+tBleStatus aci_hal_end_of_radio_activity_event( uint8_t Last_State,
+                                                uint8_t Next_State,
+                                                uint32_t Next_State_SysTime,
+                                                uint8_t Last_State_Slot,
+                                                uint8_t Next_State_Slot )
+{
+  LogInfo("Radio activity: 0x%02x -> 0x%02x sys_time=%u us\n",
+          Last_State, Next_State, Next_State_SysTime);
+  return BLE_STATUS_SUCCESS;
+}
+
 /**
  * @brief De-initializes the BLE application.
  * Currently not used.

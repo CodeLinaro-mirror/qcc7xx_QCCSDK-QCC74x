@@ -1,116 +1,38 @@
 #include <stdint.h>
 
-#define __STARTUP_CLEAR_BSS      1
-#define __STARTUP_CLEAR_WIFI_BSS 1
+struct mem_load_section {
+    uint32_t *start;
+    uint32_t *end;
+    uint32_t *load;
+};
+struct mem_section {
+    uint32_t *start;
+    uint32_t *end;
+};
 
-/*----------------------------------------------------------------------------
-  Linker generated Symbols
- *----------------------------------------------------------------------------*/
-extern uint32_t __itcm_load_addr;
-extern uint32_t __dtcm_load_addr;
-extern uint32_t __ram_load_addr;
-extern uint32_t __nocache_ram_load_addr;
-extern uint32_t __psram_load_addr;
-
-extern uint32_t __text_code_start__;
-extern uint32_t __text_code_end__;
-extern uint32_t __tcm_code_start__;
-extern uint32_t __tcm_code_end__;
-extern uint32_t __tcm_data_start__;
-extern uint32_t __tcm_data_end__;
-extern uint32_t __ram_data_start__;
-extern uint32_t __ram_data_end__;
-extern uint32_t __bss_start__;
-extern uint32_t __bss_end__;
-extern uint32_t __wifi_bss_start;
-extern uint32_t __wifi_bss_end;
-extern uint32_t __noinit_data_start__;
-extern uint32_t __noinit_data_end__;
-extern uint32_t __psram_data_start__;
-extern uint32_t __psram_data_end__;
-#ifndef CONIFG_DISABLE_NOCACHE_RAM_LOAD
-extern uint32_t __nocache_ram_data_start__;
-extern uint32_t __nocache_ram_data_end__;
-#endif
-
-extern uint32_t __StackTop;
-extern uint32_t __StackLimit;
-extern uint32_t __HeapBase;
-extern uint32_t __HeapLimit;
+extern __attribute__((weak)) struct mem_load_section __mem_copy_sections;
+extern __attribute__((weak)) struct mem_section __mem_setz_sections;
 
 void start_load(void)
 {
-    uint32_t *tmp_src, *tmp_dst;
-    uint32_t *pTable __attribute__((unused));
+    uint32_t *src, *dest;
+    struct mem_load_section *copy = &__mem_copy_sections;
+    struct mem_section *setz = &__mem_setz_sections;
 
-    /* Copy ITCM code */
-    tmp_src = &__itcm_load_addr;
-    tmp_dst = &__tcm_code_start__;
-
-    for (; tmp_dst < &__tcm_code_end__;) {
-        *tmp_dst++ = *tmp_src++;
+    for (int i = 0; copy[i].start != (void *)0xffffffff; i++) {
+        if (!copy[i].start || !copy[i].end || !copy[i].load)
+            continue;
+        src = copy[i].load;
+        dest = copy[i].start;
+        while(dest < copy[i].end)
+            *dest++ = *src++;
     }
 
-    /* Copy DTCM code */
-    tmp_src = &__dtcm_load_addr;
-    tmp_dst = &__tcm_data_start__;
-
-    for (; tmp_dst < &__tcm_data_end__;) {
-        *tmp_dst++ = *tmp_src++;
+    for (int i = 0; setz[i].start != (void *)0xffffffff; i++) {
+        if (!setz[i].start || !setz[i].end)
+            continue;
+        dest = setz[i].start;
+        while(dest < setz[i].end)
+            *dest++ = 0UL;
     }
-
-    /* Add OCARAM data copy */
-    tmp_src = &__ram_load_addr;
-    tmp_dst = &__ram_data_start__;
-
-    for (; tmp_dst < &__ram_data_end__;) {
-        *tmp_dst++ = *tmp_src++;
-    }
-
-    /* Add psram data copy */
-    tmp_src = &__psram_load_addr;
-    tmp_dst = &__psram_data_start__;
-
-    for (; tmp_dst < &__psram_data_end__;) {
-        *tmp_dst++ = *tmp_src++;
-    }
-
-#ifndef CONIFG_DISABLE_NOCACHE_RAM_LOAD
-    /* Add no cache ram data copy */
-    tmp_src = &__nocache_ram_load_addr;
-    tmp_dst = &__nocache_ram_data_start__;
-
-    for (; tmp_dst < &__nocache_ram_data_end__;) {
-        *tmp_dst++ = *tmp_src++;
-    }
-#endif
-
-#if LP_APP && LP_RAM_REUSE
-    extern uint32_t __ram_lp_code_start__;
-    extern uint32_t __ram_lp_code_end__;
-    extern uint32_t __ram_lp_load_addr;
-
-    tmp_src = &__ram_lp_load_addr;
-    tmp_dst = &__ram_lp_code_start__;
-
-    for (; tmp_dst < &__ram_lp_code_end__;) {
-        *tmp_dst++ = *tmp_src++;
-    }
-#endif
-
-#ifdef __STARTUP_CLEAR_BSS
-    tmp_dst = &__bss_start__;
-    for (; tmp_dst < &__bss_end__;) {
-        *tmp_dst++ = 0ul;
-    }
-
-#endif
-#ifdef __STARTUP_CLEAR_WIFI_BSS
-    tmp_dst = &__wifi_bss_start;
-
-    for (; tmp_dst < &__wifi_bss_end;) {
-        *tmp_dst++ = 0ul;
-    }
-
-#endif
 }

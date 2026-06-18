@@ -10,16 +10,16 @@ target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/board_rf.c)
 target_sources(app PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/wireless_regdb.c)
 endif()
 
-if(CONFIG_PSRAM_COPY_CODE)
-sdk_set_linker_script(qcc743_chip_psram.ld)
+if(CONFIG_CUSTOM_LINKSCRIPT)
+message(STATUS "LINK IN CUSTOM_LINKSCRIPT")
 elseif(CONFIG_LINK_FOR_MFGTEST)
 sdk_set_linker_script(qcc743_chip_mfgtest.ld)
 sdk_add_compile_definitions(-DCONFIG_MFG)
 elseif(CONFIG_LPAPP)
     if(CONFIG_LWIP_ONHOST_ENABLE)
-    sdk_set_linker_script(qcc743_lp_rcp.ld)
+    sdk_set_linker_script_macro(qcc743_lp_rcp.ld.in)
     else()
-    sdk_set_linker_script(qcc743_lp_ncp.ld)
+    sdk_set_linker_script_macro(qcc743_lp_ncp.ld.in)
     endif()
 sdk_add_link_options(
 -L ${CMAKE_CURRENT_SOURCE_DIR}
@@ -30,7 +30,8 @@ sdk_add_link_options(
 -L ${CMAKE_CURRENT_SOURCE_DIR}
 )
 else()
-sdk_set_linker_script(qcc743_flash.ld)
+message(STATUS "LINK IN common.ld.in")
+sdk_set_linker_script_macro(common.ld.in)
 endif()
 
 if(CONFIG_CONSOLE_WO)

@@ -39,6 +39,8 @@
 
 #include "utils_crypto.h"
 
+#include "export/csidma_cmd.h"
+
 #define AT_WIFI_CMD_PRINTF printf
 
 static uint8_t g_scan_filter_mac_flag = 0;
@@ -1418,6 +1420,7 @@ int time_info_get(char *buffer, uint32_t buffer_len)
 }
 
 static int g_min_pkg_len = 0, g_max_pkg_len = 0;
+static int g_monitor_output = 1;
 static void cb_sniffer(struct qcc74x_frame_info *info, void *arg)
 {
     int n, offset = 0;
@@ -1433,10 +1436,15 @@ static void cb_sniffer(struct qcc74x_frame_info *info, void *arg)
         if (g_min_pkg_len && info->length < g_min_pkg_len) {
             return;
         }
-    
+
         if (g_max_pkg_len && info->length > g_max_pkg_len) {
             return;
         }
+
+        if (!g_monitor_output) {
+            return;
+        }
+
         buffer_len = info->length * 2 + 30;
         buffer = at_malloc(buffer_len + 64);
         if (!buffer) {
@@ -1462,7 +1470,7 @@ static void cb_sniffer(struct qcc74x_frame_info *info, void *arg)
         if (n > 0 && n < (buffer_len + 64) - offset) {
             offset += n;
         }
-        
+
         AT_CMD_DATA_SEND(buffer, offset);
         at_free(buffer);
     }
@@ -1472,17 +1480,19 @@ static int at_setup_cmd_cwmonitor(int argc, const char **argv)
 {
     int channel = 0;
     int enable = 0;
-    int min_pkg_len, max_pkg_len;
+    int min_pkg_len, max_pkg_len, output;
     int max_channel = 0;
     char country_code[5] = {0};
     int channel_valid = 0;
     int min_pkg_len_valid = 0;
     int max_pkg_len_valid = 0;
+    int output_valid = 0;
 
     AT_CMD_PARSE_NUMBER(0, &enable);
     AT_CMD_PARSE_OPT_NUMBER(1, &channel, channel_valid);
     AT_CMD_PARSE_OPT_NUMBER(2, &min_pkg_len, min_pkg_len_valid);
     AT_CMD_PARSE_OPT_NUMBER(3, &max_pkg_len, max_pkg_len_valid);
+    AT_CMD_PARSE_OPT_NUMBER(4, &output, output_valid);
 
     if (enable < 0 || enable > 1) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
@@ -1515,6 +1525,8 @@ static int at_setup_cmd_cwmonitor(int argc, const char **argv)
     } else {
         g_max_pkg_len = 0;
     }
+
+    g_monitor_output = output_valid ? !!output : 1;
 
     at_wifi_sniffer_start();
     at_wifi_sniffer_set_channel(channel, cb_sniffer, NULL);
@@ -1827,6 +1839,90 @@ static int at_setup_cmd_cwjaps(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+/*
+ * CSI DMA AT commands.
+ *
+ * AT+CSIDMASTART uses the programmatic csidma_capture_start()/_stop() API
+ * (declared in csidma_cmd.h): the driver decodes each CSI report and hands it
+ * back here as a formatted string, which we emit on the AT channel as a
+ * "+CSIDMA:" URC so the data reaches the host (e.g. STM32) side instead of the
+ * device log console. READY/DEBUG/FTM still use the cmd_csidma_*() helpers.
+ *
+ * Gated by CFG_CSIDMA_CLI (CONFIG_CSIDMA_CLI): the csidma driver objects are
+ * only linked in when that feature is enabled, and the firmware reserves the
+ * extra CSI buffers accordingly.
+ */
+#if defined(CFG_CSIDMA_CLI) && CFG_CSIDMA_CLI
+
+/* CSI report callback: emit one decoded report on the AT channel as a URC.
+ * CSI reports (with matrix data) can far exceed at_response_string's 256-byte
+ * limit, so we dynamically allocate a buffer, prepend "+CSIDMA:", append
+ * "\r\n", and send via AT_CMD_DATA_SEND — same pattern as cb_sniffer (CWMONITOR).
+ */
+static void at_csidma_report_cb(const char *str, int len, void *arg)
+{
+    (void)arg;
+    uint32_t buf_len = len + 16; /* "+CSIDMA:" + "\r\n" + margin */
+    uint8_t *buf = at_malloc(buf_len);
+    if (!buf)
+        return;
+    int off = snprintf((char *)buf, buf_len, "+CSIDMA:%.*s\r\n", len, str);
+    if (off > 0)
+        AT_CMD_DATA_SEND(buf, off);
+    at_free(buf);
+}
+
+/* +CSIDMASTART=<mac>[,<buf>[,<mode>[,<ts>[,<interval>[,<ready>]]]]] */
+static int at_setup_cmd_csidmastart(int argc, const char **argv)
+{
+    char mac[18] = {0};
+    int buf = 0, mode = 0, ts = 0, itvl = 0, ready = 0;
+    int buf_v = 0, mode_v = 0, ts_v = 0, itvl_v = 0, ready_v = 0;
+    struct csidma_capture_cfg cfg = {0};
+
+    AT_CMD_PARSE_STRING(0, mac, sizeof(mac));
+    AT_CMD_PARSE_OPT_NUMBER(1, &buf, buf_v);
+    AT_CMD_PARSE_OPT_NUMBER(2, &mode, mode_v);
+    AT_CMD_PARSE_OPT_NUMBER(3, &ts, ts_v);
+    AT_CMD_PARSE_OPT_NUMBER(4, &itvl, itvl_v);
+    AT_CMD_PARSE_OPT_NUMBER(5, &ready, ready_v);
+
+    if (get_mac_from_string(mac, cfg.mac_addr) != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    cfg.buf_idx         = buf_v   ? (uint8_t)buf   : 0;
+    cfg.csi_mode        = mode_v  ? (uint8_t)mode  : 0;
+    cfg.ts_mode         = ts_v    ? (uint8_t)ts    : 2;
+    cfg.trig_itvl_ms    = itvl_v  ? (uint32_t)itvl : 0;
+    cfg.ready_after_isr = ready_v ? (uint8_t)ready : 1;
+
+    if (csidma_capture_start(&cfg, at_csidma_report_cb, NULL) != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+    return AT_RESULT_CODE_OK;
+}
+
+/* +CSIDMASTOP[=<buf>]  (omit buf to stop all buffers) */
+static int at_setup_cmd_csidmastop(int argc, const char **argv)
+{
+    int buf = 0, buf_v = 0;
+
+    AT_CMD_PARSE_OPT_NUMBER(0, &buf, buf_v);
+
+    csidma_capture_stop(buf_v ? buf : -1);
+    return AT_RESULT_CODE_OK;
+}
+
+/* +CSIDMASTOP (execute form: stop all buffers) */
+static int at_exe_cmd_csidmastop(int argc, const char **argv)
+{
+    csidma_capture_stop(-1);
+    return AT_RESULT_CODE_OK;
+}
+
+#endif /* CFG_CSIDMA_CLI */
+
 static const at_cmd_struct at_wifi_cmd[] = {
     {"+WIFISP",       NULL, at_query_cmd_wifisp,      at_setup_cmd_wifisp,       NULL,                    1, 1},
     {"+CWMODE",       NULL, at_query_cmd_cwmode,      at_setup_cmd_cwmode,       NULL,                    1, 2},
@@ -1840,7 +1936,7 @@ static const at_cmd_struct at_wifi_cmd[] = {
     {"+CWSTAPROTO",   NULL, at_query_cmd_cwstaproto,  at_setup_cmd_cwstaproto,   NULL,                    1, 1},
     {"+CIPSTAMAC",    NULL, at_query_cmd_cipstamac,   at_setup_cmd_cipstamac,    NULL,                    1, 1},
     {"+CIPSTA",       NULL, at_query_cmd_cipsta,      at_setup_cmd_cipsta,       NULL,                    1, 3},
-    {"+CWMONITOR",    NULL, NULL,                     at_setup_cmd_cwmonitor,    NULL,                    1, 4},
+    {"+CWMONITOR",    NULL, NULL,                     at_setup_cmd_cwmonitor,    NULL,                    1, 5},
     {"+WPS",          NULL, NULL,                     at_setup_cmd_wps,          NULL,                    1, 2},
     {"+CWSAP",        NULL, at_query_cmd_cwsap,       at_setup_cmd_cwsap,        NULL,                    4, 6},
     {"+CWLIF",        NULL, NULL,                     NULL,                      at_exe_cmd_cwlif,        0, 0},
@@ -1865,6 +1961,10 @@ static const at_cmd_struct at_wifi_cmd[] = {
     {"+CWCREDDEL",    NULL, NULL,                     at_setup_cmd_cwcreddel,    NULL,                    1, 1},
     {"+CWCRED",       NULL, at_query_cmd_cwcred,      NULL,                      NULL,                    0, 0},
     {"+CWJAPS",       NULL, NULL,                     at_setup_cmd_cwjaps,       NULL,                    1, 1},
+#if defined(CFG_CSIDMA_CLI) && CFG_CSIDMA_CLI
+    {"+CSIDMASTART",  NULL, NULL,                     at_setup_cmd_csidmastart,  NULL,                    1, 6},
+    {"+CSIDMASTOP",   NULL, NULL,                     at_setup_cmd_csidmastop,   at_exe_cmd_csidmastop,   0, 1},
+#endif /* CFG_CSIDMA_CLI */
     {NULL, NULL, NULL, NULL, NULL, 0, 0},
 };
 

@@ -17,12 +17,12 @@ Antenna diversity support is board-dependent. This feature requires specific har
 
 3. Configure feature in application:
     
-    ```cmake
+    ```bash
     # Enable antenna diversity
-    set(CONFIG_ANTENNA_CONTROL 1)
+    CONFIG_ANTENNA_CONTROL =y
 
     # Or disable antenna diversity
-    set(CONFIG_ANTENNA_CONTROL 0)
+    CONFIG_ANTENNA_CONTROL =n
     ```
 
 4. Compile

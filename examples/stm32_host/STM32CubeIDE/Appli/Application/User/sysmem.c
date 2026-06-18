@@ -10,7 +10,7 @@
  ******************************************************************************
  * @attention
  *
- * Copyright (c) 2024 STMicroelectronics.
+ * Copyright (c) 2026 STMicroelectronics.
  * All rights reserved.
  *
  * This software is licensed under terms that can be found in the LICENSE file
@@ -23,6 +23,138 @@
 /* Includes */
 #include <errno.h>
 #include <stdint.h>
+#include <stddef.h>
+
+__attribute__((naked, used, section(".text.memcpy")))
+void *memcpy(void *dest, const void *src, size_t len)
+{
+  __asm__ volatile (
+      ".syntax unified                 \n"
+      "mov     ip, r0                  \n"
+      "cmp     r2, #0                  \n"
+      "beq     9f                      \n"
+
+      "eor     r3, r0, r1              \n"
+      "tst     r3, #3                  \n"
+      "bne     6f                      \n"
+
+      "tst     r0, #3                  \n"
+      "beq     2f                      \n"
+      "1:                              \n"
+      "ldrb    r3, [r1], #1            \n"
+      "strb    r3, [r0], #1            \n"
+      "subs    r2, r2, #1              \n"
+      "beq     9f                      \n"
+      "tst     r0, #3                  \n"
+      "bne     1b                      \n"
+
+      "2:                              \n"
+      "cmp     r2, #64                 \n"
+      "blo     4f                      \n"
+      "3:                              \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "subs    r2, r2, #64             \n"
+      "cmp     r2, #64                 \n"
+      "bhs     3b                      \n"
+
+      "4:                              \n"
+      "cmp     r2, #16                 \n"
+      "blo     5f                      \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "subs    r2, r2, #16             \n"
+
+      "5:                              \n"
+      "cmp     r2, #4                  \n"
+      "blo     6f                      \n"
+      "8:                              \n"
+      "ldr     r3, [r1], #4            \n"
+      "str     r3, [r0], #4            \n"
+      "subs    r2, r2, #4              \n"
+      "cmp     r2, #4                  \n"
+      "bhs     8b                      \n"
+
+      "6:                              \n"
+      "cmp     r2, #0                  \n"
+      "beq     9f                      \n"
+      "7:                              \n"
+      "ldrb    r3, [r1], #1            \n"
+      "strb    r3, [r0], #1            \n"
+      "subs    r2, r2, #1              \n"
+      "bne     7b                      \n"
+
+      "9:                              \n"
+      "mov     r0, ip                  \n"
+      "bx      lr                      \n"
+      :
+      :
+      : "r0", "r1", "r2", "r3", "ip", "memory"
+  );
+}
+
+__attribute__((naked, used, section(".text.__aeabi_memcpy")))
+void __aeabi_memcpy(void *dest, const void *src, size_t len)
+{
+  __asm__ volatile (
+      ".syntax unified                 \n"
+      "b       memcpy                  \n"
+  );
+}
+
+__attribute__((naked, used, section(".text.__aeabi_memcpy4")))
+void __aeabi_memcpy4(void *dest, const void *src, size_t len)
+{
+  __asm__ volatile (
+      ".syntax unified                 \n"
+      "b       memcpy                  \n"
+  );
+}
+
+__attribute__((naked, used, section(".text.__aeabi_memcpy8")))
+void __aeabi_memcpy8(void *dest, const void *src, size_t len)
+{
+  __asm__ volatile (
+      ".syntax unified                 \n"
+      "b       memcpy                  \n"
+  );
+}
 
 /**
  * Pointer to the current high watermark of the heap usage

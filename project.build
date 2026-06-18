@@ -66,6 +66,12 @@ BAUDRATE ?=2000000
 BOARD_DIR ?=
 PROJECT_PARAM := $(if $(CONFIG_SW_IMAGE),_$(CONFIG_SW_IMAGE))
 
+ifneq ($(wildcard $(SDK_DEMO_PATH)/defconfig),)
+include $(SDK_DEMO_PATH)/defconfig
+endif
+
+CONFIG_VARS := $(filter CONFIG_%,$(.VARIABLES))
+
 #cmake definition config
 cmake_definition+= -DCROSS_COMPILE=${CROSS_COMPILE}
 cmake_definition+= -DCHIP=$(CHIP)
@@ -101,8 +107,19 @@ $(BUILD_DIR):Makefile cmake_cache
 	$(MAKE) -C $(BUILD_DIR) combine
 	$(MAKE) -C $(BUILD_DIR) post_build
 
-cmake_cache:
+cmake_cache: cmake_config
 	$(CMAKE) -S . -B $(BUILD_DIR) -G $(cmake_generator) $(cmake_definition)
+
+$(BUILD_DIR)/generated:
+	$(CMAKE) -E make_directory $(BUILD_DIR)/generated
+
+cmake_config: | $(BUILD_DIR)/generated
+	$(CMAKE) -E touch $(BUILD_DIR)/generated/defconfig.cmake
+ifneq ($(CONFIG_VARS),)
+	$(file >$(BUILD_DIR)/generated/defconfig.cmake.new)
+	$(foreach var,$(CONFIG_VARS),$(file >>$(BUILD_DIR)/generated/defconfig.cmake.new,set($(var) $(value $(var)))))
+	$(CMAKE) -E rename $(BUILD_DIR)/generated/defconfig.cmake.new $(BUILD_DIR)/generated/defconfig.cmake
+endif
 
 app_deps:
 	@DIR=$(BUILD_DIR) sh -c 'find $${DIR} -mindepth 4 -name CMakeFiles |while read x; do y=$${x##$${DIR}/build_out/}; echo $${y%%CMakeFiles}; done'

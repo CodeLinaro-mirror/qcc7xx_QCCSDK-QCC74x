@@ -1,0 +1,45 @@
+/* Keep the SDIO throughput path in ITCM.
+ * This file is included from the .itcm_text output section.
+ */
+
+. = ALIGN(4);
+
+/* SDIO bus / HAL */
+*sdio_hal.*(.text .text.*)
+*qcc74x_sdio.*(.text .text.*)
+*rcp_bus_sdio_master.*(.text .text.*)
+*stm32h7rsxx_hal_sdio.*(.text .text.*)
+*stm32h7rsxx_ll_sdmmc.*(.text .text.*)
+
+/* RCP protocol fast path. Cold dump code stays in FLASH. */
+*rcp_interface_impl.*(.text .text.*)
+*rcp_protocol.*(.text .text.*)
+*rcp_tx_scheduler.*(.text .text.*)
+*rcp_bus.*(.text .text.*)
+*rcp_mux_dispatcher.*(.text .text.*)
+*nh_credit_flow.*(.text .text.*)
+*buffer_mgmt_ctrl.*(.text .text.*)
+*rcp_os_freertos.*(.text .text.*)
+
+/* Host RX throughput-test callback path. */
+*rcp_data_test.*(.text.data_test_rx_proxy)
+*rcp_data_test.*(.text.data_test_parse_packet)
+*rcp_data_test.*(.text.data_test_stat_add)
+*rcp_data_test.*(.text.data_test_mode_has_rx)
+
+/* FreeRTOS primitives used by the SDIO RX/TX path. */
+*Middlewares/FreeRTOS/port.*(.text .text.*)
+*Middlewares/FreeRTOS/list.*(.text .text.*)
+*Middlewares/FreeRTOS/queue.*(.text .text.*)
+*Middlewares/FreeRTOS/tasks.*(.text .text.*)
+*Middlewares/FreeRTOS/event_groups.*(.text .text.*)
+*Middlewares/FreeRTOS/timers.*(.text .text.*)
+
+/* Small libc helpers hit from the SDIO path. */
+*sysmem.*(.text.memcpy)
+*sysmem.*(.text.__aeabi_memcpy*)
+*libc_nano.a:libc_a-memcmp.o(.text .text.*)
+*libc_nano.a:libc_a-memset.o(.text .text.*)
+*libc_nano.a:libc_a-aeabi_memset.o(.text .text.*)
+
+. = ALIGN(4);

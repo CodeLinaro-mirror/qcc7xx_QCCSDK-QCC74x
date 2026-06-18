@@ -1,6 +1,6 @@
 /* USER CODE BEGIN Header */
 /*
- * FreeRTOS Kernel V10.6.2
+ * FreeRTOS Kernel V11.2.0
  * Portion Copyright (C) 2017 Amazon.com, Inc. or its affiliates.  All Rights Reserved.
  * Portion Copyright (C) 2019 StMicroelectronics, Inc.  All Rights Reserved.
  *
@@ -44,12 +44,15 @@
 
 /* USER CODE BEGIN Includes */
 /* Section where include file can be added */
+#include "rcp_user_config.h"
 /* USER CODE END Includes */
 
 /* Ensure definitions are only used by the compiler, and not by the assembler. */
 #if defined(__ICCARM__) || defined(__CC_ARM) || defined(__ARMCC_VERSION) || defined(__GNUC__)
 #include <stdint.h>
 extern uint32_t SystemCoreClock;
+extern void configureTimerForRunTimeStats(void);
+extern uint64_t getRunTimeCounterValue(void);
 #endif
 #ifndef CMSIS_device_header
 #define CMSIS_device_header "stm32h7rsxx.h"
@@ -68,12 +71,14 @@ extern uint32_t SystemCoreClock;
 #define configMAX_PRIORITIES                     ( 56 )
 #define configUSE_SB_COMPLETED_CALLBACK          ( 0 )
 #define configUSE_MINI_LIST_ITEM                ( 1 )
-#define configMINIMAL_STACK_SIZE                 ((uint16_t)256)
-#define configTOTAL_HEAP_SIZE                    ((size_t)100*1024)
+#define configMINIMAL_STACK_SIZE                 ((uint16_t)512)
+#define configTOTAL_HEAP_SIZE                    ((size_t)102400)
 #define configMAX_TASK_NAME_LEN                  ( 16 )
 #define configHEAP_CLEAR_MEMORY_ON_FREE          0
+#define configGENERATE_RUN_TIME_STATS            RCP_FREERTOS_CPU_STATS_ENABLE
+#define configRUN_TIME_COUNTER_TYPE              uint64_t
 #define configUSE_TRACE_FACILITY                 1
-#define configUSE_STATS_FORMATTING_FUNCTIONS     1
+#define configUSE_STATS_FORMATTING_FUNCTIONS     RCP_FREERTOS_CPU_STATS_ENABLE
 #define configUSE_16_BIT_TICKS                   0
 #define configUSE_MUTEXES                        1
 #define configQUEUE_REGISTRY_SIZE                8
@@ -99,7 +104,7 @@ extern uint32_t SystemCoreClock;
 #define configUSE_TIMERS                         1
 #define configTIMER_TASK_PRIORITY                ( 31 )
 #define configTIMER_QUEUE_LENGTH                 10
-#define configTIMER_TASK_STACK_DEPTH             512
+#define configTIMER_TASK_STACK_DEPTH             1024
 
 /* CMSIS-RTOS V2 flags */
 #define configUSE_OS2_THREAD_SUSPEND_RESUME  1
@@ -126,6 +131,7 @@ to exclude the API function. */
 #define INCLUDE_uxTaskGetStackHighWaterMark2 1
 #define INCLUDE_xTaskGetCurrentTaskHandle    1
 #define INCLUDE_eTaskGetState                1
+#define INCLUDE_xTaskGetHandle               1
 
 /*
  * The CMSIS-RTOS V2 FreeRTOS wrapper is dependent on the heap implementation used
@@ -173,8 +179,23 @@ standard names. */
 
 #define USE_CUSTOM_SYSTICK_HANDLER_IMPLEMENTATION 0
 
+#define portCONFIGURE_TIMER_FOR_RUN_TIME_STATS() configureTimerForRunTimeStats()
+#define portGET_RUN_TIME_COUNTER_VALUE() getRunTimeCounterValue()
+
 /* USER CODE BEGIN Defines */
 /* Section where parameter definitions can be added (for instance, to override default ones in FreeRTOS.h) */
+/* Specific defines for FreeRTOS Kernel V11.2.0 */
+#define configKERNEL_PROVIDED_STATIC_MEMORY      1
+#define configSTATS_BUFFER_MAX_LENGTH            0xFFFF
+#define configENABLE_HEAP_PROTECTOR              0
+#define configUSE_EVENT_GROUPS                   1
+#define configUSE_STREAM_BUFFERS                 1
+#define configCHECK_HANDLER_INSTALLATION         1
+#define configVALIDATE_HEAP_BLOCK_POINTER        0
+
+#define configSTACK_DEPTH_TYPE                   size_t
+
+#define INCLUDE_xTaskAbortDelay              1
 /* USER CODE END Defines */
 
 #endif /* __FREERTOS_CONFIG_H */

@@ -22,14 +22,18 @@ extern "C" {
  *****************************************************************************/
 
 /** Frame buffer header room size in bytes */
-#define FRAME_BUFF_ELEM_SIZE        (32)
-#define FRAME_BUFF_PBUFCUSTOM       (32)
-#define FRAME_BUFF_HWDESCTAG        (0)
-#define FRAME_BUFF_MSGSTRUCT_OFFSET (FRAME_BUFF_ELEM_SIZE+FRAME_BUFF_PBUFCUSTOM+FRAME_BUFF_HWDESCTAG)// 452
-#define FRAME_BUFF_MSGSTRUCT        (8)
-#define FRAME_BUFF_PAYLOAD_OFFSET   (FRAME_BUFF_MSGSTRUCT_OFFSET+FRAME_BUFF_MSGSTRUCT)               // 460
-#define FRAME_BUFF_PAYLOAD          (1536)
-#define FRAME_BUFF_TOTALSIZE        (FRAME_BUFF_PAYLOAD_OFFSET+FRAME_BUFF_PAYLOAD)                      // 1996
+#define FRAME_BUFF_DMA_ALIGN        (32U)
+#define FRAME_BUFF_ELEM_SIZE        (24U)
+#define FRAME_BUFF_PBUFCUSTOM       (24U)
+#define FRAME_BUFF_HWDESCTAG        (0U)
+#define FRAME_BUFF_MSGSTRUCT_OFFSET (FRAME_BUFF_ELEM_SIZE + FRAME_BUFF_PBUFCUSTOM + FRAME_BUFF_HWDESCTAG)
+#define FRAME_BUFF_MSGSTRUCT        (8U)
+#define FRAME_BUFF_PAYLOAD_OFFSET   (FRAME_BUFF_MSGSTRUCT_OFFSET + FRAME_BUFF_MSGSTRUCT)
+/* 1536 is the whole raw RCP packet length, not just payload. */
+#define FRAME_BUFF_RCP_PACKET_LEN   (1536U)
+#define FRAME_BUFF_PAYLOAD          (FRAME_BUFF_RCP_PACKET_LEN - FRAME_BUFF_MSGSTRUCT)
+#define FRAME_BUFF_TOTALSIZE        (FRAME_BUFF_MSGSTRUCT_OFFSET + FRAME_BUFF_RCP_PACKET_LEN)
+#define FRAME_BUFF_DMA_MEM_ATTR     __attribute__((section("noncacheable_buffer"), aligned(FRAME_BUFF_DMA_ALIGN)))
 
 /*****************************************************************************
  * Type Definitions
@@ -71,6 +75,8 @@ struct buffer_mgmt_elem_t {
 struct buffer_mgmt_ctrl_t {
     rcp_queue_t pool_queue;                 /**< Pool queue for memory block management */
     char *name;                             /**< Controller name */
+    uint16_t frame_data_offset;             /**< Default data offset restored on free */
+    uint16_t frame_elem_cnt;                /**< Number of elements owned by this pool */
 };
 
 /**
@@ -80,6 +86,7 @@ typedef struct {
     void *frame_buff;                       /**< Frame buffer pointer */
     uint16_t frame_elem_cnt;                /**< Frame element count */
     uint16_t frame_elem_size;               /**< Frame element size */
+    uint16_t frame_data_offset;             /**< Default data offset for fresh buffers */
 
     char *name;                             /**< Controller name */
 } buffer_mgmt_ctrl_init_cfg_t;

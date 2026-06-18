@@ -71,7 +71,7 @@ int putstring(const char *c)
     return len;
 }
 
-#if defined(CONFIG_VSNPRINTF_NANO) && CONFIG_VSNPRINTF_NANO
+#ifdef CONFIG_VSNPRINTF_NANO
 int printf(const char *fmt, ...)
 {
     char print_buf[512];

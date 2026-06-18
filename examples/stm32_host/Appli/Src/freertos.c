@@ -24,7 +24,7 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "rcp_user_config.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -79,14 +79,29 @@ void vApplicationIdleHook(void)
   /* Idle hook - optional */
 }
 
+static uint32_t runtime_stats_cycle_last;
+static uint64_t runtime_stats_cycle_high;
+
 /* Runtime statistics support (optional, for debugging) */
 __weak void configureTimerForRunTimeStats(void)
 {
+  CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+  DWT->CYCCNT = 0U;
+  runtime_stats_cycle_last = 0U;
+  runtime_stats_cycle_high = 0U;
+  DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
 }
 
-__weak unsigned long getRunTimeCounterValue(void)
+__weak uint64_t getRunTimeCounterValue(void)
 {
-  return 0;
+  uint32_t cycle = DWT->CYCCNT;
+
+  if (cycle < runtime_stats_cycle_last) {
+    runtime_stats_cycle_high += (1ULL << 32);
+  }
+  runtime_stats_cycle_last = cycle;
+
+  return runtime_stats_cycle_high | cycle;
 }
 
 /* USER CODE END Application */

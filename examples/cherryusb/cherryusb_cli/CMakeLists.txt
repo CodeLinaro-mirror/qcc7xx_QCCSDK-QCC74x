@@ -1,7 +1,4 @@
 cmake_minimum_required(VERSION 3.15)
-
-include(proj.conf)
-
 find_package(qcc74x_sdk REQUIRED HINTS $ENV{QCC74x_SDK_BASE})
 
 sdk_add_compile_definitions(-D SHELL_THREAD_PRIO=20)
@@ -10,41 +7,33 @@ sdk_add_include_directories(.)
 sdk_set_main_file(main.c)
 
 if(CONFIG_CHERRYUSB_DEVICE)
-    sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE)
     target_sources(app PRIVATE ./device_demo/usbd_cli.c)
 
     if(CONFIG_CHERRYUSB_DEVICE_CDC_ACM)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_CDC_ACM)
         target_sources(app PRIVATE ./device_demo/cdc_acm_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_CDC_ECM)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_CDC_ECM)
         target_sources(app PRIVATE ./device_demo/cdc_ecm_emac_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_CDC_RNDIS)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_CDC_RNDIS)
         target_sources(app PRIVATE ./device_demo/cdc_rndis_emac_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_HID)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_HID)
         target_sources(app PRIVATE ./device_demo/hid_keyboard_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_MSC)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_MSC)
         target_sources(app PRIVATE ./device_demo/msc_ram_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_AUDIO)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_AUDIO)
         target_sources(app PRIVATE ./device_demo/uac_v1_mic_speaker_multichan_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_DEVICE_VIDEO)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_DEVICE_VIDEO)
         target_sources(app PRIVATE ./device_demo/uvc_static_mjpeg_template.c)
     endif()
 
@@ -60,26 +49,21 @@ if(CONFIG_CHERRYUSB_DEVICE)
 endif()
 
 if(CONFIG_CHERRYUSB_HOST)
-    sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_HOST)
     target_sources(app PRIVATE ./host_demo/usbh_cli.c)
 
     if(CONFIG_CHERRYUSB_HOST_CDC_ACM)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_HOST_CDC_ACM)
         target_sources(app PRIVATE ./host_demo/cdc_acm_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_HOST_CDC_ECM)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_HOST_CDC_ECM)
         target_sources(app PRIVATE ./host_demo/cdc_ecm_lwip_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_HOST_HID)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_HOST_HID)
         target_sources(app PRIVATE ./host_demo/hid_template.c)
     endif()
 
     if(CONFIG_CHERRYUSB_HOST_MSC)
-        sdk_add_compile_definitions(-D CONFIG_CHERRYUSB_HOST_MSC)
         target_sources(app PRIVATE ./host_demo/msc_fatfs_template.c)
     endif()
 endif()

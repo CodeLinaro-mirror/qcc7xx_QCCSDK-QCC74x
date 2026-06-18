@@ -23,6 +23,20 @@ enum RCP_DSPTCH_RESULT {
 	RCP_RX_TAKEN,     // handler takes ownership of payload buffer
 };
 
+typedef struct rcp_message {
+	uint8_t stream;
+	uint8_t msg_subtype;
+	uint8_t msg_flags;
+	buffer_mgmt_elem_t *msg_buffer;
+} rcp_message_t;
+
+typedef struct rcp_stream_config {
+	uint16_t tx_cnt;
+	uint8_t rx_wnd;
+	uint8_t rx_threshold;
+    uint8_t tx_threshold;
+} rcp_stream_config_t;
+
 /**
  * Handler for RCP recieved events
  * Parameters
@@ -30,7 +44,7 @@ enum RCP_DSPTCH_RESULT {
  * payload_ptr  - Poiter to msg payload buffer
  * return  - How to RCP should respond to request (see Dispatch Response)
  **/
-typedef uint8_t (*rcp_rx_event_handler_t)(uint8_t msg_flags, const buffer_mgmt_elem_t *payload_ptr);
+typedef uint8_t (*rcp_rx_event_handler_t)(rcp_message_t *pmessage, lnk_sts_t *lnk);
 
 /**
  * Register handler for data message recieved over link stream
@@ -60,6 +74,7 @@ link_result_t link_receive(uint8_t stream, buffer_mgmt_elem_t **rx_buffer, uint3
  *         otherwise error code
  **/
 link_result_t link_send(uint8_t stream, buffer_mgmt_elem_t *tx_buffer, uint32_t timeout_ms);
+link_result_t link_send_msg(rcp_message_t *pmessage, uint32_t timeout_ms);
 
 /**
  * Send request and register handler for response
@@ -90,8 +105,10 @@ link_state_t link_get_state(uint8_t stream);
 
 lnk_sts_t *link_get_status(uint8_t stream);
 
-lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint8_t rx_wnd);
+lnk_sts_t *rcp_stream_create(uint8_t stream_id, const rcp_stream_config_t *conf);
 void rcp_dump_status(void);
 void rcp_reset_status_counters(void);
+
+/* Recover timing instrumentation has moved to rcp_stat.h. */
 
 #endif

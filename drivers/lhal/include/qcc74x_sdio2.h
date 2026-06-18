@@ -55,6 +55,8 @@
 #define SDIO2_HOST_INT_EVENT_UPLD_RDY      (1 << 1)
 #define SDIO2_HOST_INT_EVENT_CIS_RDY       (1 << 2)
 #define SDIO2_HOST_INT_EVENT_IO_RDY        (1 << 3)
+#define SDIO2_HOST_INT_EVENT_1             (1 << 4)
+#define SDIO2_HOST_INT_EVENT_2             (1 << 5)
 /**
   * @}
   */
@@ -87,6 +89,8 @@
 #define SDIO2_CMD_GET_DNLD_QUEUE_AVAILABLE (7) /*  */
 #define SDIO2_CMD_GET_UPLD_QUEUE_WAIT_NUM  (8) /*  */
 #define SDIO2_CMD_GET_UPLD_QUEUE_AVAILABLE (9) /*  */
+#define SDIO2_CMD_DEVICE_STATUS_NOTIFY     (10) /* write SCRATCH1_0 and notify host */
+#define SDIO2_CMD_HOST_STATUS_GET          (11) /* read SCRATCH1_1 */
 /**
   * @}
   */

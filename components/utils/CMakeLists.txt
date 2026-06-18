@@ -1,34 +1,13 @@
 sdk_generate_library()
 
-if(CONFIG_LOG_DISABLE)
-    sdk_add_compile_definitions(-DCONFIG_LOG_DISABLE)
-endif()
-
-if(CONFIG_ASSERT_DISABLE)
-    sdk_add_compile_definitions(-DCONFIG_ASSERT_DISABLE)
-endif()
-
-if(DEFINED CONFIG_LOG_LEVEL)
-    sdk_add_compile_definitions(-DCONFIG_LOG_LEVEL=${CONFIG_LOG_LEVEL})
-else()
-    sdk_add_compile_definitions(-DCONFIG_LOG_LEVEL=3)
-endif()
-
-if(CONFIG_LOG_POOL_SIZE)
-    sdk_add_compile_definitions(-DCONFIG_LOG_POOL_SIZE=${CONFIG_LOG_POOL_SIZE})
-endif()
-
-
-# log
-if(CONFIG_LOG_NCOLOR)
-    sdk_add_compile_definitions(-DCONFIG_LOG_NCOLOR=1)
+if(NOT DEFINED CONFIG_LOG_LEVEL)
+    set(CONFIG_LOG_LEVEL 3 CACHE INTERNAL "default log level")
 endif()
 
 sdk_library_add_sources(log/log.c)
 sdk_add_include_directories(log)
 
 if(CONFIG_QCC74xLOG)
-    sdk_add_compile_definitions(-DCONFIG_QCC74xLOG)
     sdk_library_add_sources(log/qcc74xlog/qcc74xlog.c)
     sdk_add_include_directories(log/qcc74xlog)
     if(CONFIG_FREERTOS)
@@ -42,11 +21,6 @@ endif()
 # ring_buffer
 sdk_library_add_sources(ring_buffer/ring_buffer.c)
 sdk_add_include_directories(ring_buffer)
-
-# qcc74x block pool debug enable
-if (CONFIG_QCC74x_BLOCK_POOL_DEBUG)
-    sdk_add_compile_definitions(-DCONFIG_QCC74x_BLOCK_POOL_DEBUG)
-endif()
 
 # qcc74x block pool mutex
 if (CONFIG_QCC74x_BLOCK_POOL_MTX_TIMEOUT)
@@ -71,15 +45,7 @@ sdk_add_include_directories(qcc74x_timestamp)
 sdk_library_add_sources(getopt/utils_getopt.c)
 sdk_add_include_directories(getopt)
 
-if(CONFIG_COREDUMP_V2)
-sdk_add_compile_definitions(-DCONFIG_COREDUMP=${CONFIG_COREDUMP_V2})
-sdk_library_add_sources(coredump/coredump.c)
-sdk_library_add_sources(coredump/port_freertos.c)
-sdk_library_add_sources(coredump/encoder_v2.c)
-sdk_library_add_sources(coredump/bin_fmt_v2.c)
-sdk_add_include_directories(coredump)
-elseif(CONFIG_COREDUMP)
-sdk_add_compile_definitions(-DCONFIG_COREDUMP=${CONFIG_COREDUMP})
+if(CONFIG_COREDUMP)
 sdk_library_add_sources(coredump/coredump.c)
 sdk_library_add_sources(coredump/port_freertos.c)
 sdk_library_add_sources(coredump/encoder_v1.c)
@@ -95,7 +61,6 @@ endif()
 
 # qcc74x_mtd
 if(CONFIG_QCC74x_MTD)
-sdk_add_compile_definitions(-DCONFIG_QCC74x_MTD)
 sdk_library_add_sources(qcc74x_mtd/qcc74x_mtd.c qcc74x_mtd/qcc74x_boot2.c)
 sdk_add_include_directories(qcc74x_mtd/include)
 endif()
@@ -115,4 +80,3 @@ sdk_add_include_directories(list/include)
 # crypto
 sdk_library_add_sources(crypto/utils_crypto.c)
 sdk_add_include_directories(crypto)
-

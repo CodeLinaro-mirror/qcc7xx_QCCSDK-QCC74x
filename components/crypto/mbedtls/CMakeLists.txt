@@ -7,7 +7,6 @@ sdk_add_include_directories(port/hw_acc)
 
 ## not be exported to project level
 
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS)
 sdk_add_compile_definitions(-DMBEDTLS_CONFIG_FILE=\"mbedtls_sample_config.h\")
 if (CONFIG_MBEDTLS_V3)
 sdk_add_private_include_directories(mbedtls_v3/library)
@@ -215,23 +214,19 @@ set(MBEDTLS_USE_PKA 0)
 
 # AES HW
 if (CONFIG_MBEDTLS_AES_USE_HW)
-  sdk_add_compile_definitions(-DCONFIG_MBEDTLS_AES_USE_HW)
   sdk_library_add_sources(port/hw_acc/aes_alt.c)
 endif()
 
 # Hash HW
 if (CONFIG_MBEDTLS_SHA1_USE_HW)
-  sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA1_USE_HW)
   sdk_library_add_sources(port/hw_acc/sha1_alt.c)
 endif()
 
 if (CONFIG_MBEDTLS_SHA256_USE_HW)
-  sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA256_USE_HW)
   sdk_library_add_sources(port/hw_acc/sha256_alt.c)
 endif()
 
 if (CONFIG_MBEDTLS_SHA512_USE_HW)
-  sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA512_USE_HW)
   sdk_library_add_sources(port/hw_acc/sha512_alt.c)
 endif()
 
@@ -251,7 +246,6 @@ endif()
 # ECC HW
 if (CONFIG_MBEDTLS_ECC_USE_HW)
   set(MBEDTLS_USE_PKA 1)
-  sdk_add_compile_definitions(-DCONFIG_MBEDTLS_ECC_USE_HW)
   sdk_library_add_sources(port/hw_acc/ecp_alt.c)
   sdk_library_add_sources(port/hw_acc/ecp_curves_alt.c)
 endif()

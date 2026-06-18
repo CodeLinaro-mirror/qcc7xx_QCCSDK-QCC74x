@@ -1,7 +1,5 @@
 
 #include <openthread_port.h>
-#include <utils/uart.h>
-
 #include <nxspi.h>
 
 otError otPlatUartEnable(void)

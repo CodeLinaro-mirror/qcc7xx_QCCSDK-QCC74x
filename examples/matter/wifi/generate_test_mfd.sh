@@ -5,9 +5,9 @@ if [[ "$MATTER_REPO_PATH" == "" ]]; then
     MATTER_REPO_PATH="/home/workplace/matter/matter_qcc74x"
 fi
 
-CONFIG_MATTER_MFD=`grep -E "CONFIG_MATTER_MFD.*1" proj.conf`
+CONFIG_MATTER_MFD=`grep -E "CONFIG_MATTER_MFD[[:space:]]*=[[:space:]]*y" defconfig`
 if [[ "$CONFIG_MATTER_MFD" == "" ]]; then
-    echo "Please set CONFIG_MATTER_MFD to 1 for Matter MFD feature"
+    echo "Please set CONFIG_MATTER_MFD to y for Matter MFD feature"
     echo "And rebuild the project using following commands"
     echo "./matter_build_prepare.sh"
     echo "make build"

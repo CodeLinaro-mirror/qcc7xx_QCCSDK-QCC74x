@@ -4,6 +4,7 @@
 #include "rcp_cntrl_msgs.h"
 #include "rcp_protocol.h"
 #include "rcp_mux_dispatcher.h"
+#include "rcp_stat.h"
 #include "rcp_tx_scheduler.h"
 #include "rcp_config.h"
 #include "rcp_os.h"
@@ -11,6 +12,7 @@
 #include "wifi/rcp_wifi_mgmt.h"
 
 #include <stddef.h>
+#include <limits.h>
 #include <stdio.h>
 #include <string.h>
 #include <fcntl.h>
@@ -23,7 +25,18 @@
 #define BUS_TX_RETRIES 3
 #define BUS_TX_RETRY_DELAY_MS 1
 #define STREAM_TASK_STACK_SIZE 4096
-#define STREAM_TASK_PRIORITY (30)
+#define STREAM_TASK_PRIORITY (29)
+#define RCP_LINK_DETECT_TIMEOUT_MS 500U
+#define RCP_HANDSHAKE_TIMEOUT_MS   1000U
+#define RCP_HANDSHAKE_POLL_MS      100U
+#ifndef RCP_CMD_TX_NUM_BUFFERS
+#define RCP_CMD_TX_NUM_BUFFERS     RCP_MSG_TYPE_MAX
+#endif
+#define RCP_CMD_TX_FRAME_SIZE      (FRAME_BUFF_DMA_ALIGN * 2U)
+#define RCP_CMD_TX_DATA_OFFSET     (FRAME_BUFF_DMA_ALIGN + sizeof(rcp_pro_packt_t))
+_Static_assert(sizeof(rcp_pro_packt_t) <= FRAME_BUFF_DMA_ALIGN,
+	       "RCP CMD header must fit before the aligned DMA address");
+
 #define RCP_PROTO_META_SIZE ((uint16_t)(sizeof(rcp_pro_packt_t) - sizeof(rcp_msg_packt_t)))
 #define RCP_PAYLOAD_SIZE(msg) \
 	((uint16_t)(((msg)->msg_packt.len >= RCP_PROTO_META_SIZE) ? ((msg)->msg_packt.len - RCP_PROTO_META_SIZE) : 0U))
@@ -32,159 +45,70 @@
 
 #define get_stream_status(stream) (((stream) >= RCP_MSG_TYPE_MAX)?NULL:&g_stream_status[(stream)])
 
-static uint8_t g_rcp_rx_buffer_mem[RCP_RX_NUM_BUFFERS][FRAME_BUFF_TOTALSIZE];
+static uint8_t g_rcp_rx_buffer_mem[RCP_RX_NUM_BUFFERS][FRAME_BUFF_TOTALSIZE]
+	FRAME_BUFF_DMA_MEM_ATTR;
+static uint8_t g_rcp_cmd_buffer_mem[RCP_CMD_TX_NUM_BUFFERS][RCP_CMD_TX_FRAME_SIZE]
+	FRAME_BUFF_DMA_MEM_ATTR;
+
 static lnk_sts_t g_stream_status[RCP_MSG_TYPE_MAX];
 static buffer_mgmt_ctrl_t *g_rx_buffer_ctrl;
+static buffer_mgmt_ctrl_t *g_cmd_buffer_ctrl;
 static enum rcp_bus g_rcp_bus = RCP_BUS_MAX;
 static rcp_thread_t g_event_loop_thread;
+static bool g_recover_deferred[RCP_BUS_MAX];
+
+/* Control frames use a dedicated queue so recover handshakes can drain before data. */
+static rcp_tx_sch_t g_tx_sch_ctrl;
+
+/* Recover timing state and dump live in rcp_stat.c. */
 
 static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg);
 static void rcp_rx_buffer_credit_put(buffer_mgmt_elem_t *buffer_elem, void *arg);
 static bool bus_flag_is_set(enum rcp_bus bus, uint8_t flag);
+static void mark_bus_peer_down(enum rcp_bus bus);
+static bool link_active_detect(enum rcp_bus bus);
 static void rcp_reset_stream_counters(lnk_sts_t *lnk);
 static bool process_rx_once(enum rcp_bus bus);
-static bool process_pending_tx(enum rcp_bus bus);
+static bool process_pending_tx_sched(enum rcp_bus bus, rcp_tx_sch_t *sch);
+static bool process_pending_tx_stream(enum rcp_bus bus, lnk_sts_t *lnk);
+static bool data_tx_pending(enum rcp_bus bus);
+static void process_handshake(enum rcp_bus bus);
+static bool data_tx_pending(enum rcp_bus bus);
+static link_result_t link_request_msg(rcp_message_t *pmessage,
+					rcp_rx_event_handler_t response_cb,
+					uint32_t timeout_ms);
+
+/* Drain all queued events from a TX scheduler and free their buffers.
+ * Used after a successful bus recover to discard stale ctrl/handshake
+ * frames that were queued before the link went down. Data frames in the
+ * per-stream schedulers are kept — only the caller-chosen scheduler is
+ * purged. */
+static void purge_tx_queue(rcp_tx_sch_t *sch)
+{
+	rcp_schedule_evt_t evt;
+
+	while (get_tx_event(sch, &evt, 0)) {
+		if (evt.msg_buffer != NULL) {
+			buffer_mgmt_free_elem(evt.msg_buffer);
+		}
+	}
+}
 static bool process_pending_rx_credit_updates(enum rcp_bus bus);
 static void rcp_event_loop_entry(void *arg);
 
-static const char *rcp_stream_name(uint8_t stream)
+/* TX profile state (g_rcp_tx_prof) and rcp_tx_prof_dump_stats() live in
+ * rcp_stat.c so all stats are in one place. */
+
+void rcp_internal_get_dump_ctx(struct rcp_dump_ctx *ctx)
 {
-	switch (stream) {
-	case RCP_MSG_TYPE_NONE:
-		return "NONE";
-	case RCP_MSG_TYPE_TEST_1:
-		return "TEST_1";
-	case RCP_MSG_TYPE_TEST_2:
-		return "TEST_2";
-	case RCP_MSG_TYPE_TEST_3:
-		return "TEST_3";
-	case RCP_MSG_TYPE_SYS:
-		return "SYS";
-	case RCP_MSG_TYPE_WIFI:
-		return "WIFI";
-	case RCP_MSG_TYPE_ETH:
-		return "ETH";
-	case RCP_MSG_TYPE_TTY:
-		return "TTY";
-	case RCP_MSG_TYPE_NETLINK:
-		return "NETLINK";
-	case RCP_MSG_TYPE_BT_HCI:
-		return "BT_HCI";
-	default:
-		return "?";
-	}
-}
-
-static const char *rcp_link_state_name(link_state_t state)
-{
-	switch (state) {
-	case LINK_STATE_IDLE:
-		return "IDLE";
-	case LINK_STATE_SYNCING:
-		return "SYNCING";
-	case LINK_STATE_SYNC_PENDING:
-		return "SYNC_PENDING";
-	case LINK_STATE_ACTIVE:
-		return "ACTIVE";
-	case LINK_STATE_FAULT:
-		return "FAULT";
-	case LINK_STATE_HSTA_RESET:
-		return "HSTA_RESET";
-	case LINK_STATE_HSTA_HOST_READY:
-		return "HSTA_HOST_READY";
-	case LINK_STATE_HSTA_DEVICE_READY:
-		return "HSTA_DEVICE_READY";
-	case LINK_STATE_HSTA_DEVICE_RUN:
-		return "HSTA_DEVICE_RUN";
-	case LINK_STATE_HSTA_ERROR:
-		return "HSTA_ERROR";
-	default:
-		return "UNKNOWN";
-	}
-}
-
-static const char *rcp_flag_name(uint8_t flag)
-{
-	switch (flag) {
-	case RCP_FLAG_NONE:
-		return "NONE";
-	case RCP_FLAG_DNLD_DATA:
-		return "DNLD_DATA";
-	case RCP_FLAG_UPLD_DATA:
-		return "UPLD_DATA";
-	case RCP_FLAG_HOST_RESET:
-		return "HOST_RESET";
-	case RCP_FLAG_HOST_READY:
-		return "HOST_READY";
-	case RCP_FLAG_HOST_STOP:
-		return "HOST_STOP";
-	case RCP_FLAG_DEVICE_RESET:
-		return "DEVICE_RESET";
-	case RCP_FLAG_DEVICE_READY:
-		return "DEVICE_READY";
-	case RCP_FLAG_DEVICE_START:
-		return "DEVICE_START";
-	case RCP_FLAG_DEVICE_STOP:
-		return "DEVICE_STOP";
-	case RCP_FLAG_CREDIT_UPDATE:
-		return "CREDIT_UPDATE";
-	default:
-		return "?";
-	}
-}
-
-static unsigned long rcp_debug_queue_free_slots(const rcp_queue_t *queue)
-{
-#if defined(RCP_OS_FREERTOS)
-	if (queue == NULL || queue->_queue == NULL) {
-		return 0;
-	}
-
-	return (unsigned long)uxQueueSpacesAvailable(queue->_queue);
-#else
-	(void)queue;
-	return 0;
-#endif
-}
-
-static unsigned long rcp_debug_sem_count(const rcp_sem_t *sem)
-{
-#if defined(RCP_OS_FREERTOS)
-	if (sem == NULL || sem->_sem == NULL) {
-		return 0;
-	}
-
-	return (unsigned long)uxQueueMessagesWaiting((QueueHandle_t)sem->_sem);
-#else
-	(void)sem;
-	return 0;
-#endif
-}
-
-static void rcp_dump_credit_state(const char *name, const nh_credit_t *credit, bool enabled, bool is_tx)
-{
-	uint8_t delta;
-
-	if (credit == NULL) {
-		printf("    %s: NULL\n", name);
+	if (ctx == NULL) {
 		return;
 	}
-
-	delta = is_tx ?
-		(uint8_t)(credit->credit_limit_cnt - credit->credit_consumed_cnt) :
-		(uint8_t)(credit->credit_consumed_cnt - credit->credit_limit_cnt);
-
-	printf("    %s: %s\n", name, enabled ? "enabled" : "disabled");
-	printf("      init_credit: %u, threshold: %u, credit_limit_cnt: %u, credit_consumed_cnt: %u\n",
-	       credit->init_credit,
-	       credit->threshold,
-	       credit->credit_limit_cnt,
-	       credit->credit_consumed_cnt);
-	printf("      wait_sem: %p, wait_sem_cnt: %lu, %s: %u\n",
-	       (void *)credit->wait_sem,
-	       rcp_debug_sem_count(credit->wait_sem),
-	       is_tx ? "credit_left" : "pending_update",
-	       delta);
+	ctx->bus             = g_rcp_bus;
+	ctx->streams         = g_stream_status;
+	ctx->ctrl_sch        = &g_tx_sch_ctrl;
+	ctx->cmd_buffer_ctrl = g_cmd_buffer_ctrl;
+	ctx->rx_buffer_ctrl  = g_rx_buffer_ctrl;
 }
 
 void init_rx_queue()
@@ -193,6 +117,7 @@ void init_rx_queue()
 		.frame_buff = g_rcp_rx_buffer_mem,
 		.frame_elem_cnt = RCP_RX_NUM_BUFFERS,
 		.frame_elem_size = sizeof(g_rcp_rx_buffer_mem[0]),
+		.frame_data_offset = FRAME_BUFF_MSGSTRUCT_OFFSET,
 		.name = "rcp_rx",
 	};
 	g_rx_buffer_ctrl = buffer_mgmt_create(&cfg);
@@ -237,11 +162,14 @@ static bool get_rx_data(rcp_msg_ptr_t msg_ptr, enum rcp_bus bus)
 		return false;
 	}
 
-	int ret = rcp_bus_read(bus, (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(rx_buffer));
+	int ret = rcp_bus_read(bus,
+			      (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(rx_buffer),
+			      (uint16_t)BUFFER_MGMT_MAX_SIZE(rx_buffer));
 
 	if (ret <= 0) {
 		if (ret != RCP_BUS_ERR_EMPTY) {
-			RCP_LOG_ERR("RX bus failure err=%d", ret);
+			RCP_LOG_DBG("RX bus failure err=%d", ret);
+			mark_bus_peer_down(bus);
 		}
 	} else {
 		rx_buffer->data_size = ret;
@@ -258,13 +186,46 @@ static bool get_rx_data(rcp_msg_ptr_t msg_ptr, enum rcp_bus bus)
 	return false;
 }
 
+static void mark_bus_peer_down(enum rcp_bus bus)
+{
+	int i;
+
+	RCP_LOG_DBG("RCP bus %d peer lost", bus);
+
+	/* Reset recover timing snapshot. T0 is stamped later when the SDIO
+	 * card has been re-identified, so device-sleep window is excluded. */
+	RCP_STAT_RECOVER_RESET();
+
+	/* Force every active stream back to RESET so any in-flight TX /
+	 * credit accounting halts immediately. The event loop will re-arm
+	 * the handshake once the bus has recovered. */
+	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
+		lnk_sts_t *lnk = &g_stream_status[i];
+		if (lnk->rx_queue_enabled && lnk->bus == bus) {
+			lnk->state = LINK_STATE_HSTA_RESET;
+			nh_credit_reset(&lnk->flow_ctrl);
+			RCP_STAT_RECOVER_INC(active_stream_count);
+		}
+	}
+
+	/* Wake the event loop with a RECOVER signal, just like RX/TX/HANDSHAKE.
+	 * The event loop's process_recover() branch will run rcp_bus_runtime_recover()
+	 * and signal HANDSHAKE on success. */
+	__rcp_bus_set_flags(bus, RCP_BUS_FLAG_RECOVER, 0);
+}
+
 static int rcp_credit_get(lnk_sts_t *hsm, uint32_t timeout_ms)
 {
+	int ret;
+
 	if (hsm->state != LINK_STATE_HSTA_DEVICE_RUN) {
 		return 0;
 	}
 
-	return nh_tx_credit_get(&hsm->flow_ctrl, timeout_ms);
+	RCP_TX_PROF_BEGIN(credit_wait_start_cycles);
+	ret = nh_tx_credit_get(&hsm->flow_ctrl, timeout_ms);
+	RCP_TX_PROF_ACC(RCP_TX_PROF_CREDIT_WAIT, credit_wait_start_cycles);
+	return ret;
 }
 
 static int rcp_credit_put(lnk_sts_t *hsm)
@@ -290,18 +251,18 @@ link_result_t send_rcp_cmd(lnk_sts_t *lnk, enum rcp_flag flag)
 	rcp_msg_t send_msg;
     buffer_mgmt_elem_t *tx_buffer = NULL;
 
-	if (!lnk || !lnk->buffer_ctrl) {
+	if (!lnk || !g_cmd_buffer_ctrl) {
 		return RCP_LNK_ERR_INVALID_STREAM;
 	}
 
-	if (buffer_mgmt_alloc_elem(lnk->buffer_ctrl, &tx_buffer, 1000) != 0) {
+	if (buffer_mgmt_alloc_elem(g_cmd_buffer_ctrl, &tx_buffer, 1000) != 0) {
 		RCP_LOG_ERR("Failed to allocate buffer for CMD");
 		return -1;
 	}
 
 	build_rcp_msg(&send_msg, lnk->stream, flag, tx_buffer);
 
-	if (!send_rcp_msg(&send_msg, 1000)) {
+	if (!send_rcp_msg(&g_tx_sch_ctrl, &send_msg, 1000)) {
 		buffer_mgmt_free_elem(tx_buffer);
 		return RCP_LNK_ERR_TX_NO_RESOURCES;
 	}
@@ -311,39 +272,47 @@ link_result_t send_rcp_cmd(lnk_sts_t *lnk, enum rcp_flag flag)
 link_result_t link_request(uint8_t stream, buffer_mgmt_elem_t *tx_buffer,
 			   rcp_rx_event_handler_t response_cb, uint32_t timeout_ms)
 {
-	lnk_sts_t *lnk_stat_ptr = get_stream_status(stream);
+	rcp_message_t message = {
+		.stream = stream,
+		.msg_subtype = 0,
+		.msg_flags = RCP_FLAG_DNLD_DATA,
+		.msg_buffer = tx_buffer,
+	};
 
-	rcp_msg_t send_msg;
+	return link_request_msg(&message, response_cb, timeout_ms);
+}
 
+static link_result_t link_request_msg(rcp_message_t *pmessage,
+					rcp_rx_event_handler_t response_cb,
+					uint32_t timeout_ms)
+{
+	lnk_sts_t *lnk_stat_ptr;
+	rcp_schedule_evt_t tx_event;
+
+	if (!pmessage) {
+		return RCP_LINK_ERR_INVALID_BUFFER;
+	}
+
+	lnk_stat_ptr = get_stream_status(pmessage->stream);
 	if (!lnk_stat_ptr) {
 		return RCP_LNK_ERR_INVALID_STREAM;
 	}
 
-	if (!lnk_stat_ptr->buffer_ctrl) {
-		return RCP_LNK_ERR_INVALID_STREAM;
-	}
-
-	if (!tx_buffer) {
+	if (!pmessage->msg_buffer) {
 		return RCP_LINK_ERR_INVALID_BUFFER;
 	}
 
-    //RCP_LOG_INF("stream:%d pending_tx %d %d\r\n", stream,
-    //		lnk_stat_ptr->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_limit_cnt,
-	//		lnk_stat_ptr->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_consumed_cnt);
-	if (rcp_credit_get(lnk_stat_ptr, timeout_ms) < 0) {
-		RCP_LOG_DBG("RCP TX busy %d %d\r\n",
-				lnk_stat_ptr->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_limit_cnt,
-				lnk_stat_ptr->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_consumed_cnt);
-		return RCP_LNK_TIMEOUT;
-	}
-
-	build_rcp_msg(&send_msg, lnk_stat_ptr->stream, RCP_FLAG_DNLD_DATA, tx_buffer);
-
-	if (!send_rcp_msg(&send_msg, timeout_ms)) {
+	pmessage->stream = lnk_stat_ptr->stream;
+	tx_event.stream = pmessage->stream;
+	tx_event.msg_subtype = pmessage->msg_subtype;
+	tx_event.msg_flags = pmessage->msg_flags;
+	tx_event.msg_buffer = pmessage->msg_buffer;
+	tx_event.enqueue_ticks = 0;
+	if (!schedule_tx(&lnk_stat_ptr->tx_sch, &tx_event, timeout_ms)) {
 		return RCP_LNK_ERR_TX_NO_RESOURCES;
 	}
 	if (response_cb) {
-		register_data_msg_handler(stream, response_cb);
+		register_data_msg_handler(pmessage->stream, response_cb);
 	}
 	return RCP_LNK_SUCCESS;
 }
@@ -351,6 +320,11 @@ link_result_t link_request(uint8_t stream, buffer_mgmt_elem_t *tx_buffer,
 link_result_t link_send(uint8_t stream, buffer_mgmt_elem_t *tx_buffer, uint32_t timeout_ms)
 {
 	return link_request(stream, tx_buffer, NULL, timeout_ms);
+}
+
+link_result_t link_send_msg(rcp_message_t *pmessage, uint32_t timeout_ms)
+{
+	return link_request_msg(pmessage, NULL, timeout_ms);
 }
 
 link_result_t link_register_rx_handler(uint8_t stream, rcp_rx_event_handler_t response_cb)
@@ -390,6 +364,7 @@ link_result_t link_reset(uint8_t stream, buffer_mgmt_elem_t *tx_buffer)
 	}
 
 	lnk_stat_ptr->state = LINK_STATE_HSTA_RESET;
+	__rcp_bus_set_flags(lnk_stat_ptr->bus, RCP_BUS_FLAG_HANDSHAKE, 0);
 	return link_request(stream, tx_buffer, NULL, RCP_OS_WAIT_FOREVER);
 }
 
@@ -397,12 +372,15 @@ static bool link_active_detect(enum rcp_bus bus)
 {
 	struct rcp_bus_caps caps;
 
+	if (bus_flag_is_set(bus, RCP_BUS_FLAG_RECOVER)) {
+		return false;
+	}
+
 	if (rcp_bus_get_caps(bus, &caps) != RCP_BUS_OK) {
 		return true;
 	}
 	if (!caps.active) {
-		//rcp_bus_sdio_master_init();
-        printf("link not active\r\n");
+		mark_bus_peer_down(bus);
 		return false;
 	}
 	return true;
@@ -417,13 +395,13 @@ static bool tx_msg_with_retries(enum rcp_bus bus, buffer_mgmt_elem_t *msg)
 	do {
 		status = tx_rcp_msg(bus, msg);
 		if (status != RCP_BUS_OK) {
-			RCP_LOG_INF("Send message over bus. Retrying.");
+			RCP_LOG_DBG("Send message over bus %d %p. Retrying.", status, msg);
 			rcp_os_delay_ms(BUS_TX_RETRY_DELAY_MS);
 		}
-	} while(retries-- && (status != RCP_BUS_OK));
+	} while(--retries && (status == RCP_BUS_ERR_EMPTY));
 
 	if (status != RCP_BUS_OK && status != RCP_BUS_ERR_EMPTY) {
-		link_active_detect(bus);
+		mark_bus_peer_down(bus);
 	}
 	return (status == RCP_BUS_OK);
 }
@@ -439,27 +417,148 @@ static bool bus_flag_is_set(enum rcp_bus bus, uint8_t flag)
 	return ((flags & flag) != 0U);
 }
 
+static void process_recover(enum rcp_bus bus)
+{
+	if (!rcp_bus_runtime_recover(bus)) {
+		/* Back off before re-arming RECOVER, otherwise the event loop
+		 * spins on a failing recover at full CPU. */
+		rcp_os_delay_ms(100);
+		__rcp_bus_set_flags(bus, RCP_BUS_FLAG_RECOVER, 0);
+		return;
+	}
+
+	RCP_STAT_RECOVER_STAMP(t_reinit_done_us);
+
+	/* Discard stale ctrl/handshake frames queued before the link went
+	 * down. Only data frames in the per-stream schedulers are kept. */
+	purge_tx_queue(&g_tx_sch_ctrl);
+
+	process_handshake(bus);
+}
+
+static void process_handshake(enum rcp_bus bus)
+{
+	int i;
+
+	RCP_STAT_RECOVER_STAMP_ONCE(t_handshake_kicked_us);
+
+	/* Step 1: advance the handshake state machine for streams sitting
+	 * in HSTA_RESET (pushes HOST_RESET / HOST_READY into the ctrl
+	 * scheduler). Reuses rcp_process_msg() with a NULL message so
+	 * the FSM advances RESET -> HOST_READY in the same code path the
+	 * RX side uses for HOST_READY -> DEVICE_START -> DEVICE_RUN. */
+	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
+		lnk_sts_t *lnk = &g_stream_status[i];
+		if (lnk->rx_queue_enabled && lnk->bus == bus
+		    && lnk->state == LINK_STATE_HSTA_RESET) {
+			rcp_process_msg(lnk, NULL);
+		}
+	}
+
+	/* Step 2: drain the ctrl scheduler so the device sees those frames
+	 * before any data frames the data scheduler may already hold from
+	 * before the recover. */
+	while (process_pending_tx_sched(bus, &g_tx_sch_ctrl)) {
+	}
+	RCP_STAT_RECOVER_STAMP_ONCE(t_ctrl_drained_us);
+}
+
+static bool data_tx_pending(enum rcp_bus bus)
+{
+	int i;
+
+	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
+		lnk_sts_t *lnk = &g_stream_status[i];
+
+		if (lnk->rx_queue_enabled && lnk->bus == bus &&
+		    !tx_event_is_empty(&lnk->tx_sch)) {
+			return true;
+		}
+	}
+
+	return false;
+}
+
+/* RX: drain every pending RX message. */
+static inline void process_rx(enum rcp_bus bus)
+{
+	while (process_rx_once(bus)) {
+	}
+}
+
+/* TX: drain the data scheduler, then opportunistic RX-credit updates.
+ * Inlined-style direct loop to skip the process_pending_tx wrapper on
+ * the hot path. */
+static inline void process_tx(enum rcp_bus bus)
+{
+	uint32_t tx_packets = 0;
+	int i;
+
+	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
+		lnk_sts_t *lnk = &g_stream_status[i];
+
+		if (!lnk->rx_queue_enabled || lnk->bus != bus) {
+			continue;
+		}
+
+		while (process_pending_tx_stream(bus, lnk)) {
+			tx_packets++;
+		}
+	}
+	RCP_TX_PROF_NOTE_WAKEUP(tx_packets);
+
+	/* When data TX is drained, push standalone CREDIT_UPDATE if needed. */
+	(void)process_pending_rx_credit_updates(bus);
+}
+
 void run_event_loop(enum rcp_bus bus)
 {
 	while (true) {
 		uint8_t ready_flags = 0;
+		enum rcp_bus_status wait_status;
 
-		if (RCP_BUS_OK != rcp_bus_wait_for_any_flags(bus,
-							      RCP_BUS_FLAG_RX_DATA |
-								  RCP_BUS_FLAG_TX_PENDING,
-							      RCP_OS_WAIT_FOREVER, &ready_flags)) {
+		wait_status = rcp_bus_wait_for_any_flags(bus,
+				RCP_BUS_FLAG_RECOVER   |
+				RCP_BUS_FLAG_HANDSHAKE |
+				RCP_BUS_FLAG_RX_DATA   |
+				RCP_BUS_FLAG_TX_PENDING,
+				RCP_LINK_DETECT_TIMEOUT_MS, &ready_flags);
+
+		if (!g_recover_deferred[bus] && wait_status != RCP_BUS_OK) {
+			link_active_detect(bus);
 			continue;
 		}
 
-		if ((ready_flags & RCP_BUS_FLAG_RX_DATA)) {
-			/* RX flag transitions are reported through the bus core; the event loop only drains. */
-			while (process_rx_once(bus)) {
+		if (ready_flags & RCP_BUS_FLAG_RECOVER) {
+			if (!data_tx_pending(bus) && !(ready_flags & RCP_BUS_FLAG_RX_DATA)) {
+				g_recover_deferred[bus] = true;
+				continue;
 			}
+			process_recover(bus);
+			continue;
 		}
 
-		if ((ready_flags & RCP_BUS_FLAG_TX_PENDING) || (!tx_event_is_empty())) {
-			while (process_pending_tx(bus)) {
-			}
+		if (g_recover_deferred[bus] &&
+		    (data_tx_pending(bus) || (ready_flags & RCP_BUS_FLAG_RX_DATA))) {
+			g_recover_deferred[bus] = false;
+			process_recover(bus);
+			continue;
+		}
+
+		if (ready_flags & RCP_BUS_FLAG_RX_DATA) {
+			process_rx(bus);
+		}
+
+		if (bus_flag_is_set(bus, RCP_BUS_FLAG_TX_PAUSED)) {
+			continue;
+		}
+
+		if (ready_flags & RCP_BUS_FLAG_HANDSHAKE) {
+			process_handshake(bus);
+		}
+
+		if ((ready_flags & RCP_BUS_FLAG_TX_PENDING) || data_tx_pending(bus)) {
+			process_tx(bus);
 		}
 	}
 }
@@ -469,33 +568,47 @@ static void rcp_event_loop_entry(void *arg)
 	run_event_loop((enum rcp_bus)(uintptr_t)arg);
 }
 
-static bool process_pending_tx(enum rcp_bus bus)
+static bool process_pending_tx_sched(enum rcp_bus bus, rcp_tx_sch_t *sch)
 {
-	rcp_schedule_evt_t tx_event = {0};
-	lnk_sts_t *lnk;
+	rcp_schedule_evt_t tx_event;
+	lnk_sts_t *lnk = NULL;
 	rcp_pro_packt_t *tx_msg;
 	uint8_t flag;
-	uint16_t tx_size;
+	RCP_TX_PROF_BEGIN(proc_start_cycles);
 
-	if (!peek_tx_event(&tx_event, 0)) {
-		return process_pending_rx_credit_updates(bus);
-	}
-
-	lnk = get_stream_status(tx_event.stream);
-	tx_msg = (rcp_pro_packt_t *)buffer_mgmt_data_ptr(tx_event.msg_buffer);
-	flag = tx_msg->flag;
-	tx_size = RCP_PAYLOAD_SIZE(tx_msg);
-
-	if (!tx_msg_with_retries(bus, tx_event.msg_buffer)) {
-		if (flag == RCP_FLAG_DNLD_DATA) {
-			rcp_credit_put(lnk);
-		}
-		RCP_LOG_WRN("Failed to send message over bus, dropping.");
+	if (!peek_tx_event(sch, &tx_event, 0)) {
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
 		return false;
 	}
 
-	if (lnk != NULL) {
-		if (!RCP_FLAG_IS_HANDSHAKE(flag)) {
+	RCP_TX_PROF_ACC(RCP_TX_PROF_QUEUE_LATENCY, tx_event.enqueue_ticks);
+
+	tx_msg = (rcp_pro_packt_t *)buffer_mgmt_data_ptr(tx_event.msg_buffer);
+	flag = tx_msg->flag;
+
+	if (!tx_msg_with_retries(bus, tx_event.msg_buffer)) {
+		__rcp_bus_set_flags(bus, sch->signal_flag, 0);
+        RCP_LOG_INF("Send message %d stream:%d retry later.", flag, tx_event.stream);
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return false;
+	}
+
+	get_tx_event(sch, &tx_event, 0);
+
+	if (tx_msg->credit_update_flag) {
+		lnk = get_stream_status(tx_event.stream);
+		if (lnk != NULL) {
+			nh_rx_credit_update(&lnk->flow_ctrl, tx_msg->credit_limit_cnt);
+		}
+	}
+
+	if (!RCP_FLAG_IS_HANDSHAKE(flag)) {
+		if (lnk == NULL) {
+			lnk = get_stream_status(tx_event.stream);
+		}
+		if (lnk != NULL) {
+			uint16_t tx_size = RCP_PAYLOAD_SIZE(tx_msg);
+
 			if (RCP_FLAG_IS_DATA(flag)) {
 				lnk->tx_data_packets++;
 				lnk->tx_data_bytes += tx_size;
@@ -506,12 +619,77 @@ static bool process_pending_tx(enum rcp_bus bus)
 		}
 	}
 
-	get_tx_event(&tx_event, 0);
+	buffer_mgmt_free_elem(tx_event.msg_buffer);
+	RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
 
-	if (tx_event.msg_buffer) {
-		buffer_mgmt_free_elem(tx_event.msg_buffer);
-		tx_event.msg_buffer = NULL;
+	return true;
+}
+
+static bool process_pending_tx_stream(enum rcp_bus bus, lnk_sts_t *lnk)
+{
+	rcp_schedule_evt_t tx_event;
+	rcp_msg_t send_msg;
+	rcp_pro_packt_t *tx_msg;
+	int rx_credit;
+	uint16_t tx_size;
+	RCP_TX_PROF_BEGIN(proc_start_cycles);
+
+	if (lnk->state != LINK_STATE_HSTA_DEVICE_RUN) {
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return false;
 	}
+
+	if (!peek_tx_event(&lnk->tx_sch, &tx_event, 0)) {
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return false;
+	}
+
+	if (rcp_credit_get(lnk, 0) < 0) {
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return false;
+	}
+
+	RCP_TX_PROF_ACC(RCP_TX_PROF_QUEUE_LATENCY, tx_event.enqueue_ticks);
+
+	rx_credit = nh_rx_credit_prepare(&lnk->flow_ctrl);
+	send_msg.flag = tx_event.msg_flags ? tx_event.msg_flags : RCP_FLAG_DNLD_DATA;
+	send_msg.msg_type = lnk->stream;
+	send_msg.msg_subtype = tx_event.msg_subtype;
+	send_msg.credit_update_flag = (rx_credit >= 0);
+	send_msg.credit_limit_cnt = (rx_credit >= 0) ? (uint8_t)rx_credit : 0;
+	send_msg.payload_ptr = tx_event.msg_buffer;
+
+	if (marshal_rcp_msg(&send_msg) == 0) {
+		rcp_credit_put(lnk);
+		if (get_tx_event(&lnk->tx_sch, &tx_event, 0)) {
+			buffer_mgmt_free_elem(tx_event.msg_buffer);
+		}
+		RCP_LOG_ERR("Failed to marshal data message");
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return true;
+	}
+
+	tx_msg = (rcp_pro_packt_t *)buffer_mgmt_data_ptr(tx_event.msg_buffer);
+	tx_size = RCP_PAYLOAD_SIZE(tx_msg);
+
+	if (!tx_msg_with_retries(bus, tx_event.msg_buffer)) {
+		(void)buffer_mgmt_consume_data(tx_event.msg_buffer, sizeof(rcp_pro_packt_t));
+		rcp_credit_put(lnk);
+		__rcp_bus_set_flags(bus, RCP_BUS_FLAG_TX_PENDING, 0);
+        RCP_LOG_INF("Send message %d stream:%d retry later.", tx_event.msg_flags, tx_event.stream);
+		RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
+		return false;
+	}
+
+	get_tx_event(&lnk->tx_sch, &tx_event, 0);
+
+	if (rx_credit >= 0) {
+		nh_rx_credit_update(&lnk->flow_ctrl, (uint8_t)rx_credit);
+	}
+	lnk->tx_data_packets++;
+	lnk->tx_data_bytes += tx_size;
+	buffer_mgmt_free_elem(tx_event.msg_buffer);
+	RCP_TX_PROF_ACC(RCP_TX_PROF_PROC_TOTAL, proc_start_cycles);
 
 	return true;
 }
@@ -519,6 +697,7 @@ static bool process_pending_tx(enum rcp_bus bus)
 static bool process_pending_rx_credit_updates(enum rcp_bus bus)
 {
 	int i;
+	bool sent = false;
 
 	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
 		lnk_sts_t *lnk = &g_stream_status[i];
@@ -532,10 +711,17 @@ static bool process_pending_rx_credit_updates(enum rcp_bus bus)
 			continue;
 		}
 
-		return (send_rcp_cmd(lnk, RCP_FLAG_CREDIT_UPDATE) == RCP_LNK_SUCCESS);
+		if (!tx_event_is_empty(&lnk->tx_sch)) {
+			continue;
+		}
+
+		if (send_rcp_cmd(lnk, RCP_FLAG_CREDIT_UPDATE) != RCP_LNK_SUCCESS) {
+			break;
+		}
+		sent = true;
 	}
 
-	return false;
+	return sent;
 }
 
 static bool process_rx_once(enum rcp_bus bus)
@@ -611,192 +797,77 @@ void rcp_reset_status_counters(void)
 	}
 }
 
-void rcp_dump_status(void)
-{
-	uint8_t bus_flags = 0;
-	struct rcp_bus_caps caps = {0};
-	rcp_schedule_evt_t head_evt = {0};
-	bool head_valid = false;
-	unsigned long rx_pool_free = 0;
-	unsigned long rx_pool_inflight = 0;
-	unsigned long rx_pool_total = 0;
-	int tx_pending = tx_event_pending_count();
-	int tx_total = tx_event_capacity();
+/* rcp_dump_status() lives in rcp_stat.c. */
 
-	printf("=== Host RCP Status Dump ===\n");
-	printf("Basic Info:\n");
-	printf("  bus: %d\n", g_rcp_bus);
-	printf("  event_loop_thread: %p\n", g_event_loop_thread._thread);
-	printf("  g_rx_buffer_ctrl: %p\n", g_rx_buffer_ctrl);
-
-	if (g_rcp_bus < RCP_BUS_MAX) {
-		(void)rcp_bus_get_flags(g_rcp_bus, &bus_flags);
-		(void)rcp_bus_get_caps(g_rcp_bus, &caps);
-	}
-
-	printf("Bus State:\n");
-	printf("  bus_flags: 0x%02X, rx_ready: %s, tx_pending: %s\n",
-	       bus_flags,
-	       (bus_flags & RCP_BUS_FLAG_RX_DATA) ? "true" : "false",
-	       (bus_flags & RCP_BUS_FLAG_TX_PENDING) ? "true" : "false");
-	printf("  bus_rx_len: %u, bus_mtu: %u\n",
-	       (unsigned int)((g_rcp_bus < RCP_BUS_MAX) ? rcp_bus_get_rx_len(g_rcp_bus) : 0U),
-	       (unsigned int)caps.mtu);
-
-	printf("TX Scheduler:\n");
-	printf("  tx_queue: used: %d/%d, free: %d\n",
-	       tx_pending,
-	       tx_total,
-	       (tx_total >= tx_pending) ? (tx_total - tx_pending) : 0);
-	head_valid = peek_tx_event(&head_evt, 0);
-	if (head_valid && head_evt.msg_buffer != NULL) {
-		rcp_pro_packt_t *head_msg = (rcp_pro_packt_t *)buffer_mgmt_data_ptr(head_evt.msg_buffer);
-		printf("  tx_head: stream=%u(%s), flag=%u(%s), msg_buffer=%p\n",
-		       head_evt.stream,
-		       rcp_stream_name(head_evt.stream),
-		       head_msg->flag,
-		       rcp_flag_name(head_msg->flag),
-		       head_evt.msg_buffer);
-	} else {
-		printf("  tx_head: none\n");
-	}
-
-	printf("Global RX Pool:\n");
-	if (g_rx_buffer_ctrl != NULL) {
-		rx_pool_free = (unsigned long)buffer_mgmt_pool_get_available(g_rx_buffer_ctrl);
-		rx_pool_inflight = rcp_debug_queue_free_slots(&g_rx_buffer_ctrl->pool_queue);
-		rx_pool_total = rx_pool_free + rx_pool_inflight;
-		printf("  %s: %p (free: %lu/%lu, inflight: %lu)\n",
-		       g_rx_buffer_ctrl->name ? g_rx_buffer_ctrl->name : "rcp_rx",
-		       g_rx_buffer_ctrl,
-		       rx_pool_free,
-		       rx_pool_total,
-		       rx_pool_inflight);
-	} else {
-		printf("  g_rx_buffer_ctrl: NULL\n");
-	}
-
-	printf("Streams:\n");
-	for (int i = 0; i < RCP_MSG_TYPE_MAX; i++) {
-		lnk_sts_t *lnk = &g_stream_status[i];
-		unsigned long tx_pool_free = 0;
-		unsigned long tx_pool_inflight = 0;
-		unsigned long tx_pool_total = 0;
-		unsigned long rx_queue_used = 0;
-		unsigned long rx_queue_free = 0;
-
-		if (lnk->buffer_ctrl == NULL && !lnk->rx_queue_enabled &&
-		    lnk->state == LINK_STATE_IDLE && lnk->stream == 0U) {
-			continue;
-		}
-
-		printf("  stream %d (%s):\n", i, rcp_stream_name(i));
-        printf("    lnk: %p, state: %s(%d), error: %d, bus: %d, rx_wnd: %u\n",
-		       lnk,
-		       rcp_link_state_name(lnk->state),
-		       lnk->state,
-		       lnk->error,
-		       lnk->bus,
-		       lnk->rx_wnd);
-		printf("    tag %d (%s):\n",
-		       i,
-		       rcp_stream_name(i));
-		printf("           data pkt tx=%lu rx=%lu, bytes tx=%lu rx=%lu\n",
-		       (unsigned long)lnk->tx_data_packets,
-		       (unsigned long)lnk->rx_data_packets,
-		       (unsigned long)lnk->tx_data_bytes,
-		       (unsigned long)lnk->rx_data_bytes);
-		printf("           ctrl pkt tx=%lu rx=%lu, bytes tx=%lu rx=%lu\n",
-		       (unsigned long)lnk->tx_ctrl_packets,
-		       (unsigned long)lnk->rx_ctrl_packets,
-		       (unsigned long)lnk->tx_ctrl_bytes,
-		       (unsigned long)lnk->rx_ctrl_bytes);
-
-		if (lnk->buffer_ctrl != NULL) {
-			tx_pool_free = (unsigned long)buffer_mgmt_pool_get_available(lnk->buffer_ctrl);
-			tx_pool_inflight = rcp_debug_queue_free_slots(&lnk->buffer_ctrl->pool_queue);
-			tx_pool_total = tx_pool_free + tx_pool_inflight;
-			printf("    tx_buffer_ctrl: %p (%s) free: %lu/%lu, inflight: %lu\n",
-			       lnk->buffer_ctrl,
-			       lnk->buffer_ctrl->name ? lnk->buffer_ctrl->name : "?",
-			       tx_pool_free,
-			       tx_pool_total,
-			       tx_pool_inflight);
-		} else {
-			printf("    tx_buffer_ctrl: NULL\n");
-		}
-
-		if (lnk->rx_queue_enabled) {
-			rx_queue_used = (unsigned long)rcp_os_queue_messages_waiting(&lnk->rx_queue);
-			rx_queue_free = rcp_debug_queue_free_slots(&lnk->rx_queue);
-			printf("    rx_queue: used: %lu/%u, free: %lu\n",
-			       rx_queue_used,
-			       RCP_MAX_RX_EVENTS,
-			       rx_queue_free);
-		} else {
-			printf("    rx_queue: disabled\n");
-		}
-
-		printf("    flow_ctrl: tag=%s, enable_mask=0x%02X\n",
-		       lnk->flow_ctrl.tag ? lnk->flow_ctrl.tag : "?",
-		       lnk->flow_ctrl.enable);
-		rcp_dump_credit_state("tx_credit", &lnk->flow_ctrl.credit[NH_CREDIT_DIR_TX],
-				      (lnk->flow_ctrl.enable & NH_CREDIT_EN_TX) != 0U, true);
-		rcp_dump_credit_state("rx_credit", &lnk->flow_ctrl.credit[NH_CREDIT_DIR_RX],
-				      (lnk->flow_ctrl.enable & NH_CREDIT_EN_RX) != 0U, false);
-	}
-
-	printf("=== End of Host RCP Status Dump ===\n");
-}
-
+/* Drive the per-stream handshake state machine.
+ *
+ * msg may be NULL: the caller is poking the FSM without an incoming
+ * message (e.g. the event loop draining RCP_BUS_FLAG_HANDSHAKE after a
+ * stream was created or after the bus recovered). In that case only
+ * state-driven outbound transitions (HSTA_RESET -> HSTA_HOST_READY) run.
+ *
+ * msg != NULL: a message just arrived from the device; we may both
+ * react to its flag and dispatch its payload to the upper layer. */
 static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg)
 {
 	uint8_t stream;
 	bool upload = false;
+	uint8_t flag;
 
-	if (!hsm || !msg) {
+	if (!hsm) {
 		return -1;
 	}
 
 	stream = hsm->stream;
-	uint8_t flag = msg->flag;
+	flag = (msg != NULL) ? msg->flag : RCP_FLAG_NONE;
 
-	/* Return to the initial state when DEVICE_RESET is received in any state. */
-			if (flag == RCP_FLAG_DEVICE_RESET) {
-			RCP_LOG_WRN("Channel %d: Received DEVICE_RESET, returning to RESET", stream);
-			if (hsm->state != LINK_STATE_HSTA_RESET) {
-				hsm->state = LINK_STATE_HSTA_RESET;
-				nh_credit_reset(&hsm->flow_ctrl);
-			}
+	/* Return to the initial state when DEVICE_RESET is received in any state.
+	 * Falling through into the switch below also kicks the RESET->HOST_READY
+	 * outbound transition in the same call, so the device sees a fresh
+	 * HOST_READY immediately. */
+	if (flag == RCP_FLAG_DEVICE_RESET) {
+		RCP_LOG_WRN("Channel %d: Received DEVICE_RESET, returning to RESET", stream);
+		if (hsm->state != LINK_STATE_HSTA_RESET) {
+			hsm->state = LINK_STATE_HSTA_RESET;
+			nh_credit_reset(&hsm->flow_ctrl);
 		}
+		/* Make sure the event loop revisits this stream even if no further
+		 * RX comes (e.g. DEVICE_RESET followed by silence). */
+		__rcp_bus_set_flags(hsm->bus, RCP_BUS_FLAG_HANDSHAKE, 0);
+	}
 
 	/* State machine */
 	switch (hsm->state) {
-		//case LINK_STATE_HSTA_RESET:
-		//    ret = send_rcp_cmd(stream, RCP_FLAG_HOST_READY);
-		//    if (ret != RCP_LNK_SUCCESS) {
-		//        hsm->state = LINK_STATE_HSTA_ERROR;
-		//    } else {
-		//        hsm->state = LINK_STATE_HSTA_HOST_READY;
-		//    }
-		//	break;
+		case LINK_STATE_HSTA_RESET: {
+			int ret;
 
-        case LINK_STATE_HSTA_HOST_READY:
-            if (flag != RCP_FLAG_DEVICE_READY) {
-                break;
-            }
-        //memcpy(hsm->device_mac, pro_packt->data, 6);
-        //hsm->mac_valid = true;
-            //RCP_LOG_INF("Channel %d: MAC %02X:%02X:%02X:%02X:%02X:%02X", stream,
-            //	   hsm->device_mac[0], hsm->device_mac[1], hsm->device_mac[2],
-            //	   hsm->device_mac[3], hsm->device_mac[4], hsm->device_mac[5]);
-            hsm->state = LINK_STATE_HSTA_DEVICE_READY;
-            break;
+			/* Skip HOST_RESET in the RCP layer: sdio_hal_init_card()
+			 * already issued a CCCR Abort Reset (CMD52 to 0x06 with
+			 * RES bit), which fires the device-side
+			 * sdio2_reset_irq_callback / nh_msg_hw_reset_cb chain.
+			 * That chain has already forced every nh_tty / nh_eth /
+			 * nh_bt_hci stream back to DSTA_IDLE and reset their
+			 * credit, so an extra RCP-level HOST_RESET frame is
+			 * redundant and just costs ~450 us per stream.
+			 *
+			 * Sending HOST_READY directly is enough: device sees it
+			 * in DSTA_IDLE and replies DEVICE_START. */
+			ret = send_rcp_cmd(hsm, RCP_FLAG_HOST_READY);
+			if (ret != RCP_LNK_SUCCESS) {
+				RCP_LOG_ERR("Channel %d: HOST_READY send failed, retry next round", stream);
+				break;
+			}
 
-		case LINK_STATE_HSTA_DEVICE_READY:
+			hsm->state = LINK_STATE_HSTA_HOST_READY;
+			RCP_LOG_DBG("Channel %d: HOST_READY sent, waiting DEVICE_START", stream);
+			break;
+		}
+
+		case LINK_STATE_HSTA_HOST_READY:
 			if (flag != RCP_FLAG_DEVICE_START) {
 				break;
 			}
+            RCP_STAT_RECOVER_STAMP_ONCE(t_first_dev_start_us);
             if (!msg->credit_update_flag || msg->credit_limit_cnt == 0) {
                 RCP_LOG_ERR("Channel %d: DEVICE_START without credit", stream);
                 hsm->state = LINK_STATE_HSTA_ERROR;
@@ -804,9 +875,9 @@ static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg)
             }
             if (nh_credit_init(&hsm->flow_ctrl, NULL,
                        msg->credit_limit_cnt,
-                       RCP_UPLD_CREDIT_UPDATE_THRESHOLD,
+                       hsm->tx_threshold,
                        hsm->rx_wnd,
-                       RCP_UPLD_CREDIT_UPDATE_THRESHOLD) != 0) {
+                       hsm->rx_threshold) != 0) {
                 RCP_LOG_ERR("Channel %d: flow ctrl reinit failed", stream);
                 hsm->state = LINK_STATE_HSTA_ERROR;
                 return -1;
@@ -817,18 +888,29 @@ static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg)
             hsm->state = LINK_STATE_HSTA_DEVICE_RUN;
             RCP_LOG_INF("Channel %d: DEVICE_RUN (credits=%d)", stream,
                 hsm->flow_ctrl.credit[NH_CREDIT_DIR_TX].credit_limit_cnt);
+
+            RCP_STAT_RECOVER_STAMP_STREAM_RUN(stream);
+            if (!tx_event_is_empty(&hsm->tx_sch)) {
+                __rcp_bus_set_flags(hsm->bus, RCP_BUS_FLAG_TX_PENDING, 0);
+            }
             break;
 
 		case LINK_STATE_HSTA_DEVICE_RUN:
 
 			if (flag == RCP_FLAG_CREDIT_UPDATE && msg->credit_update_flag) {
 				rcp_credit_limit_update(hsm, msg->credit_limit_cnt);
+				if (!tx_event_is_empty(&hsm->tx_sch)) {
+					__rcp_bus_set_flags(hsm->bus, RCP_BUS_FLAG_TX_PENDING, 0);
+				}
 			}
 
 			if (flag == RCP_FLAG_UPLD_DATA) {
 				upload = true;
 				if (msg->credit_update_flag) {
 					rcp_credit_limit_update(hsm, msg->credit_limit_cnt);
+					if (!tx_event_is_empty(&hsm->tx_sch)) {
+						__rcp_bus_set_flags(hsm->bus, RCP_BUS_FLAG_TX_PENDING, 0);
+					}
 				}
 			} else if (flag == RCP_FLAG_DEVICE_STOP) {
                 RCP_LOG_INF("Channel %d: Received DEVICE_STOP", stream);
@@ -839,6 +921,12 @@ static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg)
 
 		default:
 			break;
+	}
+
+	/* No incoming message means this was a self-driven FSM kick;
+	 * nothing to dispatch / free. */
+	if (msg == NULL) {
+		return 0;
 	}
 
 	if (dispatch_msg(msg, hsm, upload)) {
@@ -858,11 +946,13 @@ static int rcp_process_msg(lnk_sts_t *hsm, rcp_msg_t *msg)
  * @param stream_id stream ID (RCP_MSG_TYPE_ETH/TTY/WIFI/etc.)
  * @return lnk_sts_t* Pointer to the created stream state, or NULL on failure.
  */
-lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint8_t rx_wnd)
+lnk_sts_t *rcp_stream_create(uint8_t stream_id, const rcp_stream_config_t *conf)
 {
 	lnk_sts_t *lnk_sts_ptr = NULL;
+	uint32_t waited_ms = 0;
 
-	if (stream_id >= RCP_MSG_TYPE_MAX || g_rcp_bus >= RCP_BUS_MAX) {
+	if (stream_id >= RCP_MSG_TYPE_MAX || g_rcp_bus >= RCP_BUS_MAX ||
+	    conf == NULL || conf->tx_cnt == 0U || conf->rx_wnd == 0U) {
 		return NULL;
 	}
 	lnk_sts_ptr = &g_stream_status[stream_id];
@@ -872,17 +962,20 @@ lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint
 
 	/* Initialize lnk_sts_t */
 	lnk_sts_ptr->stream = stream_id;
-	lnk_sts_ptr->state = LINK_STATE_IDLE;
 	lnk_sts_ptr->error = RCP_LNK_SUCCESS;
 	lnk_sts_ptr->bus = g_rcp_bus;
-	lnk_sts_ptr->buffer_ctrl = tx_buf;
-	lnk_sts_ptr->rx_wnd = rx_wnd;
+	lnk_sts_ptr->rx_wnd = conf->rx_wnd;
+	lnk_sts_ptr->rx_threshold = conf->rx_threshold;
+	lnk_sts_ptr->tx_threshold = conf->tx_threshold;
+	lnk_sts_ptr->rx_buffer_ctrl = g_rx_buffer_ctrl;
+	init_tx_queue(&lnk_sts_ptr->tx_sch, g_rcp_bus,
+		      conf->tx_cnt, RCP_BUS_FLAG_TX_PENDING);
 
 	nh_credit_init(&lnk_sts_ptr->flow_ctrl, NULL,
 				   0,
-				   0,
+				   lnk_sts_ptr->tx_threshold,
 				   lnk_sts_ptr->rx_wnd,
-				   RCP_UPLD_CREDIT_UPDATE_THRESHOLD);
+				   lnk_sts_ptr->rx_threshold);
     nh_credit_enable(&lnk_sts_ptr->flow_ctrl, NH_CREDIT_EN_TX | NH_CREDIT_EN_RX);
 
 	if (!rcp_os_queue_init(&lnk_sts_ptr->rx_queue, sizeof(rcp_msg_t), RCP_MAX_RX_EVENTS)) {
@@ -892,19 +985,25 @@ lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint
 
 	lnk_sts_ptr->rx_queue_enabled = true;
 
-	int ret = send_rcp_cmd(lnk_sts_ptr, RCP_FLAG_HOST_RESET);
-	if (ret != RCP_LNK_SUCCESS) {
-		lnk_sts_ptr->state = LINK_STATE_HSTA_ERROR;
-		return NULL;
-	}
+	/* Mark the stream as needing handshake; the event loop's
+	 * RCP_BUS_FLAG_HANDSHAKE handler will drive HOST_RESET -> HOST_READY,
+	 * and rcp_process_msg() will advance us through DEVICE_START ->
+	 * DEVICE_RUN as device replies arrive. Block here until the stream
+	 * reaches DEVICE_RUN (or times out / errors). */
 	lnk_sts_ptr->state = LINK_STATE_HSTA_RESET;
+	__rcp_bus_set_flags(g_rcp_bus, RCP_BUS_FLAG_HANDSHAKE, 0);
 
-	ret = send_rcp_cmd(lnk_sts_ptr, RCP_FLAG_HOST_READY);
-	if (ret != RCP_LNK_SUCCESS) {
-		lnk_sts_ptr->state = LINK_STATE_HSTA_ERROR;
-	} else {
-		lnk_sts_ptr->state = LINK_STATE_HSTA_HOST_READY;
+	while (lnk_sts_ptr->state != LINK_STATE_HSTA_DEVICE_RUN) {
+		if (waited_ms >= RCP_HANDSHAKE_TIMEOUT_MS) {
+			RCP_LOG_WRN("Stream %u: handshake timeout (state=%d)",
+				stream_id, lnk_sts_ptr->state);
+			lnk_sts_ptr->state = LINK_STATE_HSTA_ERROR;
+            break;
+		}
+		rcp_os_delay_ms(RCP_HANDSHAKE_POLL_MS);
+		waited_ms += RCP_HANDSHAKE_POLL_MS;
 	}
+
 	return lnk_sts_ptr;
 }
 
@@ -912,6 +1011,13 @@ lnk_sts_t *rcp_stream_create(uint8_t stream_id, buffer_mgmt_ctrl_t *tx_buf, uint
 link_result_t init_rcp(enum rcp_bus bus)
 {
 	int i;
+	buffer_mgmt_ctrl_init_cfg_t cmd_cfg = {
+		.frame_buff = g_rcp_cmd_buffer_mem,
+		.frame_elem_cnt = RCP_CMD_TX_NUM_BUFFERS,
+		.frame_elem_size = sizeof(g_rcp_cmd_buffer_mem[0]),
+		.frame_data_offset = RCP_CMD_TX_DATA_OFFSET,
+		.name = "rcp_ctl_tx",
+	};
 
 	for (i = 0; i < RCP_MSG_TYPE_MAX; i++) {
 		nh_credit_deinit(&g_stream_status[i].flow_ctrl);
@@ -920,8 +1026,14 @@ link_result_t init_rcp(enum rcp_bus bus)
 	memset(g_stream_status, 0, sizeof(g_stream_status));
 	srand(rcp_os_time_ms());
 
-	init_tx_queue();
+	init_tx_queue(&g_tx_sch_ctrl, bus, RCP_CMD_TX_NUM_BUFFERS, RCP_BUS_FLAG_HANDSHAKE);
+
 	init_rx_queue();
+	g_cmd_buffer_ctrl = buffer_mgmt_create(&cmd_cfg);
+	if (g_cmd_buffer_ctrl == NULL) {
+		RCP_LOG_ERR("Failed to initialize CMD TX buffer pool");
+		return RCP_LNK_ERROR;
+	}
 	init_dispatcher();
 	init_cntrl_status();
 
@@ -938,6 +1050,5 @@ link_result_t init_rcp(enum rcp_bus bus)
 		return RCP_LNK_ERROR;
 	}
 	g_rcp_bus = bus;
-
 	return RCP_LNK_SUCCESS;
 }

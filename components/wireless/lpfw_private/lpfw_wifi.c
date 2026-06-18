@@ -11,7 +11,6 @@
 // #include "ip/lmac/src/mm/mm.h"
 
 //#include "rwnx_platform.h"
-#include "wl_api.h"
 
 #include "qcc74x_lp.h"
 

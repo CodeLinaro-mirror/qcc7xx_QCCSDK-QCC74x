@@ -23,10 +23,10 @@ size0 = 0x1000
 
 ## How to enable
 
-- Please edit proj.conf and set CONFIG_MATTER_MFD to 1.
+- Please edit defconfig and set CONFIG_MATTER_MFD to y.
 
     ```
-    set(CONFIG_MATTER_MFD           1)
+    CONFIG_MATTER_MFD =y
     ```
 
 - Re-build project using following commands:

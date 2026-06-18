@@ -7,10 +7,12 @@
 #include "rfparam_adapter.h"
 
 #include <nethub.h>
-#include <nhsdiowifi.h>
+#include <easyflash.h>
+#include <lwip/tcpip.h>
 
 #include "qcc74x_irq.h"
 #include "qcc74x_uart.h"
+#include "qcc74x_mtd.h"
 #include "qcc743_glb.h"
 #define DBG_TAG "appuser"
 #include "log.h"
@@ -22,6 +24,7 @@
 #define TASK_PRIORITY_FW (16)
 
 extern void app_atmodule_init(void);
+extern int app_pm_init(void);
 
 int app_user_init(void)
 {
@@ -53,25 +56,30 @@ int app_user_init(void)
     qcc74x_irq_enable(WIFI_IRQn);
 
     /* Enable easyflash(littlefs) */
-    if (qcc74x_mtd_init() != 0) {
-        LOG_I("Failed to init MTD!\r\n");
-        return -1;
-    }
+    qcc74x_mtd_init();
     if (easyflash_init() != 0) {
         LOG_I("Failed to init easyflash!\r\n");
         return -1;
     }
     /* nethub init */
-    nethub_sdiowifi_init();
+    if (nethub_bootstrap() != 0) {
+        LOG_I("Failed to init nethub!\r\n");
+        return -1;
+    }
 
     #if CONFIG_NXSDIO_HCI
     btble_sdio_uart_init();
     btble_controller_init(configMAX_PRIORITIES - 1);
-    nethub_sdiohci_init();
     #endif
 
-    /* wifi start */
+    #ifdef LP_APP
+    if (app_pm_init() != 0) {
+        LOG_I("Failed to init power management!\r\n");
+        return -1;
+    }
+    #else
     app_atmodule_init();
+    #endif
 
     return 0;
 }

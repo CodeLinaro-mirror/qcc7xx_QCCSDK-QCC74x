@@ -486,6 +486,7 @@
 #define CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET    0xC2U
 #define CONFIG_DATA_LL_RPA_MODE_OFFSET             0xC3U
 #define CONFIG_DATA_LL_RX_ACL_CTRL_OFFSET          0xC4U
+#define CONFIG_DATA_LL_ISO_SCHED_MODE_OFFSET       0xC5U
 #define CONFIG_DATA_LL_MAX_DATA_EXT_OFFSET         0xD1U
 
 /* Length for configuration values (see ACI_HAL_WRITE_CONFIG_DATA)
@@ -502,6 +503,7 @@
 #define CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_LEN        2
 #define CONFIG_DATA_LL_RPA_MODE_LEN                 1
 #define CONFIG_DATA_LL_RX_ACL_CTRL_LEN              2
+#define CONFIG_DATA_LL_ISO_SCHED_MODE_LEN           1
 #define CONFIG_DATA_LL_MAX_DATA_EXT_LEN             8
 
 /* ------------------------------------------------------------------------- */

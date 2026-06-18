@@ -1,0 +1,1 @@
+stm32_host_Appli.elf stm32_host_Appli.map: ../sdio_hotcode.ld.in

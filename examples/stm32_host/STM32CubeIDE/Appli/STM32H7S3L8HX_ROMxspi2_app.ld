@@ -39,8 +39,8 @@ ENTRY(Reset_Handler)
 /* Memories definition */
 MEMORY
 {
-  RAM           (xrw) : ORIGIN = __RAM,    LENGTH = __RAM_SIZE -__RAM_NONCACHEABLEBUFFER_SIZE
-  RAM_NONCACHEABLEBUFFER (xrw) : ORIGIN = __RAM + __RAM_SIZE - __RAM_NONCACHEABLEBUFFER_SIZE,  LENGTH = __RAM_NONCACHEABLEBUFFER_SIZE
+  RAM           (xrw) : ORIGIN = __RAM,    LENGTH = __RAM_SIZE
+  RAM_NONCACHEABLEBUFFER (xrw) : ORIGIN = __RAM_NONCACHEABLEBUFFER,  LENGTH = __RAM_NONCACHEABLEBUFFER_SIZE
   ITCM          (rw)  : ORIGIN = 0x00000000,  LENGTH = 0x00010000
   DTCM          (xrw) : ORIGIN = 0x20000000,  LENGTH = 0x00010000
   SRAMAHB       (rw)  : ORIGIN = 0x30000000,  LENGTH = 0x00008000
@@ -57,8 +57,10 @@ __FLASH_BEGIN  = 0x70000000;
 __FLASH_SIZE   = 0x08000000;
 
 __RAM          = 0x24000000;
-__RAM_SIZE     = 0x72000;
-__RAM_NONCACHEABLEBUFFER_SIZE = 0x400;
+__RAM_SIZE     = 0x52000;
+__RAM_NONCACHEABLEBUFFER_SIZE = 0x20000;
+__RAM_NONCACHEABLEBUFFER = 0x24052000;
+__RAM_NONCACHEABLEBUFFER_END = __RAM_NONCACHEABLEBUFFER + __RAM_NONCACHEABLEBUFFER_SIZE;
 
 /* Sections */
 SECTIONS
@@ -71,12 +73,25 @@ SECTIONS
     . = ALIGN(4);
   } >FLASH
 
-  /* The program code and other data into "FLASH" Rom type memory */
+  _siitcm_text = LOADADDR(.itcm_text);
+
+  /* SDIO + RCP hot code in 64K ITCM. Put this before the generic .text
+   * catch-all so hot code is maintained only in sdio_hotcode.ld.in. */
+  .itcm_text :
+  {
+    . = ALIGN(4);
+    _sitcm_text = .;
+    INCLUDE ../sdio_hotcode.ld.in
+    . = ALIGN(4);
+    _eitcm_text = .;
+  } >ITCM AT> FLASH
+
+  /* The program code and other data into "FLASH" Rom type memory. */
   .text :
   {
     . = ALIGN(4);
-    *(.text)           /* .text sections (code) */
-    *(.text*)          /* .text* sections (code) */
+    *(.text)
+    *(.text*)
     *(.glue_7)         /* glue arm to thumb code */
     *(.glue_7t)        /* glue thumb to arm code */
     *(.eh_frame)
@@ -141,7 +156,6 @@ SECTIONS
     PROVIDE_HIDDEN (__fini_array_end = .);
     . = ALIGN(4);
   } >FLASH
-
   /* Used by the startup to initialize data */
   _sidata = LOADADDR(.data);
 
@@ -225,12 +239,22 @@ SECTIONS
   PROVIDE( __bss_size = __bss_end - __bss_start );
 
 
-  RW_NONCACHEABLE :
+  RW_NONCACHEABLE (NOLOAD) :
   {
+    . = ALIGN(32);
     __NONCACHEABLEBUFFER_BEGIN = .;/* create symbol for start of section */
-    KEEP(*(noncacheable_buffer))
+    KEEP(*(noncacheable_buffer*))
+    . = ALIGN(32);
     __NONCACHEABLEBUFFER_END = .;  /* create symbol for start of section */
   } > RAM_NONCACHEABLEBUFFER
+
+  .dtcm_bss (NOLOAD) :
+  {
+    . = ALIGN(32);
+    *(.dtcm_bss)
+    *(.dtcm_bss*)
+    . = ALIGN(32);
+  } >DTCM
 
   /* User_heap_stack section, used to check that there is enough "RAM" Ram  type memory left */
   ._user_heap_stack (NOLOAD) :

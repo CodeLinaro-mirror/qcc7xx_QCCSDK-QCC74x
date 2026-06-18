@@ -522,6 +522,7 @@ static void bt_enable_cb(int err)
                bt_addr.a.val[5], bt_addr.a.val[4], bt_addr.a.val[3], bt_addr.a.val[2], bt_addr.a.val[1], bt_addr.a.val[0]);
         AT_BLE_PRINTF("SUPPORT %d CONN\r\n",BLE_CONN_MAX_NUM);
         bt_conn_cb_register(&ble_conn_callbacks);
+        g_ble_is_inited = 2;
     }
 }
 
@@ -821,6 +822,9 @@ void ble_dynamic_rd_cb(struct bt_conn *conn,const struct bt_gatt_attr* attr,u8_t
     struct ble_conn_data *conn_data = ble_conn_data_get_by_conn(conn);
     if (conn_data == NULL)
         return;
+
+    /* Notify AT host that a remote client issued a read request. */
+    at_response_string("+BLE:READPERMISSION:%d,%d,%d\r\n", conn_data->idx, srv_idx, char_idx);
 
     // Initialize length to 0
     *length = 0;
@@ -2763,8 +2767,11 @@ int at_ble_dis_set(char* dis_name, char* dis_value, int dis_value_len)
 #endif
 int at_ble_init(int role)
 {
+    AT_MODULE_INIT_WAIT(at_wifi_is_busy);
+
     if (g_ble_is_inited == 0&&role != BLE_DISABLE) {
 
+        g_ble_is_inited = 1;
        if (!atomic_test_bit(bt_dev.flags, BT_DEV_ENABLE))
         {
             // Initialize BLE controller
@@ -2777,7 +2784,6 @@ int at_ble_init(int role)
             hci_driver_init();
             bt_enable(bt_enable_cb);
         }
-        g_ble_is_inited = 1;
     }
     else {
         if(role ==BLE_DISABLE)
@@ -2878,4 +2884,9 @@ int at_ble_start(void)
 int at_ble_stop(void)
 {
     return 0;
+}
+
+bool at_ble_is_busy(void)
+{
+    return (g_ble_is_inited == 1);
 }

@@ -48,7 +48,7 @@
 static struct qcc74x_device_s *uart0;
 
 extern void __libc_init_array(void);
-#if defined(OT_SERIAL_SHELL)
+#if CONFIG_SHELL
 extern void shell_init_with_task(struct qcc74x_device_s *shell);
 #endif
 
@@ -310,12 +310,10 @@ int main(void)
 #endif
 
     uart0 = qcc74x_device_get_by_name("uart0");
-#if defined(OT_SERIAL_SHELL)
+#if CONFIG_SHELL
     shell_init_with_task(uart0);
-#elif defined (OT_SERIAL_UART)
-    ot_uart_init(uart0);
 #else
-    #error "No serial interface specified."
+    ot_uart_init(uart0);
 #endif
 
 #if CONFIG_WIFI6

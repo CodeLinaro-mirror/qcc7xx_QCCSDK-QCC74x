@@ -24,7 +24,7 @@
 #define LWIP_NETCONN_THREAD_SEM_GET() sys_thread_sem_get()
 
 #define DNS_MAX_SERVERS               3
-#define TCPIP_MBOX_SIZE               64
+#define TCPIP_MBOX_SIZE               16
 #define TCPIP_THREAD_STACKSIZE        512
 #define TCPIP_THREAD_PRIO             28
 
@@ -32,37 +32,46 @@
 
 #define DEFAULT_THREAD_STACKSIZE      1024
 #define DEFAULT_THREAD_PRIO           1
-#define DEFAULT_RAW_RECVMBOX_SIZE     32
-#define DEFAULT_UDP_RECVMBOX_SIZE     64
-#define DEFAULT_TCP_RECVMBOX_SIZE     64
-#define DEFAULT_ACCEPTMBOX_SIZE       32
+#define DEFAULT_RAW_RECVMBOX_SIZE     4
+#define DEFAULT_UDP_RECVMBOX_SIZE     4
+#define DEFAULT_TCP_RECVMBOX_SIZE     4
+#define DEFAULT_ACCEPTMBOX_SIZE       4
 
 #define LWIP_NETIF_LOOPBACK           1
 #define LWIP_HAVE_LOOPIF              1
 #define LWIP_LOOPBACK_MAX_PBUFS       0
+#define LWIP_DHCP_DOES_ACD_CHECK      0
 
 #define LWIP_CHKSUM_ALGORITHM         3
 #define LWIP_TCPIP_CORE_LOCKING_INPUT 1
 
 #define PBUF_LINK_ENCAPSULATION_HLEN  388
 
-#define MEMP_NUM_NETBUF               32
-#define MEMP_NUM_NETCONN              16
-#define MEMP_NUM_UDP_PCB              16
+#define IP_REASS_MAX_PBUFS            (2 * CONFIG_MAC_RXQ_DEPTH - 2)
 
-#define MAC_TXQ_DEPTH                 8
-#define MAC_RXQ_DEPTH                 12
+#define MEMP_NUM_NETBUF               2
+#define MEMP_NUM_ALTCP_PCB            1
+#define MEMP_NUM_UDP_PCB              2
+#define MEMP_NUM_TCP_PCB              1
+#define MEMP_NUM_RAW_PCB              1
+#define MEMP_NUM_TCP_PCB_LISTEN       1
+#define MEMP_NUM_NETCONN              (MEMP_NUM_TCP_PCB + MEMP_NUM_TCP_PCB_LISTEN + 2)
+#define MEMP_NUM_REASSDATA            1
+#define MEMP_NUM_ND6_QUEUE            1
+#define MEMP_NUM_FRAG_PBUF            1
 
-#define IP_REASS_MAX_PBUFS            (2 * MAC_RXQ_DEPTH - 2)
-#define MEMP_NUM_REASSDATA            LWIP_MIN((IP_REASS_MAX_PBUFS), 5)
+#define MAC_TXQ_DEPTH                 CONFIG_MAC_TXQ_DEPTH
+#define MAC_RXQ_DEPTH                 CONFIG_MAC_RXQ_DEPTH
+
+//#define TCP_OOSEQ_MAX_PBUFS           MAC_RXQ_DEPTH
 
 #define TCP_MSS                       (1500 - 40)
-#define TCP_WND                       (2 * MAC_RXQ_DEPTH * TCP_MSS)
-#define TCP_SND_BUF                   (4 * TCP_MSS)
+#define TCP_WND                       (2 * TCP_MSS)
+#define TCP_SND_BUF                   (2 * TCP_MSS)
 
-#define TCP_QUEUE_OOSEQ               1
+#define TCP_QUEUE_OOSEQ               0
 #define MEMP_NUM_TCP_SEG              ((4 * TCP_SND_BUF) / TCP_MSS)
-#define MEMP_NUM_PBUF                 (TCP_SND_BUF / TCP_MSS)
+#define MEMP_NUM_PBUF                 4
 #define PBUF_POOL_SIZE                0
 #define LWIP_WND_SCALE                1
 #define TCP_RCV_SCALE                 2
@@ -76,7 +85,7 @@
 #define MEM_MIN                       MEM_MIN_TCP
 #define MEM_ALIGNMENT                 4
 
-#define MEMP_NUM_SYS_TIMEOUT          (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 8)
+#define MEMP_NUM_SYS_TIMEOUT          (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 2)
 
 #ifdef LWIP_HEAP_SIZE
 #define MEM_SIZE LWIP_HEAP_SIZE
@@ -131,39 +140,8 @@ extern int *__errno(void);
 
 #define ETHARP_SUPPORT_STATIC_ENTRIES 1
 
-#if CONFIG_IPV6
-#define LWIP_IPV6                     1
-#endif
-
 #define LWIP_SUPPORT_CUSTOM_PBUF      1
-#ifdef HIGH_PERFORMANCE_PBUF
-#define LWIP_NETIF_TX_SINGLE_PBUF 0
-#else
 #define LWIP_NETIF_TX_SINGLE_PBUF 1
-#endif
-
-#ifdef CONFIG_LWIP_PBUF_CUSTOM_EXT_ENABLE
-#define LWIP_PBUF_CUSTOM_DATA         struct flag { \
-    uint32_t eth_to_macsw         :1;\
-    uint32_t unused               :31;\
-    void (*pri)(void *pri, void *frame_elem); \
-    uint32_t pri_arg; \
-  } custom_flags;
-#endif
-
 #define LWIP_RAND()                                      ((u32_t)random())
-
-#define CONFIG_LWIP_NETCONN_DUPLEX    1
-#ifdef CONFIG_LWIP_NETCONN_DUPLEX
-#define LWIP_NETCONN_FULLDUPLEX       1
-#define LWIP_NETCONN_SEM_PER_THREAD   1
-
-void *sys_thread_sem_get(void);
-void sys_thread_sem_init(void);
-void sys_thread_sem_deinit(void);
-#define LWIP_NETCONN_THREAD_SEM_GET()   sys_thread_sem_get()
-#define LWIP_NETCONN_THREAD_SEM_ALLOC() sys_thread_sem_init()
-#define LWIP_NETCONN_THREAD_SEM_FREE()  sys_thread_sem_deinit()
-#endif
 
 #endif /* LWIP_HDR_LWIPOPTS_H__ */

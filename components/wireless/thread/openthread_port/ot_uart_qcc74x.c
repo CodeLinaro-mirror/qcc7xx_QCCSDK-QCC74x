@@ -4,7 +4,6 @@
 #include <mem.h>
 
 #include <openthread_port.h>
-#include <utils/uart.h>
 
 #ifndef OT_SERIAL_BUFFER_SIZE
 #define OT_SERIAL_BUFFER_SIZE 512

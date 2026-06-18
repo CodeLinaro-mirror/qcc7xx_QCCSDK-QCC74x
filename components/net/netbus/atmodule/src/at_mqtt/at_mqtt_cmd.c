@@ -53,6 +53,9 @@
 #define AT_MQTT_USERNAME_MAX_LEN         128
 #define AT_MQTT_PASSWD_MAX_LEN           128
 #define AT_MQTT_BNUFFER_SIZE_MAX         (3*1024)
+#define AT_MQTT_SOCKET_FD_INVALID        (-1)
+#define AT_MQTT_SOCKET_FD_IS_VALID(fd)   ((fd) >= LWIP_SOCKET_OFFSET && \
+                                          (fd) < (LWIP_SOCKET_OFFSET + MEMP_NUM_NETCONN))
 #define _at_offset(type, member) ((size_t) &((type *)0)->member)
 
 #define _at_container_of(ptr, type, member) \
@@ -254,7 +257,7 @@ static int open_nb_socket(struct custom_socket_handle *sockfd, int linkid, uint8
                                        (const char *)at_ssl_sni_get(linkid), 
                                        (const char **)g_at_mqtt[linkid].ssl_alpn, 
                                         g_at_mqtt[linkid].ssl_alpn_num);
-        if (ret > 0) {
+        if (AT_MQTT_SOCKET_FD_IS_VALID(ret)) {
             sockfd->ctx.ssl_ctx = &g_at_mqtt[linkid].ctx->ssl;
         } else {
             sockfd->ctx.ssl_ctx = NULL;
@@ -263,7 +266,7 @@ static int open_nb_socket(struct custom_socket_handle *sockfd, int linkid, uint8
         break;
 
       default:
-        sockfd->ctx.fd = -1;
+        sockfd->ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
         break;
     }
 
@@ -281,25 +284,31 @@ static int open_nb_socket(struct custom_socket_handle *sockfd, int linkid, uint8
 
 static void client_refresher_task(void* arg);
 
-static void socketfd_close(mqtt_pal_socket_handle sockfd)
+static void socketfd_close(int linkid, mqtt_pal_socket_handle sockfd)
 {
-    if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TCP && sockfd->ctx.fd > 0) {
+    if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TCP && AT_MQTT_SOCKET_FD_IS_VALID(sockfd->ctx.fd)) {
         close(sockfd->ctx.fd);
-        sockfd->ctx.fd = 0;
+        sockfd->ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
     }
 
     if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TLS && sockfd->ctx.ssl_ctx) {
         ssl_param_t *ssl_param = (ssl_param_t *)_at_container_of(sockfd->ctx.ssl_ctx, ssl_param_t, ssl);
+        int tls_fd = ssl_param->net.fd;
+
         mbedtls_ssl_close(ssl_param);
-        close(ssl_param->net.fd);
-        ssl_param->net.fd = 0;
+        if (AT_MQTT_SOCKET_FD_IS_VALID(tls_fd)) {
+            close(tls_fd);
+        }
         sockfd->ctx.ssl_ctx = NULL;
+        if (linkid >= 0 && linkid < AT_MQTT_LINK_MAX && g_at_mqtt[linkid].ctx == ssl_param) {
+            g_at_mqtt[linkid].ctx = NULL;
+        }
     }
 }
 
 static uint8_t socketfd_is_connected(mqtt_pal_socket_handle sockfd)
 {
-    if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TCP && sockfd->ctx.fd > 0) {
+    if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TCP && AT_MQTT_SOCKET_FD_IS_VALID(sockfd->ctx.fd)) {
         return 1;
     }
 
@@ -317,6 +326,13 @@ static void mqtt_buf_free(at_mqtt_t *pat_mqtt)
     pat_mqtt->p_recvbuf = NULL;
 }
 
+static void mqtt_wait_refresher_exit(int linkid)
+{
+    for (int i = 0; i < 20 && g_at_mqtt[linkid].client_task != NULL; i++) {
+        vTaskDelay(50);
+    }
+}
+
 /**
  * @brief Safelty closes the \p sockfd and cancels the \p client_daemon before \c exit.
  */
@@ -325,7 +341,7 @@ static void mqtt_close(int linkid)
     if (socketfd_is_connected(&g_at_mqtt[linkid].sockfd)) {
         at_response_string("+MQTT:DISCONNECTED,%d\r\n", linkid);
     }
-    socketfd_close(&g_at_mqtt[linkid].sockfd);
+    socketfd_close(linkid, &g_at_mqtt[linkid].sockfd);
 
     g_at_mqtt[linkid].state = AT_MQTT_STATE_DISCONNECT;
     
@@ -376,7 +392,7 @@ static void reconnect_client(struct mqtt_client* client, void **reconnect_state_
         if (socketfd_is_connected(client->socketfd)) {
             at_response_string("+MQTT:DISCONNECTED,%d\r\n", 0);
         }
-        socketfd_close(client->socketfd);
+        socketfd_close(0, client->socketfd);
 
         reconnect_state->state = AT_MQTT_STATE_DISCONNECT;
     }
@@ -935,8 +951,13 @@ static int at_setup_cmd_mqttconn(int argc, const char **argv)
            g_at_mqtt[linkid].user_name, g_at_mqtt[linkid].password);
 
     if (g_at_mqtt[linkid].p_sendbuf || g_at_mqtt[linkid].p_recvbuf) {
-        printf("mqtt buffer not free\r\n");
-        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_ALLOWED);
+        if (g_at_mqtt[linkid].client_task == NULL) {
+            printf("mqtt buffer not free (task exited), force clearing\r\n");
+            mqtt_buf_free(&g_at_mqtt[linkid]);
+        } else {
+            printf("mqtt buffer not free\r\n");
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_ALLOWED);
+        }
     }
 
     g_at_mqtt[linkid].p_sendbuf = at_calloc(AT_MQTT_BNUFFER_SIZE_MAX, 1);
@@ -1056,9 +1077,9 @@ static int at_setup_cmd_mqttpub(int argc, const char **argv)
     }
 
     if (retain) {
-        publish_flags |= MQTT_CONNECT_WILL_RETAIN;
+        publish_flags |= MQTT_PUBLISH_RETAIN;
     }
-   
+
     if (mqtt_publish(&g_at_mqtt[linkid].client, (const char *)topic_name, msg, strlen(msg), publish_flags) != MQTT_OK) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
     }
@@ -1109,9 +1130,9 @@ static int at_setup_cmd_mqttpubraw(int argc, const char **argv)
     }
 
     if (retain) {
-        publish_flags |= MQTT_CONNECT_WILL_RETAIN;
+        publish_flags |= MQTT_PUBLISH_RETAIN;
     }
- 
+
     buffer = at_malloc(length + 1);
     if (!buffer) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
@@ -1261,16 +1282,26 @@ static int at_setup_cmd_mqttclean(int argc, const char **argv)
     if (mqtt_linkid_valid(linkid)) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
-    if (!socketfd_is_connected(&g_at_mqtt[linkid].sockfd)) {
-        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_ALLOWED);
-    }
-
-    if (mqtt_disconnect(&g_at_mqtt[linkid].client) == MQTT_OK) {
+    if (socketfd_is_connected(&g_at_mqtt[linkid].sockfd) &&
+        mqtt_disconnect(&g_at_mqtt[linkid].client) == MQTT_OK) {
         mqtt_sync(&g_at_mqtt[linkid].client);
     }
 
-    mqtt_handle_clear(linkid);
     mqtt_close(linkid);
+    g_at_mqtt[linkid].refresher_run = 0;
+    mqtt_wait_refresher_exit(linkid);
+
+    if (g_at_mqtt[linkid].client_task != NULL) {
+        printf("mqtt_clean: refresher task still running\r\n");
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NOT_ALLOWED);
+    }
+
+    if (g_at_mqtt[linkid].p_sendbuf || g_at_mqtt[linkid].p_recvbuf) {
+        printf("mqtt_clean: force freeing stale buffers\r\n");
+        mqtt_buf_free(&g_at_mqtt[linkid]);
+    }
+
+    mqtt_handle_clear(linkid);
     return AT_RESULT_CODE_OK;
 }
 
@@ -1386,6 +1417,7 @@ static const at_cmd_struct at_mqtt_cmd[] = {
 int at_mqtt_init()
 {
     for (int i = 0; i < AT_MQTT_LINK_MAX; i++) {
+        g_at_mqtt[i].sockfd.ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
         g_at_mqtt[i].connect_flags = MQTT_CONNECT_CLEAN_SESSION;
 
         g_at_mqtt[i].client.publish_response_callback_state = (void *)i;

@@ -10,7 +10,6 @@ sdk_add_include_directories(littlefs)
 sdk_library_add_sources(port/lfs_xip_flash.c)
 sdk_add_include_directories(port)
 
-sdk_add_compile_definitions(-DCONFIG_LITTLEFS)
 if(CONFIG_FREERTOS)
     sdk_add_compile_definitions(-DLFS_THREADSAFE)
 endif()

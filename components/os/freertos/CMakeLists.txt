@@ -14,11 +14,6 @@ sdk_library_add_sources_ifdef(CONFIG_PS_EXTEND freertos_helper/ps_extend.c porta
 sdk_add_include_directories(include)
 sdk_add_include_directories_ifdef(CONFIG_PS_EXTEND freertos_helper/include)
 
-sdk_add_compile_definitions(-DCONFIG_FREERTOS)
-sdk_add_compile_definitions_ifdef(CONFIG_PS_EXTEND -DCONFIG_PS_EXTEND)
-
-sdk_add_compile_definitions_ifdef(CONFIG_HIGH_ISR_STACK -DCONFIG_HIGH_ISR_STACK)
-
 if(("${CHIP}" STREQUAL "qcc74x_undef") AND ("${CPU_ID}" STREQUAL "d0"))
 sdk_library_add_sources(portable/GCC/RISC-V/c906/port.c)
 sdk_library_add_sources(portable/GCC/RISC-V/c906/portASM.S)
@@ -49,5 +44,4 @@ sdk_library_add_sources(posix/source/FreeRTOS_POSIX_unistd.c)
 sdk_library_add_sources(posix/source/FreeRTOS_POSIX_utils.c)
 sdk_add_include_directories(posix/include)
 sdk_add_include_directories(posix/include/FreeRTOS_POSIX)
-sdk_add_compile_definitions(-DCONFIG_POSIX)
 endif()

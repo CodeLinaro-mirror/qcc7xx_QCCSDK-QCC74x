@@ -214,7 +214,7 @@ To use the custom partition configuration:
 2. Set the override variable in your configuration file:
 
    ```bash
-   set(CONFIG_OVERRIDE_PTFILE 4M_KV.toml)
+   CONFIG_OVERRIDE_PTFILE =4M_KV.toml
    ```
 3. Rebuild the project:
    ```bash

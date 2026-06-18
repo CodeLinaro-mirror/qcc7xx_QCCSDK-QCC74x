@@ -79,7 +79,7 @@ SECTIONS
     .text :
     {
         . = ALIGN(4);
-        __text_code_start__ = .;
+        __rom_code_start__ = .;
 
         *(.text)
         *(.text.*)
@@ -142,7 +142,22 @@ SECTIONS
         /* _dump_sections for qcc74x_coredump.c*/
 
         . = ALIGN(4);
-        __text_code_end__ = .;
+        __mem_copy_sections = ABSOLUTE(.);
+        LONG(__nocache_ram_data_start__); LONG(__nocache_ram_data_end__); LONG(__nocache_ram_load_addr);
+        LONG(__tcm_code_start__);         LONG(__tcm_code_end__);         LONG(__itcm_load_addr);
+        LONG(__tcm_data_start__);         LONG(__tcm_data_end__);         LONG(__dtcm_load_addr);
+        LONG(__ram_data_start__);         LONG(__ram_data_end__);         LONG(__ram_load_addr);
+        LONG(__psram_data_start__);       LONG(__psram_data_end__);       LONG(__psram_load_addr);
+        LONG(0xffffffff);                 LONG(0xffffffff);               LONG(0xffffffff);
+
+        . = ALIGN(4);
+        __mem_setz_sections = ABSOLUTE(.);
+        LONG(__bss_start__);              LONG(__bss_end__);
+        LONG(__wifi_bss_start);           LONG(__wifi_bss_end);
+        LONG(0xffffffff);                 LONG(0xffffffff);
+
+        . = ALIGN(4);
+        __rom_code_end__ = .;
     } > xip_memory
 
     .build_id :
@@ -389,4 +404,3 @@ SECTIONS
     PROVIDE(__LD_CONFIG_EM_SEL = __EM_SIZE);
     ASSERT((wifi_ram_max_size + __EM_SIZE) <= 160K,"wifi ram overflow")
 }
-

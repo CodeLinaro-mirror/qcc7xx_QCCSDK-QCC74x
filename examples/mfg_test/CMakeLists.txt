@@ -1,18 +1,12 @@
 cmake_minimum_required(VERSION 3.15)
-
-include(proj.conf)
-
 find_package(qcc74x_sdk REQUIRED HINTS $ENV{QCC74x_SDK_BASE})
 
 # User
-sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
 sdk_add_compile_definitions(-DQCC74x_VERIFY)
 sdk_add_compile_definitions(-DMFG_GU_QCC743)
 sdk_add_compile_definitions(-DMFG_PSRAM_TEST)
-sdk_add_compile_definitions(-DCONFIG_XTAL_SELECT_EN)
 
 if(CONFIG_CHERRYUSB)
-    sdk_add_compile_definitions(-D CONFIG_MFG_USB_HOST_TEST)
     target_sources(app PRIVATE msc_fatfs_template.c)
 endif()
 

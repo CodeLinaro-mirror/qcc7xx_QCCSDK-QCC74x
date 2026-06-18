@@ -26,9 +26,11 @@
 //#define CONFIG_EXTRA_SIZE_OPT
 #define CONFIG_RANDOM_OPT
 #define CONFIG_EAP_SERVER
+#ifdef CONFIG_WFA
 #define CONFIG_WNM
 #define CONFIG_MBO
 #define CONFIG_RRM
+#endif
 /* #define CONFIG_DFS */
 
 #define IEEE8021X_EAPOL
@@ -103,7 +105,9 @@
 #define CONFIG_NO_VLAN
 #define EAP_SERVER
 #define EAP_SERVER_IDENTITY
+#ifdef CONFIG_WFA
 #define CONFIG_WNM_AP
+#endif
 #define CONFIG_WPS
 #define IEEE8021X_EAPOL
 #define EAP_WSC

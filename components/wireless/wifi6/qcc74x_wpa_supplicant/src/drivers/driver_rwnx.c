@@ -28,6 +28,11 @@
 #include "eloop_rtos.h"
 #include "export/mac/mac_ie.h"
 
+#ifdef CONFIG_WFA
+/* Sentinel symbol for CI verification: nm <elf> | grep __ci_wfa_sentinel */
+volatile int __ci_wfa_sentinel = 1;
+#endif
+
 #define TX_FRAME_TO_MS 300
 
 #define MAC_FMT "%02X:%02X:%02X:%02X:%02X:%02X"
@@ -1574,6 +1579,7 @@ static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 #endif
 #ifdef CONFIG_WFA
     capa->flags |= WPA_DRIVER_FLAGS_OBSS_SCAN;
+    printf("CI: WFA macro active, sentinel=%d\r\n", __ci_wfa_sentinel);
 #endif
 
 	capa->wmm_ac_supported = 0;

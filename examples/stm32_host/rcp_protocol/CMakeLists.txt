@@ -13,6 +13,7 @@ add_library(qualcomm_rcp_protocol
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_tx_scheduler.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_cntrl_msgs.c
     ${CMAKE_CURRENT_LIST_DIR}/src/rcp_error_codes.c
+    ${CMAKE_CURRENT_LIST_DIR}/src/rcp_stat.c
 )
 
 target_include_directories(qualcomm_rcp_protocol PUBLIC

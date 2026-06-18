@@ -5,6 +5,7 @@
 #include "nh_credit_flow.h"
 #include "rcp_definitions.h"
 #include "rcp_bus.h"
+#include "rcp_tx_scheduler.h"
 
 #include <stdbool.h>
 
@@ -28,9 +29,8 @@ enum rcp_flag {
     RCP_FLAG_HOST_READY, /**< Host ready, device enters DSTA_HOST_READY */
     RCP_FLAG_HOST_STOP,  /**< Host stop, device enters DSTA_IDLE */
     RCP_FLAG_DEVICE_RESET, /**< Device reset, host enters HSTA_HOST_READY */
-    RCP_FLAG_DEVICE_READY, /**< Device ready (must carry MAC address), host enters HSTA_DEVICE_READY */
-    RCP_FLAG_DEVICE_START, /**< Device start (must carry initial flow control), host enters HSTA_DEVICE_RUN */
-    RCP_FLAG_DEVICE_STOP,  /**< Device stop, host enters HSTA_DEVICE_READY */
+    RCP_FLAG_DEVICE_START, /**< Device start (may carry stream setup payload and initial flow control), host enters HSTA_DEVICE_RUN */
+    RCP_FLAG_DEVICE_STOP,  /**< Device stop, host enters HSTA_RESET */
     RCP_FLAG_CREDIT_UPDATE, /**< Standalone flow control update when no DNLD_DATA */
     RCP_FLAG_MAX, /**< Maximum flag value */
 };
@@ -54,8 +54,7 @@ typedef enum {
 	LINK_STATE_ACTIVE,       // Link insync for data transfer
 	LINK_STATE_FAULT,        // Link error can not do data transfer
 	LINK_STATE_HSTA_RESET = 10,       /**< Reset state, needs to send HOST_READY */
-	LINK_STATE_HSTA_HOST_READY,        /**< Host ready, waiting for DEVICE_READY */
-	LINK_STATE_HSTA_DEVICE_READY,      /**< Device ready, waiting for DEVICE_START */
+	LINK_STATE_HSTA_HOST_READY,        /**< Host ready, waiting for DEVICE_START */
 	LINK_STATE_HSTA_DEVICE_RUN,        /**< Normal operation state */
 	LINK_STATE_HSTA_ERROR,             /**< Handshake error state */
 } link_state_t;
@@ -78,7 +77,10 @@ typedef struct {
 	enum rcp_bus bus;
 	nh_flow_cntrl_t flow_ctrl;
 	uint8_t rx_wnd;
-	buffer_mgmt_ctrl_t *buffer_ctrl;
+	uint8_t rx_threshold;
+	uint8_t tx_threshold;
+	buffer_mgmt_ctrl_t *rx_buffer_ctrl;
+	rcp_tx_sch_t tx_sch;
 	bool rx_queue_enabled;
 	rcp_queue_t rx_queue;
 	volatile uint32_t tx_data_packets;
@@ -125,7 +127,10 @@ void build_nack_to_rxmsg(rcp_msg_ptr_t msg_ptr,
  * \return false In case of a failure (e.g. TX queue full). The function will NOT free the payload
  * buffer, letting user decide what to do with the data.
  */
-bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms);
+/* Forward declaration; full type defined in rcp_tx_scheduler.h. */
+struct rcp_tx_sch_t;
+
+bool send_rcp_msg(struct rcp_tx_sch_t *sch, rcp_msg_ptr_t send_msg, uint32_t timeout_ms);
 
 /** TX message over chosen bus.
  *

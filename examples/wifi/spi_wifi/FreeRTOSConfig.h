@@ -84,7 +84,7 @@ static inline void resetCycleCounter() {
 #define configSUPPORT_STATIC_ALLOCATION         1
 #define configUSE_PREEMPTION                    1
 #define configUSE_IDLE_HOOK                     0
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
 #define configUSE_TICK_HOOK                     1
 #else
 #define configUSE_TICK_HOOK                     0

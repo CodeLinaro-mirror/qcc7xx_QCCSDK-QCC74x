@@ -50,14 +50,14 @@ The boot2, APP firmware and mfg firmware use the same key. For example, the key 
 
     $ cp boot2_qcc743_isp_release_<version>.bin mfg_qcc743_gu_<version>.bin ../config
 
-2. Enter the testcase directory, and update the proj.conf file by adding the following content.
+2. Enter the testcase directory, and update the defconfig file by adding the following content.
 
 .. code-block:: bash
 
     $ cd examples/wifi/sta/wifi_http
-    update proj.conf:
-    set(CONFIG_AES_KEY 12345678123456781234567812345678)
-    set(CONFIG_AES_IV 12345678123456781234567800000000)
+    update defconfig:
+    CONFIG_AES_KEY =12345678123456781234567812345678
+    CONFIG_AES_IV =12345678123456781234567800000000
 
 3. Execute 'make' in the testcase directory.
 
@@ -104,14 +104,14 @@ The boot2, APP firmware and mfg firmware use the same key.
 
     $ cp boot2_qcc743_isp_release_<version>.bin mfg_qcc743_gu_<version>.bin ../config
 
-2. Enter the testcase directory, and update the proj.conf file by adding the following content.
+2. Enter the testcase directory, and update the defconfig file by adding the following content.
 
 .. code-block:: bash
 
     $ cd examples/wifi/sta/wifi_http
-    update proj.conf:
-    set(CONFIG_PUBLIC_KEY publickey_uecc.pem)
-    set(CONFIG_PRIVATE_KEY privatekey_uecc.pem)
+    update defconfig:
+    CONFIG_PUBLIC_KEY =publickey_uecc.pem
+    CONFIG_PRIVATE_KEY =privatekey_uecc.pem
 
 3. Execute 'make' in the testcase directory, You can sign both boot2 and firmwares together:
 
@@ -146,16 +146,16 @@ The boot2, APP firmware and mfg firmware use the same key.
 
     $ cp boot2_qcc743_isp_release_<version>.bin mfg_qcc743_gu_<version>.bin ../config
 
-2. Enter the testcase directory, and update the proj.conf file by adding the following content.
+2. Enter the testcase directory, and update the defconfig file by adding the following content.
 
 .. code-block:: bash
 
     $ cd examples/wifi/sta/wifi_http
-    update proj.conf:
-    set(CONFIG_AES_KEY 12345678123456781234567812345678)
-    set(CONFIG_AES_IV 12345678123456781234567800000000)
-    set(CONFIG_PUBLIC_KEY publickey_uecc.pem)
-    set(CONFIG_PRIVATE_KEY privatekey_uecc.pem)
+    update defconfig:
+    CONFIG_AES_KEY =12345678123456781234567812345678
+    CONFIG_AES_IV =12345678123456781234567800000000
+    CONFIG_PUBLIC_KEY =publickey_uecc.pem
+    CONFIG_PRIVATE_KEY =privatekey_uecc.pem
 
 3. Execute 'make' in testcase directory.
 

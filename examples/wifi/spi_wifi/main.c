@@ -44,7 +44,7 @@
 #include "app_spiwifi.h"
 #include "app_pm.h"
 
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
 #include "lmac154.h"
 #include "openthread_port.h"
 #include "openthread/ncp.h"
@@ -62,7 +62,7 @@
 
 static struct qcc74x_device_s *uart0;
 extern void shell_init_with_task(struct qcc74x_device_s *shell);
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
 extern void __libc_init_array(void);
 #endif
 
@@ -73,7 +73,7 @@ void app_init_entry(void *param)
 {
     app_spiwifi_init();
 
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
     otRadio_opt_t opt;
 
     opt.byte = 0;
@@ -88,7 +88,7 @@ void app_init_entry(void *param)
     vTaskDelete(NULL);
 }
 
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
 void vApplicationTickHook( void )
 {
     lmac154_monitor();
@@ -124,7 +124,7 @@ void at_minidump_init(uint32_t, size_t);
 #else
     board_spi0_gpio_init();
 #endif 
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
     __libc_init_array();
 #endif
 

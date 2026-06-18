@@ -432,9 +432,15 @@ static int wifi_ap_start(void)
 
     struct netif *netif = fhost_to_net_if(MGMR_VIF_AP);
 
+#ifdef CONFIG_BLUETOOTH_APP
+    AT_MODULE_INIT_WAIT(at_ble_is_busy);
+#endif
+
+    g_wifi_ap_is_start = 1;
     int ret = wifi_mgmr_ap_start(&config);
     memset(pwd_plain, 0, sizeof(pwd_plain));
     if (ret != 0) {
+        g_wifi_ap_is_start = 0;
         return ret;
     }
     wifi_mgmr_conf_max_sta(at_wifi_config->ap_info.max_conn);
@@ -442,7 +448,6 @@ static int wifi_ap_start(void)
     dhcpd_status_callback_set(netif, _wifi_ap_status_callback);
     /* Set STA netif as default netif */
     netifapi_netif_set_default((struct netif *)fhost_to_net_if(MGMR_VIF_STA));
-    g_wifi_ap_is_start = 1;
 
     return 0;
 }
@@ -729,6 +734,7 @@ static void at_wifi_event_cb(void *private_data, uint32_t code)
         }
         break;
         case CODE_WIFI_ON_AP_STARTED: {
+            g_wifi_ap_is_start = 2;
             if (at_wifi_config->wifi_mode != WIFI_SOFTAP_MODE && at_wifi_config->wifi_mode != WIFI_AP_STA_MODE) {
                 wifiopt_ap_stop(0);
             }
@@ -1117,3 +1123,17 @@ int at_wifi_hostname_get(void)
     return NULL;
 }
 
+bool at_wifi_is_busy(void)
+{
+    if (at_wifi_config->wifi_mode == WIFI_SOFTAP_MODE || at_wifi_config->wifi_mode == WIFI_AP_STA_MODE) {
+        if (g_wifi_ap_is_start == 1) {
+            return true;
+        }
+    }
+    if (at_wifi_config->wifi_mode == WIFI_STATION_MODE || at_wifi_config->wifi_mode == WIFI_AP_STA_MODE) {
+        if (at_wifi_config->connecting_state) {
+            return true;
+        }
+    }
+    return false;
+}

@@ -5,7 +5,7 @@
 To enable low power mode, you need to set the `CONFIG_USE_LPAPP` variable in your configuration. This can be done by uncommenting or adding the following line in your project's configuration file:
 
 ```bash
-set(CONFIG_USE_LPAPP 1)
+CONFIG_USE_LPAPP =y
 ```
 
 After making the necessary changes, you need to recompile your project:

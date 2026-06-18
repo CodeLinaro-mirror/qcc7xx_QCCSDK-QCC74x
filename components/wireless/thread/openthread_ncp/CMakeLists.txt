@@ -28,28 +28,22 @@ set(EXAMPLE_NCP_SOURCES
     ncp.c
 )
 
-if (DEFINED OT_NCP)
-  sdk_add_include_directories(${PROJECT_SOURCE_DIR}/src/lib/spinel)
-  foreach(source_file ${SPINEL_SOURCES})
-    sdk_library_add_sources(${PROJECT_SOURCE_DIR}/src/lib/spinel/${source_file})
-  endforeach()
-
-  sdk_add_include_directories(${PROJECT_SOURCE_DIR}/src/ncp)
-  foreach(source_file ${NCP_SOURCES})
-    sdk_library_add_sources(${PROJECT_SOURCE_DIR}/src/ncp/${source_file})
-  endforeach()
-endif()
-
 sdk_add_include_directories(${PROJECT_SOURCE_DIR}/src/lib/hdlc)
 foreach(source_file ${HDLC_SOURCES})
   sdk_library_add_sources(${PROJECT_SOURCE_DIR}/src/lib/hdlc/${source_file})
 endforeach()
 
-message(INFO "OT_NCP=${OT_NCP}")
+sdk_add_include_directories(${PROJECT_SOURCE_DIR}/examples/platforms)
+foreach(source_file ${EXAMPLE_NCP_SOURCES})
+  sdk_library_add_sources(${PROJECT_SOURCE_DIR}/examples/apps/ncp/${source_file})
+endforeach()
 
-if (DEFINED OT_NCP)
-  sdk_add_include_directories(${PROJECT_SOURCE_DIR}/examples/platforms)
-  foreach(source_file ${EXAMPLE_NCP_SOURCES})
-    sdk_library_add_sources(${PROJECT_SOURCE_DIR}/examples/apps/ncp/${source_file})
-  endforeach()
-endif()
+sdk_add_include_directories(${PROJECT_SOURCE_DIR}/src/lib/spinel)
+foreach(source_file ${SPINEL_SOURCES})
+  sdk_library_add_sources(${PROJECT_SOURCE_DIR}/src/lib/spinel/${source_file})
+endforeach()
+
+sdk_add_include_directories(${PROJECT_SOURCE_DIR}/src/ncp)
+foreach(source_file ${NCP_SOURCES})
+  sdk_library_add_sources(${PROJECT_SOURCE_DIR}/src/ncp/${source_file})
+endforeach()

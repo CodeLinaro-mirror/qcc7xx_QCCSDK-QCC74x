@@ -383,7 +383,14 @@ HAL_StatusTypeDef HAL_SDIO_Init(SDIO_HandleTypeDef *hsdio)
 
   if (sdmmc_clk != 0U)
   {
-    HAL_Delay(1U + (74U * 1000U / (sdmmc_clk)));
+    /* (74 * 1e6 / sdmmc_clk) us, plus a small margin. Use DWT->CYCCNT
+     * for an accurate microsecond busy-wait that does not depend on
+     * the FreeRTOS tick period. */
+    uint32_t wait_us = (74U * 1000000U) / sdmmc_clk + 20U;
+    uint32_t cyc_per_us = SystemCoreClock / 1000000U;
+    uint32_t target_cycles = wait_us * cyc_per_us;
+    uint32_t start = DWT->CYCCNT;
+    while ((uint32_t)(DWT->CYCCNT - start) < target_cycles) { /* spin */ }
   }
 
   if (hsdio->SDIO_IdentifyCard == NULL)

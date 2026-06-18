@@ -25,7 +25,7 @@
 #include <stdint.h>
 
 /* Set to 1 to enable HCI raw TX/RX hex dump */
-#define HCI_RAW_DUMP_ENABLE  0
+#define HCI_RAW_DUMP_ENABLE 0
 
 #if HCI_RAW_DUMP_ENABLE
 static inline void hci_log_hex_dump(const char *label, const uint8_t *data, uint16_t len)

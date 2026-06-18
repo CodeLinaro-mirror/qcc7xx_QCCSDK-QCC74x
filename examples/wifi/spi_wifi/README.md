@@ -48,7 +48,6 @@ Return: NULL - Failure; Non-NULL - Virtual NIC Operation Object
 
 virt_net_t virt_net_spi_create(void);
 ```
-
 ```bash
 Brief: Device initialization.
 
@@ -56,7 +55,6 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_initial(virt_net_t obj);
 ```
-
 ```bash
 Brief: Device Enables DHCP.
 
@@ -64,7 +62,6 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_dhcp_start(virt_net_t obj, uint32_t timeout);
 ```
-
 ```bash
 Brief: DHCP Completed.
 
@@ -73,7 +70,6 @@ Return: 0 - Success, Non-Zero - Failure
 int virt_net_dhcp_done(virt_net_t obj);
 
 ```
-
 ```bash
 Brief: Get  Virtual Network Interface IP Information.
 
@@ -81,7 +77,6 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_get_sta_ip(virt_net_t obj, uint32_t *ip, uint32_t *mask, uint32_t *gw);
 ```
-
 ```bash
 Brief: Get Device Current Operation Mode: 0-Lwip On Host Mode, 1-NCP Mode
 
@@ -146,12 +141,12 @@ netif_set_status_callback(&obj->netif, netif_status_callback);
 Enter the build command under the `spiwifi`​ example directory:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0
+make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n
 ```
 BLE Lwip On Host only compiles with Wi-Fi Lwip On Host:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0 CONFIG_BLUETOOTH_APP=0 CONFIG_HCI_ENABLE=1
+make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n CONFIG_BLUETOOTH_APP=n CONFIG_HCI_ENABLE=y
 ```
 
 ### Flashing
@@ -170,12 +165,10 @@ DHCP is enabled by default on the host side in Lwip On Host mode, and an IP addr
 AT+CWMODE=1
 OK
 ```
-
 ```bash
 AT+CWJAP="ssid","pwd"
 OK
 ```
-
 ```bash
 +CW:CONNECTED
 
@@ -191,7 +184,6 @@ The DHCP service is not enabled by default and will only start after manually ac
 AT+CWMODE=2
 OK
 ```
-
 ```bash
 AT+CWSAP="Qcc74x","12345678",6,0,3,0
 OK
@@ -216,8 +208,8 @@ Use a smartphone or other STA device to connect to the AP named "QCC74x". After 
 Thread RCP only compiles with Wi-Fi RCP and lower power feature disabled.
 > Note, currently none of coexistence supported with Wi-Fi and BLE.
 
-```
-make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_USE_LPAPP=0 CONFIG_OT_RCP_ENABLE=1
+```raw
+make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_USE_LPAPP=n CONFIG_OT_RCP=y
 ```
 
 ### Flashing
@@ -234,33 +226,26 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
 
 - reset command, `HOSTCMD ot_reset`
 
-  ```shell
   executing command ot_reset
   spawn 0
   reset, and reason: power on
-  ```
 
 - get version, `HOSTCMD ot_rcp_ver`
 
-  ```
   executing command ot_rcp_ver
   spawn 0
   rcp version: OpenThread/7e32165be; NONE; May 26 2025 13:45:24
-  ```
 
 - send one packet with length 127, `HOSTCMD ot_txpkt 127`
 
-  ```shell
   executing command ot_txpkt
   spawn 0
   phy is enabled
   sent: 2a acked
   phy is disabled
-  ```
 
 - continuous send packets with 2 seconds period,`HOSTCMD ot_sends 2`
 
-  ```
   executing command ot_sends
   spawn 0
   phy is enabled
@@ -271,11 +256,9 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
   sent: 29 acked
   packet tx test done, tx 200 packets, acked 199 packets
   phy is disabled
-  ```
 
 - receive packets with 5 seconds period,`HOSTCMD ot_recv 5`
 
-  ```
   executing command ot_recv
   spawn 0
   phy is enabled
@@ -290,14 +273,13 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
   received 127 bytes, seq 41. rx 199 packets in total 200 packets within 1 seconds
   raw stream is disabled
   phy is disabled
-  ```
 
 ## Low Power Mode Configuration and Usage
 
 To enable low power mode, you need to set the `CONFIG_USE_LPAPP` variable in your configuration. This can be done by uncommenting or adding the following line in your project's configuration file:
 
 ```bash
-set(CONFIG_USE_LPAPP 1)
+CONFIG_USE_LPAPP =y
 ```
 
 After making the necessary changes, you need to recompile your project:
@@ -404,21 +386,16 @@ Ensure that the PC and qcc74x are connected to the same router.
 
    Execute commands in the directory examples/wifi/spi_wifi:
 
-   ```bash
    ncat -klp 3365 < build/build_out/spi_wifi_qcc743.bin.ota
-   ```
 
 ### HOST UART Command
 
 2. Query OTA partition status
 
-   ```bash
    AT+PART？
-   ```
 
    Responds:
 
-   ```bash
    +PART=0,0,"   Boot2",0x00000000,0x00000000,57344,0
    +PART=0,0,"      FW",0x00010000,0x00210000,2097152,1474560
    +PART=0,0,"     mfg",0x00210000,0x00000000,1474560,0
@@ -429,19 +406,15 @@ Ensure that the PC and qcc74x are connected to the same router.
    +PART=0,0," factory",0x003f8000,0x00000000,32768,0
 
    OK
-   ```
 
 3. Start OTA.
 
     The default port is 3365.
 
-   ```bash
     HOSTCMD ota_start 192.168.31.112
-   ```
 
 4. Waiting for transmission to complete.
 
-   ```bash
     OTA start file_size:1444288
     OTA trans size:2920
 
@@ -458,18 +431,14 @@ Ensure that the PC and qcc74x are connected to the same router.
     lramsync_reset
 
     ready
-   ```
 
 
 5. Recheck the OTA partition status.
 
-    ```bash
     AT+PART？
-    ```
 
     Responds:
 
-    ```bash
     +PART=0,0,"   Boot2",0x00000000,0x00000000,57344,0
     +PART=1,1,"      FW",0x00010000,0x00210000,2097152,1474560
     +PART=0,0,"     mfg",0x00210000,0x00000000,1474560,0
@@ -480,7 +449,6 @@ Ensure that the PC and qcc74x are connected to the same router.
     +PART=0,0," factory",0x003f8000,0x00000000,32768,0
 
     OK
-    ```
 
     OTA transfer times are as follows:
 
@@ -497,57 +465,41 @@ Ensure that the PC and qcc74x are connected to the same router.
 
 1. PC Command
 
-   ```bash
     iperf -s -i 1
-   ```
 
 2. HOST Command
 
-   ```bash
     HOSTCMD ipc <remote_ip>
-   ```
 
 #### UDP TX
 
 1. PC Command
 
-   ```bash
     iperf -u -s -i 1
-   ```
 
 2. HOST Command
 
-   ```bash
     HOSTCMD ipu <remote_ip>
-   ```
 
 #### TCP RX
 
 1. HOST Command
 
-   ```bash
     HOSTCMD ips <remote_ip>
-   ```
 
 2. PC Command
 
-   ```bash
     iperf -c <remote_ip> -i 1 -t 10
-   ```
 
 #### UDP RX
 
 1. HOST Command
 
-   ```bash
     HOSTCMD ipus <remote_ip>
-   ```
 
 2. PC Command
 
-   ```bash
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
-   ```
 
 ### NCP Lwip On Host
 
@@ -555,74 +507,58 @@ Ensure that the PC and qcc74x are connected to the same router.
 
 1. PC Command
 
-   ```bash
     iperf -s -i 1
-   ```
 
 2. HOST Command
 
-   ```bash
     HOSTCMD iperf_c <remote_ip>
-   ```
 
 #### UDP TX
 
 1. PC Command
 
-   ```bash
     iperf -u -s -i 1
-   ```
 
 2. HOST Command
 
-   ```bash
     HOSTCMD iperf_u_c <remote_ip>
-   ```
 
 #### TCP RX
 
 2. HOST Command
 
-   ```bash
     HOSTCMD iperf_s <remote_ip>
-   ```
 
 1. PC Command
 
-   ```bash
     iperf -c <remote_ip> -i 1 -t 10
-   ```
 
 #### UDP RX
 
 2. HOST Command
 
-   ```bash
     HOSTCMD iperf_u_s <remote_ip>
-   ```
 
 1. PC Command
 
-   ```bash
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
-   ```
 
 ## Memory Consumption
 
-Memory usage depends on the enabled modules and functions in the `proj.conf` file.
+Memory usage depends on the enabled modules and functions in the `defconfig` file.
 
 ### BLE Library and RAM Usage
 
-The default BLE controller in the `proj.conf` file is:
+The default BLE controller in the `defconfig` file is:
 
 ```bash
-set(CONFIG_BTBLECONTROLLER_LIB  ble1m10s1bredr0)
+CONFIG_BTBLECONTROLLER_LIB =ble1m10s1bredr0
 ```
 
 This library supports up to 10 BLE connections and enables all BLE roles. If your application needs fewer connections, use:
 
 ```bash
-set(CONFIG_BTBLECONTROLLER_LIB ble1m2s1bredr0)
+CONFIG_BTBLECONTROLLER_LIB =ble1m2s1bredr0
 ```
 
 It supports 2 BLE connections and saves approximately 20-25 KB more free SRAM.
@@ -634,6 +570,100 @@ If your project does not require all BLE roles or many connections, you can:
 
    * Use the appropriate BLE controller library
    * Disable BLE completely if only WiFi is needed
+
+
+# CSI DMA (Channel State Information)
+
+CSI DMA captures per-packet channel estimation data from a target peer and
+reports each decoded result on the AT channel as a `+CSIDMA:` URC, so the data
+reaches the host (STM32) side.
+
+## Compile
+
+CSI DMA is gated by `CONFIG_CSIDMA_CLI`. It also requires extra CSI buffers,
+so build the `spi_wifi` example with low-power app disabled:
+
+```bash
+make CONFIG_CSIDMA_CLI=y CONFIG_USE_LPAPP=n
+```
+
+Flash as usual:
+
+```bash
+make flash COMX=xxx # xxx is your com port name
+```
+
+## Usage (HOST AT Commands)
+
+CSI is only produced in monitor mode while frames from the target peer are
+received on the monitored channel. The typical flow is: connect to the AP to
+learn its BSSID/channel, arm CSIDMA against that BSSID, then enter monitor mode
+on that channel.
+
+```bash
+# 1. Connect so we can read back the real AP BSSID and channel
+AT+CWMODE=1
+OK
+
+AT+CWJAP="ssid","pwd"
+OK
+
+# 2. Query the joined AP to get its BSSID and channel
+#    +CWJAP:"ssid","<bssid>",<channel>,<rssi>,<wep>
+AT+CWJAP?
++CWJAP:"ssid","b0:7f:b9:ff:73:6e",11,-45,0
+OK
+
+# 3. Arm CSIDMA against the AP BSSID, buffer 0
+AT+CSIDMASTART="b0:7f:b9:ff:73:6e",0
+OK
+
+# 4. Enter monitor mode on the AP channel.
+#    The 5th parameter 0 suppresses the raw +CWMONITOR hex output, so only
+#    +CSIDMA: reports are emitted. (This disconnects the STA, but the AP keeps
+#    transmitting on the channel so CSI can still be captured.)
+AT+CWMONITOR=1,11,,,0
+OK
+```
+
+`AT+CSIDMASTART=<mac>[,<buf>][,<mode>][,<ts>][,<interval>][,<ready>]` parameters:
+
+- `<mac>`: target peer MAC address (BSSID), e.g. `"b0:7f:b9:ff:73:6e"` (mandatory).
+- `<buf>`: buffer index, range 0 ~ 5.
+- `<mode>`: CSI mode (0 legacy LTF; only legacy is supported now).
+- `<ts>`: time control mode (default 2 periodical).
+- `<interval>`: trigger interval in milliseconds.
+- `<ready>`: buffer ready policy after the ISR (1 = always ready, recommended).
+
+## Expected Result
+
+As the AP transmits on the monitored channel, each captured packet produces one
+`+CSIDMA:` URC on the host UART. The fields are, in order:
+`timestamp,port,mac,rssi,noise,cfo,agc,format,rate,mcs,beamformed,smoothing,nsts,nsc,<I,Q pairs of the CSI matrix...>`
+
+The CSI matrix carries `(nsts+1) * nsc` subcarriers, each as an `I,Q` pair. In
+the example below `nsts`=0 and `nsc`=52, i.e. 52 subcarriers and 104 numbers.
+
+```bash
++CSIDMA:4514739,0,D4:5D:64:4D:24:58,-28,-96,0,594,1,0,6,0,0,0,52,-528,-80,-344,-256,-168,-176,-152,128,-400,416,-624,664,-680,752,-192,544,400,104,288,-40,576,-248,56,-376,-760,-824,-1280,-1480,-1152,-312,-944,760,248,1032,2040,1280,3336,904,3024,216,1632,-48,-544,-376,-3728,-152,-4328,-1072,-1112,-1000,-1112,-1000,-208,-896,-208,-896,-184,-680,-464,760,-744,872,-24,1296,2136,2080,2544,2368,1928,2160,-264,1184,-2800,-264,-3376,-1648,-2472,-1688,-1608,312,192,600,-40,-488,-392,-688,368,-904,-272,424,680,240,-656,216,216,-920,-712,-896,592,912,1096,1072,-400,144,
+...
+```
+
+Receiving at least one `+CSIDMA:` report confirms the full path works. This is
+exactly the pass condition used by the CI test (`expect_test/AT/at_csidma.exp`),
+which waits for a `+CSIDMA:` URC after the steps above.
+
+## Stop
+
+```bash
+# Stop all CSI buffers and tear down the worker task
+AT+CSIDMASTOP
+OK
+
+# Leave monitor mode (also restores +CWMONITOR output)
+AT+CWMONITOR=0
+OK
+```
 
 
 # Antenna Diversity
@@ -996,14 +1026,10 @@ This chapter provides a comprehensive guide for configuring and testing the Targ
    - Establish a connection to a TWT-compatible router (e.g., ROG AX11000).
 4. **Setup TWT on QCC743:**
    - Execute the following command:
-     ```shell
      wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
-     ```
 5. **Activate TWT:**
    - Enter the command:
-     ```shell
      twt
-     ```
 6. **Measure Power Consumption:**
    - Record power usage using specialized equipment in a shielded environment.
 
@@ -1024,13 +1050,11 @@ wifi_mgmr_sta_twt_setup -s 1 -t 1 -e <WakeIntervalExponent> -n <WakeDuration> -m
 
 ### Example Commands(hostless):
 1. **SP = 32.768 ms, Wake Interval = 8.192 seconds:**
-   ```shell
    wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
-   ```
 
 ### Host-Side Command:
 The following host-side command corresponds to the TWT setup:
-```plaintext
+```txt
 AT+TWT_PARAM=1,1,13,128,1000
 AT+TWT_SLEEP
 ```

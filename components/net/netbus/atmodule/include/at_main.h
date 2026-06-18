@@ -133,6 +133,17 @@ static inline int at_module_schedule_work(void)
     return 0;
 }
 
+#ifndef AT_MODULE_INIT_WAIT
+#define AT_MODULE_INIT_WAIT(busy_func) do {        \
+    extern bool busy_func(void);                   \
+    if (!busy_func()) {                            \
+        break;                                     \
+    }                                              \
+    vTaskDelay(100);                               \
+    printf("%s wait %s\r\n", __func__, #busy_func);\
+} while(1)
+#endif
+
 #ifdef __cplusplus
 }
 #endif

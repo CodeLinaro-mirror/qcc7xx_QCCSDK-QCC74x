@@ -12,7 +12,7 @@
   ******************************************************************************
   * @attention
   *
-  * Copyright (c) 2024 STMicroelectronics.
+  * Copyright (c) 2023 STMicroelectronics.
   * All rights reserved.
   *
   * This software is licensed under terms that can be found in the LICENSE file
@@ -29,18 +29,29 @@
 
 .global  g_pfnVectors
 .global  Default_Handler
-.global  Fault_Handler
+
 /* start address for the initialization values of the .data section.
 defined in linker script */
 .word  _sidata
+/* start address for the initialization values of the .itcm_text section.
+defined in linker script */
+.word  _siitcm_text
 /* start address for the .data section. defined in linker script */
 .word  _sdata
+/* start address for the .itcm_text section. defined in linker script */
+.word  _sitcm_text
 /* end address for the .data section. defined in linker script */
 .word  _edata
+/* end address for the .itcm_text section. defined in linker script */
+.word  _eitcm_text
 /* start address for the .bss section. defined in linker script */
 .word  _sbss
 /* end address for the .bss section. defined in linker script */
 .word  _ebss
+/* start address for the non-cacheable SRAM window. defined in linker script */
+.word  __RAM_NONCACHEABLEBUFFER
+/* end address for the non-cacheable SRAM window. defined in linker script */
+.word  __RAM_NONCACHEABLEBUFFER_END
 
 /**
  * @brief  This is the code that gets called when the processor first
@@ -59,6 +70,23 @@ Reset_Handler:
   mov   sp, r0          /* set stack pointer */
 /* Call the clock system initialization function.*/
   bl  SystemInit
+
+/* Copy the ITCM text section initializers from flash to ITCM */
+  ldr r0, =_sitcm_text
+  ldr r1, =_eitcm_text
+  ldr r2, =_siitcm_text
+  movs r3, #0
+  b LoopCopyItcmInit
+
+CopyItcmInit:
+  ldr r4, [r2, r3]
+  str r4, [r0, r3]
+  adds r3, r3, #4
+
+LoopCopyItcmInit:
+  adds r4, r0, r3
+  cmp r4, r1
+  bcc CopyItcmInit
 
 /* Copy the data segment initializers from flash to SRAM */
   ldr r0, =_sdata
@@ -91,6 +119,20 @@ LoopFillZerobss:
   cmp r2, r4
   bcc FillZerobss
 
+/* Zero fill the non-cacheable SRAM window. */
+  ldr r2, =__RAM_NONCACHEABLEBUFFER
+  ldr r4, =__RAM_NONCACHEABLEBUFFER_END
+  movs r3, #0
+  b LoopFillZeroNonCache
+
+FillZeroNonCache:
+  str  r3, [r2]
+  adds r2, r2, #4
+
+LoopFillZeroNonCache:
+  cmp r2, r4
+  bcc FillZeroNonCache
+
 /* Call static constructors */
     bl __libc_init_array
 /* Call the application's entry point.*/
@@ -112,7 +154,7 @@ LoopForever:
     .section  .text.Default_Handler,"ax",%progbits
 Default_Handler:
 Infinite_Loop:
-  b  Fault_Handler
+  b  Infinite_Loop
   .size  Default_Handler, .-Default_Handler
 
 /******************************************************************************

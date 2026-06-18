@@ -14,8 +14,10 @@ static struct {
 	rcp_rx_event_handler_t saved_handler;
 } loopback;
 
-static uint8_t handle_loopback_data_msg(uint8_t event_type, buffer_mgmt_elem_t *buffer_ptr)
+static uint8_t handle_loopback_data_msg(rcp_message_t *pmessage, lnk_sts_t *lnk)
 {
+	(void)pmessage;
+	(void)lnk;
 	// Just send response with received data
 	return RCP_RX_NO_ACTION;
 }

@@ -1,6 +1,6 @@
 ## SIMPLEST test command
 
-append set(CONFIG_ESP_EVENT 1) to your proj.conf
+append CONFIG_ESP_EVENT =y to your defconfig
 
 append above code to your main.c, this register a shell command 'test'
 ````

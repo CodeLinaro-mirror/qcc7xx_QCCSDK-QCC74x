@@ -72,9 +72,9 @@ void core_partition_init(void) {
         memset(&info, 0, sizeof(info));
         qcc74x_mtd_info(handle, &info);
         extern char __start[];
-        extern char __text_code_end__[];
+        extern char __rom_code_end__[];
         // 32K include lpfw and other
-        if(__text_code_end__ - __start + 32 * 1024 + 16 * 1024 >= info.size) {
+        if(__rom_code_end__ - __start + 32 * 1024 + 16 * 1024 >= info.size) {
             puts("FW partition no space for coredump\r\n");
             qcc74x_mtd_close(handle);
             return;

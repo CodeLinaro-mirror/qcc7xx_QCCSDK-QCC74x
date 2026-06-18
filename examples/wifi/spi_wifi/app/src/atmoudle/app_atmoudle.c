@@ -12,7 +12,7 @@
 #include <utils_crc.h>
 
 #include <nxspi.h>
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
 #include <openthread_port.h>
 #endif
 
@@ -151,7 +151,7 @@ void app_atmoudle_init(void)
 #if NXSPI_HCI
     spihci_init();
 #endif
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_THREAD
     extern void ot_nxspi_notify_rxd(void);
     nxspi_rxd_callback_register(ot_nxspi_notify_rxd, NXSPI_TYPE_OT);
 #endif

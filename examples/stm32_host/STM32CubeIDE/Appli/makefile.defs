@@ -1,0 +1,22 @@
+CONFIG_SDIO_OOB ?= 0
+
+ifeq ($(CONFIG_SDIO_OOB),1)
+CONFIG_SDIO_OOB_VALUE := 1
+else ifeq ($(CONFIG_SDIO_OOB),y)
+CONFIG_SDIO_OOB_VALUE := 1
+else ifeq ($(CONFIG_SDIO_OOB),Y)
+CONFIG_SDIO_OOB_VALUE := 1
+else
+CONFIG_SDIO_OOB_VALUE := 0
+endif
+
+RCP_HOST_CONFIG := ../../../Appli/Inc/rcp_host_config.h
+
+$(file >$(RCP_HOST_CONFIG),#ifndef RCP_HOST_CONFIG_H)
+$(file >>$(RCP_HOST_CONFIG),#define RCP_HOST_CONFIG_H)
+$(file >>$(RCP_HOST_CONFIG),#ifndef CONFIG_SDIO_OOB)
+$(file >>$(RCP_HOST_CONFIG),#define CONFIG_SDIO_OOB $(CONFIG_SDIO_OOB_VALUE))
+$(file >>$(RCP_HOST_CONFIG),#endif)
+$(file >>$(RCP_HOST_CONFIG),#define QCC74X_OOB_WAKEUP_Pin GPIO_PIN_14)
+$(file >>$(RCP_HOST_CONFIG),#define QCC74X_OOB_WAKEUP_GPIO_Port GPIOD)
+$(file >>$(RCP_HOST_CONFIG),#endif)

@@ -1,86 +1,97 @@
 #include "rcp_tx_scheduler.h"
+#include "rcp_stat.h"
 #include "rcp_log.h"
 #include "rcp_os.h"
 
 #include <string.h>
 
-#define MAX_TX_EVENTS RCP_MAX_TX_EVENTS
-
-static rcp_queue_t tx_queue;
-static bool tx_queue_initialized;
-
-void init_tx_queue()
+void init_tx_queue(rcp_tx_sch_t *sch, enum rcp_bus bus, uint16_t depth, uint8_t signal_flag)
 {
-	if (tx_queue_initialized) {
+	if (sch == NULL || depth == 0U) {
 		return;
 	}
 
-	if (!rcp_os_queue_init(&tx_queue, sizeof(rcp_schedule_evt_t), MAX_TX_EVENTS)) {
+	if (!rcp_os_queue_init(&sch->queue, sizeof(rcp_schedule_evt_t), depth)) {
 		RCP_LOG_ERR("Failed to initialize TX queue");
 		return;
 	}
 
-	tx_queue_initialized = true;
+	sch->depth       = depth;
+	sch->signal_flag = signal_flag;
+	sch->bus         = bus;
 }
 
-bool schedule_tx(enum rcp_bus bus, enum rcp_msg_type stream, buffer_mgmt_elem_t *msg_buffer, uint32_t timeout_ms)
+bool schedule_tx(rcp_tx_sch_t *sch, rcp_schedule_evt_t *event, uint32_t timeout_ms)
 {
-	rcp_schedule_evt_t event = {
-		.stream = stream,
-		.data_xfer = true,
-		.msg_buffer = msg_buffer,
-	};
+	rcp_schedule_evt_t queued;
 
-	if (!tx_queue_initialized) {
-		RCP_LOG_ERR("TX queue not initialized");
-		return false;
-	}
-	if (rcp_os_queue_send(&tx_queue, &event, timeout_ms) != 0) {
-		RCP_LOG_ERR("No available TX event slots, Used=%d", MAX_TX_EVENTS);
+	if (sch == NULL || event == NULL || event->msg_buffer == NULL) {
 		return false;
 	}
 
-	rcp_bus_signal_tx_pending(bus);
+	queued = *event;
+	queued.enqueue_ticks = RCP_TX_PROF_QUEUE_STAMP();
+
+	if (rcp_os_queue_send(&sch->queue, &queued, timeout_ms) != 0) {
+		RCP_LOG_ERR("No available TX event slots, depth=%lu",
+			(unsigned long)sch->depth);
+		return false;
+	}
+
+	__rcp_bus_set_flags(sch->bus, sch->signal_flag, 0);
 	return true;
 }
 
-bool get_tx_event(rcp_schedule_evt_t *event, uint32_t timeout_ms)
+bool get_tx_event(rcp_tx_sch_t *sch, rcp_schedule_evt_t *event, uint32_t timeout_ms)
 {
-	if (!tx_queue_initialized || !event) {
+	if (sch == NULL || event == NULL) {
 		return false;
 	}
 
-	return (rcp_os_queue_receive(&tx_queue, event, timeout_ms) == 0);
+	return (rcp_os_queue_receive(&sch->queue, event, timeout_ms) == 0);
 }
 
-bool peek_tx_event(rcp_schedule_evt_t *event, uint32_t timeout_ms)
+bool requeue_tx_event_front(rcp_tx_sch_t *sch, rcp_schedule_evt_t *event)
 {
-	if (!tx_queue_initialized || !event) {
+	if (sch == NULL || event == NULL) {
 		return false;
 	}
 
-	return (rcp_os_queue_peek(&tx_queue, event, timeout_ms) == 0);
+	return (rcp_os_queue_send_front(&sch->queue, event, 0) == 0);
 }
 
-bool tx_event_is_empty(void)
+bool peek_tx_event(rcp_tx_sch_t *sch, rcp_schedule_evt_t *event, uint32_t timeout_ms)
 {
-	if (!tx_queue_initialized) {
+	if (sch == NULL || event == NULL) {
+		return false;
+	}
+
+	return (rcp_os_queue_peek(&sch->queue, event, timeout_ms) == 0);
+}
+
+bool tx_event_is_empty(rcp_tx_sch_t *sch)
+{
+	if (sch == NULL) {
 		return true;
 	}
 
-	return (rcp_os_queue_messages_waiting(&tx_queue) == 0);
+	return (rcp_os_queue_messages_waiting(&sch->queue) == 0);
 }
 
-int tx_event_pending_count(void)
+int tx_event_pending_count(rcp_tx_sch_t *sch)
 {
-	if (!tx_queue_initialized) {
+	if (sch == NULL) {
 		return 0;
 	}
 
-	return rcp_os_queue_messages_waiting(&tx_queue);
+	return rcp_os_queue_messages_waiting(&sch->queue);
 }
 
-int tx_event_capacity(void)
+int tx_event_capacity(rcp_tx_sch_t *sch)
 {
-	return MAX_TX_EVENTS;
+	if (sch == NULL) {
+		return 0;
+	}
+
+	return (int)sch->depth;
 }

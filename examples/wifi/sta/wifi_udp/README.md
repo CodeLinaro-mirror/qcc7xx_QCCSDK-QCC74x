@@ -92,7 +92,7 @@ You can got a respond of mdns_searcher.local, this servcie port is 2333.
 
 ### NAT ping test
 
-uncomment set(CONFIG_WIFI_GATEWAY 1) in proj.conf
+uncomment CONFIG_WIFI_GATEWAY =y in defconfig
 
 qcc74x /> wifi_sta_connect your_ssid 12345678
 ... wait GOT_IP event

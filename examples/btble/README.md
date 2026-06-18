@@ -119,9 +119,9 @@ Complete BLE Mesh network implementation supporting both Node and Provisioner mo
 4. Set up group subscriptions for multicast control
 
 **Provisioner Mode Configuration:**
-To enable Provisioner mode, add the following configuration to the `proj.conf` file:
+To enable Provisioner mode, add the following configuration to the `defconfig` file:
 ```bash
-set(CONFIG_BT_MESH_PROVISIONER 1)
+CONFIG_BT_MESH_PROVISIONER =y
 ```
 This configuration enables the device to act as a mesh network provisioner that can add and configure other mesh nodes.
 
@@ -140,7 +140,7 @@ This configuration enables the device to act as a mesh network provisioner that 
 3. The device will start advertising as an unprovisioned beacon, waiting for provisioner
 
 **Provisioner Device (Device that provisions others):**
-1. Flash the blemesh_cli example with CONFIG_BT_MESH_PROVISIONER=1 in proj.conf
+1. Flash the blemesh_cli example with CONFIG_BT_MESH_PROVISIONER =y in defconfig
 2. Run the following commands in the serial terminal:
    ```bash
    qcc74x />blemesh_init

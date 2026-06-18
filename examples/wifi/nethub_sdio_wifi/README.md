@@ -165,6 +165,97 @@ The exact internal control payload format is not the primary usage concern for
 this README. The important point is that the user-facing workflow is based on the
 SDIO RCP solution, not on a standalone UART Wi-Fi module model.
 
+### Low Power Operation
+
+`CONFIG_SDIO_OOB` selects the low-power wakeup wiring between the STM32 host and
+the qcc743 device.
+
+For host-side OOB configuration, see
+[`examples/stm32_host/README.md`](../../stm32_host/README.md).
+
+#### CONFIG_SDIO_OOB=n (Default)
+
+This is the default in-band SDIO wakeup mode. The host reuses SDIO `D2` as the
+host-to-device wake line.
+
+Structure:
+
+```text
+Host STM32                              Device qcc743
+-----------                             -------------
+PC10 / SDIO D2  ---- drive low -------> GPIO10 / SDIO DAT2
+                                        wakes by WIFI_WKIO 10 1
+
+SDIO DAT1 IRQ   <--- active low ------- GPIO15 / SDIO DAT1
+
+PC10 / SDIO D2  ---- restore SDIO AF -> GPIO10 sees ready release
+SDIO CMD/CLK/DAT[0:3] <=============> SDIO CMD/CLK/DAT[0:3]
+```
+
+Build:
+
+```bash
+make
+make CONFIG_SDIO_OOB=n
+```
+
+Use from the STM32 host shell:
+
+```text
+WIFI_WKIO 10 1
+wifi_connect <ssid> <passw>
+WIFI_PWR 2 1
+```
+
+Command details:
+
+- `WIFI_WKIO 10 1` sends `AT+SLWKIO=10,1` to configure GPIO10 as the device
+  low-power wake-up pin. GPIO10 is SDIO2 `DAT2`.
+- `wifi_connect <ssid> <passw>` connects the qcc743 STA to the target AP through
+  the SDIO RCP control path.
+- `WIFI_PWR 2 1` sends `AT+PWR=2,1` to request power mode `2`.
+
+#### CONFIG_SDIO_OOB=y
+
+This is the dedicated OOB wakeup mode. The host uses `PD14` as the
+host-to-device wake line, so SDIO `D2` is not reused for wakeup.
+
+Structure:
+
+```text
+Host STM32                              Device qcc743
+-----------                             -------------
+PD14 / OOB_WAKEUP ---- drive high ----> GPIO28
+                                        wakes by WIFI_WKIO 28 0
+
+SDIO DAT1 IRQ      <--- active low ---- GPIO15 / SDIO DAT1
+
+PD14 / OOB_WAKEUP ---- drive low -----> GPIO28 sees ready release
+SDIO CMD/CLK/DAT[0:3] <=============> SDIO CMD/CLK/DAT[0:3]
+```
+
+Build:
+
+```bash
+make CONFIG_SDIO_OOB=y
+```
+
+Use from the STM32 host shell:
+
+```text
+WIFI_WKIO 28 0
+wifi_connect <ssid> <passw>
+WIFI_PWR 2 1
+```
+
+Command details:
+
+- `WIFI_WKIO 28 0` sends `AT+SLWKIO=28,0` to configure GPIO28 as the device
+  low-power wake-up pin.
+- `wifi_connect <ssid> <passw>` connects the qcc743 STA to the target AP through
+  the SDIO RCP control path.
+- `WIFI_PWR 2 1` sends `AT+PWR=2,1` to request power mode `2`.
+
 ### Automatic DHCP
 
 The current STM32 host implementation starts DHCP automatically on the host side.

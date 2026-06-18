@@ -131,7 +131,7 @@ void build_rcp_msg(rcp_msg_ptr_t msg_ptr, uint8_t msg_type, enum rcp_flag flag,
 		return;
 	}
 
-    credit = nh_rx_credit_update(&lnk->flow_ctrl);
+    credit = nh_rx_credit_prepare(&lnk->flow_ctrl);
     msg_ptr->credit_limit_cnt = (credit >= 0) ? (uint8_t)credit : 0;
     msg_ptr->credit_update_flag = (credit >= 0) ? true : false;
 }
@@ -148,11 +148,11 @@ void build_cntrl_rcp_msg(rcp_msg_ptr_t msg_ptr,
 	msg_ptr->payload_ptr = payload_ptr;
 }
 
-bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms)
+bool send_rcp_msg(rcp_tx_sch_t *sch, rcp_msg_ptr_t send_msg, uint32_t timeout_ms)
 {
-	lnk_sts_t *lnk = NULL;
+	rcp_schedule_evt_t tx_event;
 
-	if (!send_msg || !send_msg->payload_ptr) {
+	if (!sch || !send_msg || !send_msg->payload_ptr) {
 		return false;
 	}
 
@@ -160,16 +160,15 @@ bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms)
 		return false;
 	}
 
-	lnk = link_get_status(send_msg->msg_type);
-	if (!lnk || !lnk->buffer_ctrl) {
-		RCP_LOG_ERR("Invalid stream %d for TX", send_msg->msg_type);
-		return false;
-	}
-
 	/* On success, the scheduler owns the buffer until the event loop frees it.
-	 * On failure, ownership stays with the caller.
-	 */
-	if (!schedule_tx(lnk->bus, send_msg->msg_type, send_msg->payload_ptr, timeout_ms)) {
+	 * On failure, ownership stays with the caller. The scheduler already
+	 * knows which bus to signal (set at init_tx_queue time). */
+	tx_event.stream = send_msg->msg_type;
+	tx_event.msg_subtype = send_msg->msg_subtype;
+	tx_event.msg_flags = send_msg->flag;
+	tx_event.msg_buffer = send_msg->payload_ptr;
+	tx_event.enqueue_ticks = 0;
+	if (!schedule_tx(sch, &tx_event, timeout_ms)) {
 		return false;
 	}
 
@@ -178,7 +177,9 @@ bool send_rcp_msg(rcp_msg_ptr_t send_msg, uint32_t timeout_ms)
 
 enum rcp_bus_status tx_rcp_msg(enum rcp_bus bus, buffer_mgmt_elem_t *tx_buffer)
 {
-	return rcp_bus_write(bus, (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(tx_buffer));
+	return rcp_bus_write(bus,
+			     (rcp_msg_packt_t *)BUFFER_MGMT_DATA_PTR(tx_buffer),
+			     (uint16_t)BUFFER_MGMT_MAX_SIZE(tx_buffer));
 }
 
 uint8_t inc_seq_num(uint8_t current_value)

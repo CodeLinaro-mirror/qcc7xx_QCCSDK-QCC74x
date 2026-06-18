@@ -8,7 +8,7 @@
 
 #define RCP_DISPATCH_QUEUE_DEPTH      48U
 #define RCP_DISPATCH_TASK_STACK_SIZE  2048U
-#define RCP_DISPATCH_TASK_PRIORITY    30U
+#define RCP_DISPATCH_TASK_PRIORITY    29U
 
 static rcp_rx_event_handler_t data_dispatch_handlers[RCP_MSG_TYPE_MAX];
 static rcp_queue_t dispatch_queue;
@@ -80,7 +80,13 @@ static void dispatch_thread_entry(void *arg)
 		upload = (msg.flag == RCP_FLAG_UPLD_DATA);
 
 		if (dispatch_fun != NULL) {
-			result = dispatch_fun(msg.flag, msg.payload_ptr);
+			rcp_message_t message = {
+				.stream = msg.msg_type,
+				.msg_subtype = msg.msg_subtype,
+				.msg_flags = msg.flag,
+				.msg_buffer = msg.payload_ptr,
+			};
+			result = dispatch_fun(&message, lnk_sts_ptr);
 		}
 
 		if ((result == RCP_RX_UPLOAD) && upload) {

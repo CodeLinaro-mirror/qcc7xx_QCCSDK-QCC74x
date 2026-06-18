@@ -119,6 +119,9 @@ static inline int spinet_rx_process(uint8_t is_sta)
     g_spinet.read_cnt++;
     g_spinet.read_bytes += result;
 
+    p->len = (u16_t)result;
+    p->tot_len = (u16_t)result;
+
     if (g_spinet.netstream == SPINET_NETSTREAM_TO_LOCAL) {
         pbuf_free(p);
         return result;

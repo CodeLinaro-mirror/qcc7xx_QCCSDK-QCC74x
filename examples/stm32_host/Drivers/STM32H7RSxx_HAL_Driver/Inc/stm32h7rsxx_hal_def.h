@@ -31,7 +31,6 @@ extern "C" {
 #include "Legacy/stm32_hal_legacy.h"  /* Aliases file for old names compatibility */
 #include <math.h>
 #include <stddef.h>
-#include <stdint.h>
 
 /* Exported types ------------------------------------------------------------*/
 

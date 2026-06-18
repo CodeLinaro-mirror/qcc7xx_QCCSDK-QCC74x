@@ -1,6 +1,6 @@
 #ifndef LWIP_HDR_LWIPOPTS_H__
 #define LWIP_HDR_LWIPOPTS_H__
-
+#include "rcp_user_config.h"
 #define LWIP_NETIF_API     1
 #define LWIP_DEBUG         1
 #define LWIP_STATS_DISPLAY 1
@@ -38,9 +38,10 @@
 #define LWIP_CHKSUM_ALGORITHM         3
 #define LWIP_TCPIP_CORE_LOCKING_INPUT 1
 
+#define ETH_PAD_SIZE                  2
 #define PBUF_LINK_ENCAPSULATION_HLEN  48
 
-#define CONFIG_MAC_RXQ_DEPTH          12
+#define CONFIG_MAC_RXQ_DEPTH          20
 #define CONFIG_MAC_TXQ_DEPTH          32
 #define IP_REASS_MAX_PBUFS            (2 * CONFIG_MAC_RXQ_DEPTH - 2)
 
@@ -55,7 +56,10 @@
 #define MAC_TXQ_DEPTH                 CONFIG_MAC_TXQ_DEPTH
 #define MAC_RXQ_DEPTH                 CONFIG_MAC_RXQ_DEPTH
 
-//#define TCP_OOSEQ_MAX_PBUFS           MAC_RXQ_DEPTH
+#define LWIP_HEAP_SIZE                 (74 * 1024)
+#define LWIP_RAM_HEAP_ARRAY            u8_t ram_heap[MEM_SIZE_ALIGNED + (2U * SIZEOF_STRUCT_MEM)] __attribute__((aligned(4))) __attribute__((section("noncacheable_buffer")))
+#define LWIP_DECLARE_MEMORY_ALIGNED(variable_name, size) u8_t variable_name[size] __attribute__((aligned(4)))
+#define TCP_OOSEQ_MAX_PBUFS           (RCP_ETH_RX_WND - 1)
 
 #define TCP_MSS                       (1500 - 40)
 #define TCP_WND                       ((2 * MAC_RXQ_DEPTH) * TCP_MSS)
@@ -97,7 +101,7 @@
 
 #define LWIP_TIMEVAL_PRIVATE      0 // use sys/time.h for struct timeval
 
-#define LWIP_PROVIDE_ERRNO        1
+//#define LWIP_PROVIDE_ERRNO        1
 #define LWIP_ERRNO_STDINCLUDE     1
 #define LWIP_SOCKET_SET_ERRNO     1
 
@@ -129,6 +133,6 @@ extern int *__errno(void);
 
 #define LWIP_SUPPORT_CUSTOM_PBUF      1
 #define LWIP_NETIF_TX_SINGLE_PBUF 1
-#define LWIP_RAND()                                      ((u32_t)random())
+//#define LWIP_RAND()                                      ((u32_t)random())
 
 #endif /* LWIP_HDR_LWIPOPTS_H__ */

@@ -81,7 +81,6 @@ sdk_add_include_directories(.)
 
 if(NOT CONFIG_NEWLIB_STANDARD)
 if(CONFIG_VSNPRINTF_NANO)
-sdk_add_compile_definitions(-DCONFIG_VSNPRINTF_NANO=1)
 sdk_library_add_sources(vsnprintf_nano.c)
 else()
 sdk_library_add_sources(vsnprintf.c)
@@ -103,21 +102,6 @@ sdk_add_link_options(-Wl,-wrap,sscanf)
 endif()
 
 sdk_add_link_options(-Wl,-wrap,snprintf -Wl,-wrap,sprintf)
-endif()
-
-# vsnprintf %f %F
-if(CONFIG_VSNPRINTF_FLOAT)
-    sdk_add_compile_definitions(-DCONFIG_LIBC_FLOAT=1)
-elseif((CONFIG_VSNPRINTF_FLOAT EQUAL 0) )
-    sdk_add_compile_definitions(-DCONFIG_LIBC_FLOAT=0)
-endif()
-# vsnprintf %g %G %e %E
-if(CONFIG_VSNPRINTF_FLOAT_EX)
-    sdk_add_compile_definitions(-DCONFIG_LIBC_FLOAT_EX=${CONFIG_VSNPRINTF_FLOAT_EX})
-endif()
-# vsnprintf %lld %lli %llu %llx %llX %llo
-if(CONFIG_VSNPRINTF_LONG_LONG)
-    sdk_add_compile_definitions(-DCONFIG_LIBC_LONG_LONG=${CONFIG_VSNPRINTF_LONG_LONG})
 endif()
 
 # use custom apis first, if not exist, then use builtin apis

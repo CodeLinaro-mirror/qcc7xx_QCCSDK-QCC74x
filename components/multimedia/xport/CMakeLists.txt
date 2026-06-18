@@ -36,21 +36,11 @@ sdk_library_add_sources(
 endif()
 
 if (CONFIG_CODEC_USE_I2S_TX)
-    sdk_add_compile_definitions(-DCONFIG_CODEC_USE_I2S_TX=1)
     sdk_library_add_sources(src/codec_es8388.c)
 endif()
 
 if (CONFIG_CODEC_USE_I2S_RX)
-    sdk_add_compile_definitions(-DCONFIG_CODEC_USE_I2S_RX=1)
     sdk_library_add_sources(src/codec_es8388.c)
-endif()
-
-if (CONFIG_ROMFS)
-    sdk_add_compile_definitions(-DCONFIG_ROMFS=1)
-endif()
-
-if (CONFIG_FATFS)
-    sdk_add_compile_definitions(-DCONFIG_FATFS=1)
 endif()
 
 sdk_add_private_compile_options(--save-temps)

@@ -28,6 +28,16 @@
 #if defined(__ICCARM__)
 #include <LowLevelIOInterface.h>
 #endif /* __ICCARM__ */
+#include "sdio_hal.h"
+#include "shell_commands.h"
+#include <rcp_lwip_netif.h>
+#include <wifi/rcp_wifi_mgmt.h>
+#include "stm32h7rsxx_hal_sdio.h"
+#include "rcp_host_config.h"
+#include "rcp_bus.h"
+#include "rcp_bus_sdio_master.h"
+#include "rcp_interface.h"
+#include "app_ble.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -37,6 +47,17 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
+#define AXI_SRAM_CACHEABLE_BASE_256K    0x24000000U
+#define AXI_SRAM_CACHEABLE_BASE_128K    0x24040000U
+#define AXI_SRAM_NONCACHEABLE_BASE_8K0  0x24052000U
+#define AXI_SRAM_NONCACHEABLE_BASE_16K  0x24054000U
+#define AXI_SRAM_NONCACHEABLE_BASE_32K  0x24058000U
+#define AXI_SRAM_NONCACHEABLE_BASE_64K  0x24060000U
+#define AXI_SRAM_NONCACHEABLE_BASE_8K1  0x24070000U
+#define AXI_SRAM_NONCACHEABLE_BASE_4K0  0x24070000U
+#define AXI_SRAM_NONCACHEABLE_BASE_4K1  0x24071000U
+#define GFXMMU_VIRTUAL_BUFFER_BASE      0x25000000U
+#define SDIO_NOCACHE_TEST_MASK          0x1FU
 
 /* USER CODE END PD */
 
@@ -47,13 +68,15 @@
 
 /* Private variables ---------------------------------------------------------*/
 
+SDIO_HandleTypeDef hsdio1;
+
 UART_HandleTypeDef huart3;
 
 /* Definitions for Start */
 osThreadId_t StartHandle;
 const osThreadAttr_t Start_attributes = {
   .name = "Start",
-  .stack_size = 256 * 4,
+  .stack_size = 512 * 4,
   .priority = (osPriority_t) osPriorityNormal,
 };
 /* USER CODE BEGIN PV */
@@ -62,9 +85,10 @@ const osThreadAttr_t Start_attributes = {
 
 /* Private function prototypes -----------------------------------------------*/
 static void MPU_Config(void);
+static void MPU_ConfigNonCacheRegion(MPU_Region_InitTypeDef *mpu, uint8_t number, uint32_t base, uint32_t size);
 static void MX_GPIO_Init(void);
 static void MX_USART3_UART_Init(void);
-void StartThread(void *argument);
+void rcp_init_thread(void *argument);
 
 /* USER CODE BEGIN PFP */
 #if defined(__ICCARM__)
@@ -81,6 +105,27 @@ int iar_fputc(int ch);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+static uint32_t cycles_per_us = 0;
+
+void delay_init(void)
+{
+    CoreDebug->DEMCR |= CoreDebug_DEMCR_TRCENA_Msk;
+    DWT->CYCCNT = 0;
+    DWT->CTRL |= DWT_CTRL_CYCCNTENA_Msk;
+    cycles_per_us = SystemCoreClock / 1000000U;
+}
+
+void delay_us(uint32_t us)
+{
+    volatile uint32_t start = DWT->CYCCNT;
+    volatile uint32_t cycles = us * cycles_per_us;
+    while ((DWT->CYCCNT - start) < cycles);
+}
+
+uint32_t delay_get_cycles(void)
+{
+    return DWT->CYCCNT;
+}
 
 /* USER CODE END 0 */
 
@@ -110,6 +155,7 @@ int main(void)
 
   /* Update SystemCoreClock variable according to RCC registers values. */
   SystemCoreClockUpdate();
+  delay_init();
 
   /* Reset of all peripherals, Initializes the Flash interface and the Systick. */
   HAL_Init();
@@ -126,9 +172,7 @@ int main(void)
   MX_GPIO_Init();
   MX_USART3_UART_Init();
   /* USER CODE BEGIN 2 */
-  printf("LwIP_HTTP_Server_Socket_RTOS\n");
-  printf("NUCLEO-H7S3L8 board\n");
-  printf("State: Ethernet Initialization ...\n");
+
   /* USER CODE END 2 */
 
   /* Init scheduler */
@@ -152,7 +196,7 @@ int main(void)
 
   /* Create the thread(s) */
   /* creation of Start */
-  StartHandle = osThreadNew(StartThread, NULL, &Start_attributes);
+  StartHandle = osThreadNew(rcp_init_thread, NULL, &Start_attributes);
 
   /* USER CODE BEGIN RTOS_THREADS */
   /* add threads, ... */
@@ -179,6 +223,37 @@ int main(void)
 }
 
 /**
+  * @brief SDMMC1 Initialization Function
+  * @param None
+  * @retval None
+  */
+void MX_SDMMC1_SDIO_Init(void)
+{
+
+  /* USER CODE BEGIN SDMMC1_Init 0 */
+
+  /* USER CODE END SDMMC1_Init 0 */
+
+  /* USER CODE BEGIN SDMMC1_Init 1 */
+
+  /* USER CODE END SDMMC1_Init 1 */
+  hsdio1.Instance = SDMMC1;
+  hsdio1.Init.ClockEdge = SDMMC_CLOCK_EDGE_RISING;
+  hsdio1.Init.ClockPowerSave = SDMMC_CLOCK_POWER_SAVE_DISABLE;
+  hsdio1.Init.BusWide = SDMMC_BUS_WIDE_4B;
+  hsdio1.Init.HardwareFlowControl = SDMMC_HARDWARE_FLOW_CONTROL_DISABLE;
+  hsdio1.Init.ClockDiv = 50;
+  if (HAL_SDIO_Init(&hsdio1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN SDMMC1_Init 2 */
+
+  /* USER CODE END SDMMC1_Init 2 */
+
+}
+
+/**
   * @brief USART3 Initialization Function
   * @param None
   * @retval None
@@ -194,7 +269,7 @@ static void MX_USART3_UART_Init(void)
 
   /* USER CODE END USART3_Init 1 */
   huart3.Instance = USART3;
-  huart3.Init.BaudRate = 115200;
+  huart3.Init.BaudRate = 921600;
   huart3.Init.WordLength = UART_WORDLENGTH_8B;
   huart3.Init.StopBits = UART_STOPBITS_1;
   huart3.Init.Parity = UART_PARITY_NONE;
@@ -216,7 +291,7 @@ static void MX_USART3_UART_Init(void)
   {
     Error_Handler();
   }
-  if (HAL_UARTEx_DisableFifoMode(&huart3) != HAL_OK)
+  if (HAL_UARTEx_EnableFifoMode(&huart3) != HAL_OK)
   {
     Error_Handler();
   }
@@ -240,15 +315,35 @@ static void MX_GPIO_Init(void)
 
   /* GPIO Ports Clock Enable */
   __HAL_RCC_GPIOD_CLK_ENABLE();
+  __HAL_RCC_GPIOC_CLK_ENABLE();
+  __HAL_RCC_GPIOE_CLK_ENABLE();
   __HAL_RCC_GPIOB_CLK_ENABLE();
   __HAL_RCC_GPIOG_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+
+  /*Configure GPIO pin Output Level */
+  HAL_GPIO_WritePin(CHIP_EN_GPIO_Port, CHIP_EN_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LED_RED_GPIO_Port, LED_RED_Pin, GPIO_PIN_RESET);
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOD, LED_YELLOW_Pin|LED_GREEN_Pin, GPIO_PIN_RESET);
+
+#if CONFIG_SDIO_OOB
+  GPIO_InitStruct.Pin = QCC74X_OOB_WAKEUP_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(QCC74X_OOB_WAKEUP_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_WritePin(QCC74X_OOB_WAKEUP_GPIO_Port, QCC74X_OOB_WAKEUP_Pin, 0);
+#endif
+  /*Configure GPIO pin : CHIP_EN_Pin */
+  GPIO_InitStruct.Pin = CHIP_EN_Pin;
+  GPIO_InitStruct.Mode = GPIO_MODE_OUTPUT_PP;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
+  GPIO_InitStruct.Speed = GPIO_SPEED_FREQ_LOW;
+  HAL_GPIO_Init(CHIP_EN_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pin : LED_RED_Pin */
   GPIO_InitStruct.Pin = LED_RED_Pin;
@@ -270,6 +365,23 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+static void MPU_ConfigNonCacheRegion(MPU_Region_InitTypeDef *mpu, uint8_t number, uint32_t base, uint32_t size)
+{
+  mpu->Enable = MPU_REGION_ENABLE;
+  mpu->Number = number;
+  mpu->BaseAddress = base;
+  mpu->Size = size;
+  mpu->SubRegionDisable = 0x0;
+  mpu->TypeExtField = MPU_TEX_LEVEL1;
+  mpu->AccessPermission = MPU_REGION_FULL_ACCESS;
+  mpu->DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  mpu->IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  mpu->IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  mpu->IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
+
+  HAL_MPU_ConfigRegion(mpu);
+}
+
 #if defined(__ICCARM__)
 size_t __write(int file, unsigned char const *ptr, size_t len)
 {
@@ -300,27 +412,51 @@ PUTCHAR_PROTOTYPE
 }
 /* USER CODE END 4 */
 
-/* USER CODE BEGIN Header_StartThread */
+/* USER CODE BEGIN Header_rcp_init_thread */
 /**
   * @brief  Function implementing the Start thread.
   * @param  argument: Not used
   * @retval None
   */
-/* USER CODE END Header_StartThread */
-void StartThread(void *argument)
+/* USER CODE END Header_rcp_init_thread */
+void rcp_init_thread(void *argument)
 {
   /* USER CODE BEGIN 5 */
-  /* Initialize the LwIP stack */
-  //MX_LWIP_Init();
+	/* Initialize SDIO bus */
+	if (!rcp_bus_sdio_master_init()) {
+		printf("Failed to initialize RCP bus\n");
+	}
 
-  /* Initialize webserver demo */
-  //http_server_socket_init();
-  /* Infinite loop */
-  for(;;)
-  {
-    /* Delete the Init Thread */
-    osThreadTerminate(StartHandle);
-  }
+	/* Initialize RCP protocol */
+	(void)init_rcp(RCP_BUS_SDIO);
+
+	osDelay(50);
+
+	if (rcp_wifi_init() != RCP_WIFI_OK) {
+		printf("Failed to initialize RCP WiFi\n");
+	}
+
+	/* rcp_lwip_netif_start() initializes lwIP core and registers the RCP-backed netif. */
+	if (rcp_lwip_init() != ERR_OK) {
+		printf("Failed to initialize RCP lwIP netif\n");
+	}
+
+
+    BleAppInit();
+    osDelay(200);
+    BleAppAciInit();
+
+    RCP_Init(RCP_ObjGet());
+
+	/* Initialize and start shell */
+	shell_commands_init();
+	shell_task_start();
+
+    for(;;)
+    {
+      /* Delete the Init Thread */
+      osThreadTerminate(StartHandle);
+    }
   /* USER CODE END 5 */
 }
 
@@ -333,8 +469,13 @@ static void MPU_Config(void)
   /* Disables the MPU */
   HAL_MPU_Disable();
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /* Disables all MPU regions */
+  for(uint8_t i=0; i<__MPU_REGIONCOUNT; i++)
+  {
+    HAL_MPU_DisableRegion(i);
+  }
+
+  /* Region 0: default deny, with 0x20000000-0x3fffffff kept for explicit regions. */
   MPU_InitStruct.Enable = MPU_REGION_ENABLE;
   MPU_InitStruct.Number = MPU_REGION_NUMBER0;
   MPU_InitStruct.BaseAddress = 0x0;
@@ -349,8 +490,7 @@ static void MPU_Config(void)
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /* Region 1: XSPI mapped image, 0x70000000-0x77ffffff. */
   MPU_InitStruct.Number = MPU_REGION_NUMBER1;
   MPU_InitStruct.BaseAddress = 0x70000000;
   MPU_InitStruct.Size = MPU_REGION_SIZE_128MB;
@@ -364,46 +504,66 @@ static void MPU_Config(void)
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /*
+   * Region 2: GFXMMU virtual buffers, 0x25000000-0x25ffffff.
+   * STM32H7R/S Rev B can hang on speculative access here when GFXMMU is disabled.
+   */
   MPU_InitStruct.Number = MPU_REGION_NUMBER2;
-  MPU_InitStruct.BaseAddress = 0x24020000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_32KB;
+  MPU_InitStruct.BaseAddress = GFXMMU_VIRTUAL_BUFFER_BASE;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_16MB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
   MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_NO_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
   MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
   MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  MPU_InitStruct.Number = MPU_REGION_NUMBER3;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_256B;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_NOT_CACHEABLE;
+  /* Region 4: AXI SRAM1/2 cacheable, 0x24000000-0x2403ffff. */
+  MPU_InitStruct.Number = MPU_REGION_NUMBER4;
+  MPU_InitStruct.BaseAddress = AXI_SRAM_CACHEABLE_BASE_256K;
+  MPU_InitStruct.Size = MPU_REGION_SIZE_256KB;
+  MPU_InitStruct.SubRegionDisable = 0x0;
+  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
+  MPU_InitStruct.AccessPermission = MPU_REGION_FULL_ACCESS;
+  MPU_InitStruct.DisableExec = MPU_INSTRUCTION_ACCESS_DISABLE;
+  MPU_InitStruct.IsShareable = MPU_ACCESS_NOT_SHAREABLE;
+  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
   MPU_InitStruct.IsBufferable = MPU_ACCESS_BUFFERABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
 
-  /** Initializes and configures the Region and the memory to be protected
-  */
-  MPU_InitStruct.Number = MPU_REGION_NUMBER4;
-  MPU_InitStruct.BaseAddress = 0x24040000;
-  MPU_InitStruct.Size = MPU_REGION_SIZE_16KB;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL1;
-  MPU_InitStruct.IsShareable = MPU_ACCESS_SHAREABLE;
-  MPU_InitStruct.IsBufferable = MPU_ACCESS_NOT_BUFFERABLE;
-
-  HAL_MPU_ConfigRegion(&MPU_InitStruct);
-
-  /** Initializes and configures the Region and the memory to be protected
-  */
+  /* Region 5: AXI SRAM3 cacheable, 0x24040000-0x2405ffff. */
   MPU_InitStruct.Number = MPU_REGION_NUMBER5;
-  MPU_InitStruct.BaseAddress = 0x24000000;
+  MPU_InitStruct.BaseAddress = AXI_SRAM_CACHEABLE_BASE_128K;
   MPU_InitStruct.Size = MPU_REGION_SIZE_128KB;
-  MPU_InitStruct.TypeExtField = MPU_TEX_LEVEL0;
-  MPU_InitStruct.IsCacheable = MPU_ACCESS_CACHEABLE;
 
   HAL_MPU_ConfigRegion(&MPU_InitStruct);
+
+#if (SDIO_NOCACHE_TEST_MASK & 0x01U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER6, AXI_SRAM_NONCACHEABLE_BASE_8K0, MPU_REGION_SIZE_8KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x02U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER7, AXI_SRAM_NONCACHEABLE_BASE_16K, MPU_REGION_SIZE_16KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x04U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER8, AXI_SRAM_NONCACHEABLE_BASE_32K, MPU_REGION_SIZE_32KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x08U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER9, AXI_SRAM_NONCACHEABLE_BASE_64K, MPU_REGION_SIZE_64KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x10U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER11, AXI_SRAM_NONCACHEABLE_BASE_8K1, MPU_REGION_SIZE_8KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x20U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER11, AXI_SRAM_NONCACHEABLE_BASE_4K0, MPU_REGION_SIZE_4KB);
+#endif
+#if (SDIO_NOCACHE_TEST_MASK & 0x40U)
+  MPU_ConfigNonCacheRegion(&MPU_InitStruct, MPU_REGION_NUMBER12, AXI_SRAM_NONCACHEABLE_BASE_4K1, MPU_REGION_SIZE_4KB);
+#endif
+
   /* Enables the MPU */
   HAL_MPU_Enable(MPU_PRIVILEGED_DEFAULT);
 

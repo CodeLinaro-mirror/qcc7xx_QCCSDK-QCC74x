@@ -31,7 +31,7 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
     buffer_mgmt_elem_t *elem_head;
 
     if (!cfg || !cfg->frame_buff || !cfg->frame_elem_cnt ||
-        cfg->frame_elem_size < FRAME_BUFF_PAYLOAD_OFFSET) {
+        cfg->frame_elem_size < cfg->frame_data_offset) {
         LOG_ERR("invalid buffer mgmt cfg");
         return NULL;
     }
@@ -49,14 +49,18 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
         goto err_free_ctrl;
     }
 
+    memset(cfg->frame_buff, 0, (size_t)cfg->frame_elem_cnt * cfg->frame_elem_size);
+
     for (int i = 0; i < cfg->frame_elem_cnt; i++) {
         elem_head = (buffer_mgmt_elem_t *)((uintptr_t)cfg->frame_buff + cfg->frame_elem_size * i);
 
         elem_head->buffer_ctrl = ctrl;
         elem_head->buff_addr = (uint8_t *)elem_head;
-        elem_head->offset = FRAME_BUFF_PAYLOAD_OFFSET;
+        elem_head->offset = cfg->frame_data_offset;
         elem_head->data_size = 0;
         elem_head->max_size = cfg->frame_elem_size;
+        elem_head->free_cb = NULL;
+        elem_head->cb_arg = NULL;
 
         if (rcp_os_queue_send(&ctrl->pool_queue, &elem_head, 0) != 0) {
             LOG_ERR("send to pool failed at index %d", i);
@@ -65,6 +69,8 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
     }
 
     ctrl->name = cfg->name;
+    ctrl->frame_data_offset = cfg->frame_data_offset;
+    ctrl->frame_elem_cnt = cfg->frame_elem_cnt;
 
     LOG_DBG("buffer_mgmt_create %s", ctrl->name);
     return ctrl;
@@ -171,7 +177,7 @@ int buffer_mgmt_free_elem(buffer_mgmt_elem_t *buffer_elem)
     buffer_elem->free_cb = NULL;
     buffer_elem->cb_arg = NULL;
     buffer_elem->data_size = 0;
-    buffer_elem->offset = FRAME_BUFF_PAYLOAD_OFFSET;
+    buffer_elem->offset = ctrl->frame_data_offset;
     int ret = rcp_os_queue_send(&ctrl->pool_queue, &buffer_elem, 0);
     if (ret != 0) {
         LOG_ERR("send to pool failed, ret:%d", ret);

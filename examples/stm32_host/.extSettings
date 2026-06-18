@@ -1,6 +1,13 @@
-[Appli:ProjectFiles]
-[Appli:Others]
-Define=
-HALModule=
 [Appli:Groups]
+Application/User=../Appli/Src/shell_commands.c;../Appli/Inc/shell_commands.h;../Appli/Inc/rcp_user_config.h;
+iperf=../iperf/cli_al.c;../iperf/net_iperf_al_priv.h;../iperf/net_iperf_al.c;../iperf/net_iperf_al.h;../iperf/rtos_al.c;../iperf/rtos_al.h;../iperf/rtos_def.h;
+RCP/Include=../RCP/Include/bt_hci.h;../RCP/Include/log.h;../RCP/Include/rcp_bus_sdio_master.h;../RCP/Include/rcp_data_test.h;../RCP/Include/rcp_lwip_netif.h;../RCP/Include/rcp_mcu_capability.h;../RCP/Include/sdio_hal.h;
+RCP/Src=../RCP/Src/lwip_sys.c;../RCP/Src/qcc74x_sdio.c;../RCP/Src/qcc74x_sdio.h;../RCP/Src/rcp_bt_hci.c;../RCP/Src/rcp_bus_sdio_master.c;../RCP/Src/rcp_data_test.c;../RCP/Src/rcp_lwip_netif.c;../RCP/Src/rcp_wifi_mgmt.c;../RCP/Src/sdio_hal.c;
+rcp_protocol/include=../rcp_protocol/include/buffer_mgmt_ctrl.h;../rcp_protocol/include/rcp_bus.h;../rcp_protocol/include/rcp_cntrl_msgs.h;../rcp_protocol/include/rcp_config.h;../rcp_protocol/include/rcp_definitions.h;../rcp_protocol/include/rcp_error_codes.h;../rcp_protocol/include/rcp_interface.h;../rcp_protocol/include/rcp_interface_impl.h;../rcp_protocol/include/rcp_log.h;../rcp_protocol/include/rcp_mux_dispatcher.h;../rcp_protocol/include/rcp_os.h;../rcp_protocol/include/rcp_protocol.h;../rcp_protocol/include/rcp_tx_scheduler.h;
+rcp_protocol/include/wifi=../rcp_protocol/include/wifi/rcp_wifi_mgmt.h;
+rcp_protocol/src=../rcp_protocol/src/buffer_mgmt_ctrl.c;../rcp_protocol/src/rcp_bus.c;../rcp_protocol/src/rcp_cntrl_msgs.c;../rcp_protocol/src/rcp_error_codes.c;../rcp_protocol/src/rcp_interface_impl.c;../rcp_protocol/src/rcp_mux_dispatcher.c;../rcp_protocol/src/rcp_os_freertos.c;../rcp_protocol/src/rcp_protocol.c;../rcp_protocol/src/rcp_tx_scheduler.c;
 Doc=../README.md;
+[Appli:ProjectFiles]
+HeaderPath=../iperf;../RCP/Include;../RCP/Src;../rcp_protocol/include;../rcp_protocol/include/wifi;
+[Appli:Others]
+Define=;

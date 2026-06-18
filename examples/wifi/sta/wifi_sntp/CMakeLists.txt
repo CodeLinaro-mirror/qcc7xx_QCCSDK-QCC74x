@@ -1,7 +1,4 @@
 cmake_minimum_required(VERSION 3.15)
-
-include(proj.conf)
-
 find_package(qcc74x_sdk REQUIRED HINTS $ENV{QCC74x_SDK_BASE})
 
 # User
@@ -14,7 +11,6 @@ if(CONFIG_WIFI_GATEWAY)
 #sdk_add_compile_definitions(-DFHOST_RX_BUF_SECTION=\".bss\")
 #sdk_add_compile_definitions(-DCFG_ENABLE_AP_PS)
 #sdk_add_compile_definitions(-DLWIP_HEAP_SIZE=\(32*1024\))
-sdk_add_compile_definitions(-DCONFIG_WIFI_GATEWAY)
 sdk_add_compile_definitions(-DIP_FORWARD=1)
 sdk_add_compile_definitions(-DIP_NAPT=1)
 sdk_add_compile_definitions(-DCFG_IP_NAPT_TIMEOUT_MS_TCP=\(30*60*1000\))

@@ -39,11 +39,12 @@ uint16_t to_read;
 #define PORT   8887 // The port on which to send data
 
 static enum rcp_bus_status socket_open(void);
-static enum rcp_bus_status socket_write(uint8_t *tx, uint16_t len);
-static enum rcp_bus_status socket_read(uint8_t *rx, uint16_t len, uint16_t *nread);
+static enum rcp_bus_status socket_write(rcp_msg_packt_t *tx, uint16_t len);
+static int socket_read(rcp_msg_packt_t *rx, uint16_t len);
 static enum rcp_bus_status socket_close(void);
 static enum rcp_bus_status socket_get_caps(struct rcp_bus_caps *caps);
 static uint16_t socket_get_rx_len(void);
+static bool socket_recover(void);
 
 static void die(char *s)
 {
@@ -59,6 +60,7 @@ static struct rcp_bus_api bus_api = {
 	.close = socket_close,
 	.get_caps = socket_get_caps,
 	.get_rx_len = socket_get_rx_len,
+	.recover = socket_recover,
 };
 
 void rcp_bus_socket_init(void)
@@ -177,14 +179,16 @@ static enum rcp_bus_status socket_open(void)
 	return RCP_BUS_OK;
 }
 
-static enum rcp_bus_status socket_write(uint8_t *tx, uint16_t len)
+static enum rcp_bus_status socket_write(rcp_msg_packt_t *tx, uint16_t len)
 {
 	if (sendto(socket_fd, tx, len, 0, (struct sockaddr *)&si_other, sizeof(si_other)) == -1) {
 		die("sendto()");
 	}
+
+	return RCP_BUS_OK;
 }
 
-static enum rcp_bus_status socket_read(uint8_t *rx, uint16_t len, uint16_t *nread)
+static int socket_read(rcp_msg_packt_t *rx, uint16_t len)
 {
 	int recv_len = 0;
 	socklen_t slen = sizeof(si_other);
@@ -198,16 +202,15 @@ static enum rcp_bus_status socket_read(uint8_t *rx, uint16_t len, uint16_t *nrea
 		die("recvfrom()");
 	}
 	reading = false;
-	*nread = recv_len;
-	if (*nread == len) {
+	if (recv_len == len) {
 		/* No more data. */
 		__rcp_bus_set_flags(inst, 0, RCP_BUS_FLAG_RX_DATA);
 	} else {
 		/* Notify again. */
 		__rcp_bus_set_flags(inst, RCP_BUS_FLAG_RX_DATA, 0);
-		to_read -= *nread;
+		to_read -= (uint16_t)recv_len;
 	}
-	return RCP_BUS_OK;
+	return recv_len;
 }
 
 static enum rcp_bus_status socket_close(void)
@@ -232,4 +235,9 @@ void rcp_bus_socket_close(void)
 static enum rcp_bus_status socket_get_caps(struct rcp_bus_caps *caps)
 {
 	return RCP_BUS_OK;
+}
+
+static bool socket_recover(void)
+{
+	return false;
 }

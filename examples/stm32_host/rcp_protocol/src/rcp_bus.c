@@ -78,22 +78,22 @@ enum rcp_bus_status rcp_bus_close(enum rcp_bus bus)
 	return get_inst(bus)->close();
 }
 
-enum rcp_bus_status rcp_bus_write(enum rcp_bus bus, rcp_msg_packt_t *packt)
+enum rcp_bus_status rcp_bus_write(enum rcp_bus bus, rcp_msg_packt_t *packt, uint16_t buf_len)
 {
 	if (!is_registered(bus) || packt == NULL) {
 		return RCP_BUS_ERR_INVALID;
 	}
 
-	return get_inst(bus)->write(packt);
+	return get_inst(bus)->write(packt, buf_len);
 }
 
-int rcp_bus_read(enum rcp_bus bus, rcp_msg_packt_t *packt)
+int rcp_bus_read(enum rcp_bus bus, rcp_msg_packt_t *packt, uint16_t buf_len)
 {
 	if (!is_registered(bus) || packt == NULL) {
 		return RCP_BUS_ERR_INVALID;
 	}
 
-	return get_inst(bus)->read(packt);
+	return get_inst(bus)->read(packt, buf_len);
 }
 
 enum rcp_bus_status rcp_bus_get_caps(enum rcp_bus bus, struct rcp_bus_caps *caps)
@@ -200,6 +200,15 @@ uint16_t rcp_bus_get_rx_len(enum rcp_bus bus)
 		return RCP_BUS_ERR_INVALID;
 	}
 	return get_inst(bus)->get_rx_len();
+}
+
+bool rcp_bus_runtime_recover(enum rcp_bus bus)
+{
+	if (!is_registered(bus)) {
+		return false;
+	}
+
+	return get_inst(bus)->recover();
 }
 
 const char *rcp_bus_status_to_str(enum rcp_bus_status status)

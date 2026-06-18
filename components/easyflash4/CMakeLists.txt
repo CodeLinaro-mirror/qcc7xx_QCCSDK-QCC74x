@@ -9,8 +9,3 @@ src/easyflash_cli.c
 )
 
 sdk_add_include_directories(inc)
-
-if(CONFIG_CLI_CMD_ENABLE)
-sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
-endif()
-sdk_add_compile_definitions(-DCONFIG_EASYFLASH4)

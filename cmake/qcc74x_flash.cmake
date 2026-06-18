@@ -96,12 +96,10 @@ endif()
 
 set(combine_cmds)
 
-foreach(item ${CONFIG_POST_BUILDS})
-    if("${item}" STREQUAL "CONCAT_WITH_LP_FW")
-    list(APPEND combine_cmds COMMAND ${CMAKE} -E echo "[lp_fw] concate with lp fw bin"
-                                COMMAND ${QCC74x_SDK_BASE}/tools/lpfw/patch_lpfw${TOOL_SUFFIX} ${BIN_FILE} ${QCC74x_SDK_BASE}/tools/lpfw/bin/${CHIP}_lp_fw.bin)
-    endif()
-endforeach()
+if(CONFIG_POST_BUILDS_CONCAT_WITH_LP_FW)
+list(APPEND combine_cmds COMMAND ${CMAKE} -E echo "[lp_fw] concate with lp fw bin"
+                         COMMAND ${QCC74x_SDK_BASE}/tools/lpfw/patch_lpfw${TOOL_SUFFIX} ${BIN_FILE} ${QCC74x_SDK_BASE}/tools/lpfw/bin/${CHIP}_lp_fw.bin)
+endif()
 
 list(APPEND combine_cmds COMMAND ${QCC74x_FW_POST_PROC} ${QCC74x_FW_POST_PROC_CONFIG})
 
@@ -115,28 +113,24 @@ file(GLOB BOOT2_BIN_FILES "${QCC74x_SDK_BASE}/bsp/board/${BOARD}/config/boot2*.b
 file(GLOB INI_FILES "${CMAKE_CURRENT_SOURCE_DIR}/*.ini")
 set(PARTITION_BIN_FILES "${CMAKE_CURRENT_SOURCE_DIR}/${BUILD_DIR}/build_out/partition.bin")
 
-set(post_build_cmds)
-foreach(item ${CONFIG_POST_BUILDS})
-    if("${item}" STREQUAL "RELEASE_MFG")
-    list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[release] generate mfg_release directory"
-                            COMMAND ${CMAKE} -E remove ${OLD_MFG_BIN}
-                            COMMAND ${CMAKE} -E copy ${BIN_FILE} ${QCC74x_SDK_BASE}/bsp/board/${BOARD}/config/mfg_${CHIP}_tmpver.bin
-                            COMMAND ${CMAKE} -E remove_directory mfg_release
-                            COMMAND ${CMAKE} -E copy_directory ${QCC74x_SDK_BASE}/tools/qcc74x_tools mfg_release
-                            COMMAND ${CMAKE} -E copy ${BIN_FILE} ${PARTITION_BIN_FILES} ${BOOT2_BIN_FILES} ${DTS_FILES} ${INI_FILES} mfg_release)
-    endif()
+if(CONFIG_POST_BUILDS_RELEASE_MFG)
+list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[release] generate mfg_release directory"
+                        COMMAND ${CMAKE} -E remove ${OLD_MFG_BIN}
+                        COMMAND ${CMAKE} -E copy ${BIN_FILE} ${QCC74x_SDK_BASE}/bsp/board/${BOARD}/config/mfg_${CHIP}_tmpver.bin
+                        COMMAND ${CMAKE} -E remove_directory mfg_release
+                        COMMAND ${CMAKE} -E copy_directory ${QCC74x_SDK_BASE}/tools/qcc74x_tools mfg_release
+                        COMMAND ${CMAKE} -E copy ${BIN_FILE} ${PARTITION_BIN_FILES} ${BOOT2_BIN_FILES} ${DTS_FILES} ${INI_FILES} mfg_release)
+endif()
 
-    if("${item}" STREQUAL "GENERATE_ROMFS")
-    list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[romfs] generate romfs.bin using romfs directory"
-                                COMMAND ${QCC74x_SDK_BASE}/tools/genromfs/genromfs${TOOL_SUFFIX} -d romfs/ -f ./${BUILD_DIR}/build_out/romfs.bin)
-    endif()
+if(CONFIG_POST_BUILDS_GENERATE_ROMFS)
+list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[romfs] generate romfs.bin using romfs directory"
+                            COMMAND ${QCC74x_SDK_BASE}/tools/genromfs/genromfs${TOOL_SUFFIX} -d romfs/ -f ./${BUILD_DIR}/build_out/romfs.bin)
+endif()
 
-    if("${item}" STREQUAL "GENERATE_LITTLEFS")
-    list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[littlefs] generate littlefs.bin using littlefs directory"
-                                COMMAND ${QCC74x_SDK_BASE}/tools/genlfs/mklfs${TOOL_SUFFIX} -c lfs -b 4096 -p 256 -r 256 -s 0x6d000 -i ./${BUILD_DIR}/build_out/littlefs.bin)
-    endif()
-
-endforeach()
+if(CONFIG_POST_BUILDS_GENERATE_LITTLEFS)
+list(APPEND post_build_cmds COMMAND ${CMAKE} -E echo "[littlefs] generate littlefs.bin using littlefs directory"
+                            COMMAND ${QCC74x_SDK_BASE}/tools/genlfs/mklfs${TOOL_SUFFIX} -c lfs -b 4096 -p 256 -r 256 -s 0x6d000 -i ./${BUILD_DIR}/build_out/littlefs.bin)
+endif()
 
 add_custom_target(post_build
         WORKING_DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}

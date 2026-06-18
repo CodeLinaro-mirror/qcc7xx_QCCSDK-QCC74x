@@ -189,12 +189,11 @@ struct net_iperf_send_buf_tag
 {
     /// Network stack buffer element for headers
     struct pbuf_custom h;
-    /// Network stack buffer element for IPERF payload
-    struct pbuf_custom p;
     /// Structure containing the information about the IPERF sending buffer
     struct net_iperf_send_info info;
-    /// Buffer to store all headers (Link/Transport/Iperf)
-    //char hdr[NET_IPERF_HEADER_TOTAL_SIZE];
+    /// Per-slot payload storage. It must stay valid until the netif TX path releases the pbuf.
+    uint8_t payload[IPERF_BUFFER_LEN + NET_IPERF_HEADER_TOTAL_SIZE + MEM_ALIGNMENT]
+        __attribute__((aligned(MEM_ALIGNMENT)));
 };
 
 /// IPERF TCP States
@@ -238,6 +237,19 @@ struct fhost_iperf_settings;
  ****************************************************************************************
  */
 static err_t net_iperf_tcp_server_accept(void * arg, struct tcp_pcb *newpcb, err_t err);
+static void net_iperf_release_send_buf(struct net_iperf_send_buf_tag *buf);
+static void net_iperf_wait_send_bufs(struct fhost_iperf_stream *stream);
+
+static void *net_iperf_send_payload_mem(struct net_iperf_send_buf_tag *buf, u16_t *payload_mem_len)
+{
+    uint8_t *payload = (uint8_t *)LWIP_MEM_ALIGN(buf->payload);
+
+    if (payload_mem_len) {
+        *payload_mem_len = (u16_t)(sizeof(buf->payload) - (u16_t)(payload - buf->payload));
+    }
+
+    return payload;
+}
 
 /**
  ****************************************************************************************
@@ -247,16 +259,26 @@ static err_t net_iperf_tcp_server_accept(void * arg, struct tcp_pcb *newpcb, err
  * Note: It is mandatory to increase the credit and reset flag when freeing the paylaod
  * buffer (and not the header buffer) as it is freed last.
  *
- * @param[in] p pbuf_custom buffer to free (p in struct net_iperf_send_buf_tag)
+ * @param[in] p pbuf_custom buffer to free (h in struct net_iperf_send_buf_tag)
  ****************************************************************************************
  **/
-static void net_iperf_pbuf_custom_payload_free_cb(struct pbuf *p)
+static void net_iperf_pbuf_custom_free_cb(struct pbuf *p)
 {
     struct net_iperf_send_buf_tag *buf;
-    struct fhost_iperf_stream *stream;
 
     buf = (struct net_iperf_send_buf_tag *)((uint8_t *)p -
-                                            offsetof(struct net_iperf_send_buf_tag, p));
+                                            offsetof(struct net_iperf_send_buf_tag, h));
+    net_iperf_release_send_buf(buf);
+}
+
+static void net_iperf_release_send_buf(struct net_iperf_send_buf_tag *buf)
+{
+    struct fhost_iperf_stream *stream;
+
+    if (buf == NULL || buf->info.stream == NULL) {
+        return;
+    }
+
     stream = buf->info.stream;
 
     // Avoid sending process to modify it in the same time
@@ -265,26 +287,6 @@ static void net_iperf_pbuf_custom_payload_free_cb(struct pbuf *p)
     rtos_mutex_unlock(stream->iperf_mutex);
     // Send a signal to sending process that we have a new credit
     rtos_semaphore_signal(stream->send_buf_semaphore, false);
-}
-
-/**
- ****************************************************************************************
- * @brief Callback function to free the pbuf_custom used for IPERF UDP headers
- *
- * Does nothing unless there are no payload buffer attached
- * @param[in] p pbuf_custom buffer to free (h in struct net_iperf_send_buf_tag)
- ****************************************************************************************
- **/
-static void net_iperf_pbuf_custom_header_free_cb(struct pbuf *p)
-{
-    struct net_iperf_send_buf_tag *buf;
-
-    if (p->next)
-        return;
-
-    buf = (struct net_iperf_send_buf_tag *)((uint8_t *)p -
-                                            offsetof(struct net_iperf_send_buf_tag, h));
-    net_iperf_pbuf_custom_payload_free_cb((struct pbuf *)&buf->p);
 }
 
 /**
@@ -364,14 +366,17 @@ static int net_iperf_buf_init(struct fhost_iperf_stream* stream, bool udp)
             * FHOST_IPERF_SEND_BUF_CNT);
     for (j = 0; j < FHOST_IPERF_SEND_BUF_CNT; j++)
     {
+        uint8_t *payload = net_iperf_send_payload_mem(&net_iperf_send_buf_mem[i][j], NULL);
+
         // Initialize callback function for its pbuf custom
         net_iperf_send_buf_mem[i][j].h.custom_free_function =
-                (pbuf_free_custom_fn)net_iperf_pbuf_custom_header_free_cb;
-        // Initialize callback function for its pbuf custom
-        net_iperf_send_buf_mem[i][j].p.custom_free_function =
-                (pbuf_free_custom_fn)net_iperf_pbuf_custom_payload_free_cb;
+                (pbuf_free_custom_fn)net_iperf_pbuf_custom_free_cb;
         // Pointer to IPERF stream
         net_iperf_send_buf_mem[i][j].info.stream = stream;
+        for (k = 0; k < IPERF_BUFFER_LEN; k++)
+        {
+            payload[k + NET_IPERF_HEADER_TOTAL_SIZE] = 0x30 + k % 10;
+        }
     }
 
 no_copy_buf:
@@ -407,6 +412,7 @@ static void net_iperf_buf_deinit(struct fhost_iperf_stream *stream)
     int i;
 
     i = stream->id;
+    net_iperf_wait_send_bufs(stream);
     mem_free(net_iperf_send_buf_mem[i]);
     net_iperf_send_buf_mem[i] = NULL;
 
@@ -453,6 +459,19 @@ static struct net_iperf_send_buf_tag *net_iperf_find_free_send_buf(const struct 
     rtos_mutex_unlock(stream->iperf_mutex);
 
     return NULL;
+}
+
+static void net_iperf_wait_send_bufs(struct fhost_iperf_stream *stream)
+{
+    if (stream == NULL || net_iperf_send_buf_mem[stream->id] == NULL) {
+        return;
+    }
+
+    while (rtos_semaphore_get_count(stream->send_buf_semaphore) < FHOST_IPERF_SEND_BUF_CNT)
+    {
+        rtos_semaphore_wait(stream->send_buf_semaphore, -1);
+        rtos_semaphore_signal(stream->send_buf_semaphore, false);
+    }
 }
 
 /**
@@ -1123,6 +1142,8 @@ static err_t net_iperf_udp_server_report_req(struct udp_pcb *pcb,
     uint8_t cnt = 0;
     struct pbuf *h = NULL, *p = NULL;
     char *hdr;
+    void *payload_mem;
+    u16_t payload_mem_len;
     uint32_t payload_val;
     err_t err_log;
 
@@ -1138,9 +1159,15 @@ static err_t net_iperf_udp_server_report_req(struct udp_pcb *pcb,
         if (buf_tag == NULL)
             break;
 
+        payload_mem = net_iperf_send_payload_mem(buf_tag, &payload_mem_len);
         h = pbuf_alloced_custom(PBUF_TRANSPORT,
         		stream->iperf_settings.buf_len > NET_IPERF_HEADER_SIZE ? stream->iperf_settings.buf_len : NET_IPERF_HEADER_SIZE,
-				PBUF_RAM, &(buf_tag->h), net_iperf_nocopy_buf, IPERF_BUFFER_LEN + NET_IPERF_HEADER_TOTAL_SIZE);
+					PBUF_RAM, &(buf_tag->h), payload_mem, payload_mem_len);
+        if (h == NULL)
+        {
+            net_iperf_release_send_buf(buf_tag);
+            return ERR_MEM;
+        }
 
         cnt++;
         hdr = h->payload;
@@ -1595,6 +1622,8 @@ int net_iperf_udp_client_run(struct fhost_iperf_stream* stream)
     err_t err_log;
     struct pbuf *h = NULL, *p = NULL;
     char *payload;
+    void *payload_mem;
+    u16_t payload_mem_len;
     uint32_t burst_intv_us, burst_size;
     bool done = false;
 
@@ -1640,9 +1669,15 @@ int net_iperf_udp_client_run(struct fhost_iperf_stream* stream)
             break;
 
         // custom PBUF for everything up to IPERF header
+        payload_mem = net_iperf_send_payload_mem(buf_tag, &payload_mem_len);
         h = pbuf_alloced_custom(PBUF_TRANSPORT,
         		stream->iperf_settings.buf_len > NET_IPERF_HEADER_SIZE ? stream->iperf_settings.buf_len : NET_IPERF_HEADER_SIZE,
-				PBUF_RAM, &(buf_tag->h), net_iperf_nocopy_buf, IPERF_BUFFER_LEN + NET_IPERF_HEADER_TOTAL_SIZE);
+					PBUF_RAM, &(buf_tag->h), payload_mem, payload_mem_len);
+        if (h == NULL)
+        {
+            net_iperf_release_send_buf(buf_tag);
+            goto cleanup;
+        }
 
         // Write IPerf header
         payload = h->payload;

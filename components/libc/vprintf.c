@@ -7,7 +7,7 @@
 
 extern struct qcc74x_device_s *console;
 
-#if defined(CONFIG_VSNPRINTF_NANO) && CONFIG_VSNPRINTF_NANO
+#ifdef CONFIG_VSNPRINTF_NANO
 int vprintf(const char *fmt, va_list ap)
 {
     char print_buf[512];

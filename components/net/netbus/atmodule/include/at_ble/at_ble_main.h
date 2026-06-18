@@ -20,6 +20,8 @@ int at_ble_start(void);
 
 int at_ble_stop(void);
 
+bool at_ble_is_busy(void);
+
 int at_ble_init(int role);
 
 int at_ble_set_public_addr(uint8_t *addr);

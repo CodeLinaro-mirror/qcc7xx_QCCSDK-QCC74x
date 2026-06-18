@@ -71,7 +71,8 @@ bool nh_tx_credit_update(nh_flow_cntrl_t *fc, uint8_t new_limit);
 
 void nh_rx_credit_reclaim(nh_flow_cntrl_t *fc);
 bool nh_rx_credit_need_update(nh_flow_cntrl_t *fc);
-int nh_rx_credit_update(nh_flow_cntrl_t *fc);
+int nh_rx_credit_prepare(nh_flow_cntrl_t *fc);
+void nh_rx_credit_update(nh_flow_cntrl_t *fc, uint8_t new_limit);
 
 int nh_credit_init(nh_flow_cntrl_t *fc, const char *name,
         uint8_t max_txcredit, uint8_t tx_threshold,

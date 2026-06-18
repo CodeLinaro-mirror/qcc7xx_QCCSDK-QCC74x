@@ -1,17 +1,9 @@
 cmake_minimum_required(VERSION 3.15)
-
-include(proj.conf)
-
 find_package(qcc74x_sdk REQUIRED HINTS $ENV{QCC74x_SDK_BASE})
 
 # User
 sdk_add_compile_definitions(-DCONFIG_CLI_CMD_ENABLE)
 #sdk_add_compile_definitions(-DQCC743_DHCP_DEBUG)
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS_AES_USE_HW)
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA1_USE_HW)
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA256_USE_HW)
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS_SHA512_USE_HW)
-sdk_add_compile_definitions(-DCONFIG_MBEDTLS_ECC_USE_HW)
 
 
 sdk_add_compile_definitions(-DLWIP_NETIF_EXT_STATUS_CALLBACK)

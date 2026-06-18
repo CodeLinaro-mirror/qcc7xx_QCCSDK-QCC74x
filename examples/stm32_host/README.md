@@ -1,105 +1,138 @@
-##  <b>LwIP_HTTP_Server_Socket_RTOS Application Description</b>
+## RCP Host Low Power Wakeup
 
-This application guides STM32Cube HAL API users to run a http server application based on Socket API of LwIP TCP/IP stack.
+`CONFIG_SDIO_OOB` selects the host-to-device wakeup line used by the SDIO
+transport.
 
-- The communication is done with a web browser application in a remote PC.
-- Since HTTPD_USE_CUSTOM_FSDATA flag is enabled, it requires to have in the generated project within "LwIP_HTTP_Server_Socket_RTOS \ Appli \ Inc \ " folder "fsdata_custom.c" file.
-- If a DHCP server is available, a dynamic IP address can be allocated by enabling the DHCP process (#define LWIP_DHCP to 1 in lwipopts.h)
-- At the beginning of the main program the HAL_Init() function is called to reset all the peripherals and initialize the Flash interface.
-- The HAL initializes the TIM6 to generate an interrupt each 1ms, it will be used as time base for the HAL drivers.
-- This application uses FreeRTOS, the RTOS initializes the systick to generate an interrupt each 1ms.
-- The systick is then used for FreeRTOS time base.
-- The CPU is at 600MHz
+Device-side low-power command details are documented in
+[`examples/wifi/nethub_sdio_wifi/README.md`](../wifi/nethub_sdio_wifi/README.md).
 
-####  <b>Expected success behavior</b>
+### CONFIG_SDIO_OOB=0 (Default)
 
- + The board IP address is printed on the HyperTerminal
- + This HTTP server contains two html pages:
-    - The first page (home page) is static, it gives information about STM32H7RS and LwIP stack.
-    - The second page is dynamically refreshed (every 1 s), it shows the RTOS statistics in runtime.
+This is the default in-band SDIO wakeup mode. The host reuses SDIO `D2` /
+`GPIOC PIN10` as the wake line. During wakeup, the host temporarily switches this
+pin from `GPIO_AF12_SDMMC1` to GPIO output and drives it low, then restores it to
+the SDMMC1 alternate function.
 
-#### <b>Expected error behavior</b>
+Structure:
 
-   - LED_YELLOW is ON indicating the ethernet cable is not connected
-   - LED_RED is toggling to indicate a critical error has occurred
-   - The error message is printed on the HyperTerminal
-   - The web server files are not properly loaded
+```text
+Host STM32                              Device qcc743
+-----------                             -------------
+PC10 / SDIO D2  ---- drive low -------> GPIO10 / SDIO DAT2
+                                        wakes by WIFI_WKIO 10 1
 
-#### <b>Assumptions if any</b>
+SDIO DAT1 IRQ   <--- active low ------- GPIO15 / SDIO DAT1
 
-- The Application is using the DHCP to acquire IP address, thus a DHCP server should be reachable by the board in the LAN used to test the application.
+PC10 / SDIO D2  ---- restore SDIO AF -> GPIO10 sees ready release
+SDIO CMD/CLK/DAT[0:3] <=============> SDIO CMD/CLK/DAT[0:3]
+```
 
-#### <b>Known limitations</b>
+Build with make:
 
-None.
+```sh
+cd STM32CubeIDE/Appli/Debug
+make all
+make all CONFIG_SDIO_OOB=0
+```
 
-### <b>Notes</b>
+Build with STM32CubeIDE:
 
- 1.  It is recommended to enable the cache and maintain its coherence:
-      - Depending on the use case it is also possible to configure the cache attributes using the MPU.
-      - Please refer to the **AN4838** "Managing memory protection unit (MPU) in STM32 MCUs".
-      - Please refer to the **AN4839** "Level 1 cache on STM32F7 Series and STM32H7 Series".
+No extra preprocessor symbol is required. If `CONFIG_SDIO_OOB` was added before,
+remove it or set it to `0`.
 
-### <b>Keywords</b>
+Use from the STM32 host shell:
 
-Connectivity, LwIP, Ethernet, HTTP Server, Socket, TCP/IP, FreeRTOS, DHCP
+```text
+WIFI_WKIO 10 1
+wifi_connect <ssid> <passw>
+WIFI_PWR 2 1
+```
 
-### <b>Directory contents</b>
+### CONFIG_SDIO_OOB=1
 
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/lwip.h                             header of lwip.c file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/ethernetif.h                       header for ethernetif.c file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/FreeRTOSConfig.h                   FreeRTOS configuration options
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/stm32h7rsxx_hal_conf.h             HAL configuration file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/stm32h7rsxx_it.h                   STM32 interrupt handlers header file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/main.h                             Main program header file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/lwipopts.h                         LwIP stack configuration options
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Inc/fsdata_custom.c                    ROM filesystem data (html pages)
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/lwip.c                             header of lwip.c file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/freertos.c                         Ethernet specific module
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/stm32h7rsxx_it.c                   STM32 interrupt handlers
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/main.c                             Main program
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/stm32h7rsxx_hal_timebase_tim.c     STM32H7RSxx system clock configuration file
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/ethernetif.c                       Interfacing LwIP to ETH driver
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/stm32h7rsxx_hal_msp.c              MSP Initialization
-  - LwIP/LwIP_HTTP_Server_Socket_RTOS/Appli/Src/system_stm32h7rsxx.c               STM32H7RSxx system clock configuration file
+This is the dedicated OOB wakeup mode. The host uses `GPIOD PIN14`, defined by
+`QCC74X_OOB_WAKEUP_Pin` and `QCC74X_OOB_WAKEUP_GPIO_Port` in
+`Appli/Inc/rcp_host_config.h`, as the wake line.
 
-### <b>Hardware and Software environment</b>
+The dedicated OOB GPIO defaults are:
 
-  - This application runs on STM32H7S3L8 devices.
+```c
+#define QCC74X_OOB_WAKEUP_Pin GPIO_PIN_14
+#define QCC74X_OOB_WAKEUP_GPIO_Port GPIOD
+```
 
-  - This application has been tested with the following environments:
-    - NUCLEO-H7S3L8 revision MB1737-H7S3L8-B02 board
-    - Http client: Google Chrome
-    - DHCP server: PC utility TFTPD32 (http://tftpd32.jounin.net/) is used as a DHCP server
+Structure:
 
-  - NUCLEO-H7S3L8 revision MB1737-H7S3L8-B02 Set-up
-  - Connect the NUCLEO board to remote PC (through a crossover ethernet cable) or to your local network (through a straight ethernet cable)
+```text
+Host STM32                              Device qcc743
+-----------                             -------------
+PD14 / OOB_WAKEUP ---- drive high ----> GPIO28
+                                        wakes by WIFI_WKIO 28 0
 
-  - This application uses USART3 to display logs, the hyperterminal configuration is as follows:
-    - BaudRate = 115200 baud
-    - Word Length = 8 Bits
-    - Stop Bit = 1
-    - Parity = None
-    - Flow control = None
+SDIO DAT1 IRQ      <--- active low ---- GPIO15 / SDIO DAT1
 
-  - User Option Bytes requirement (with STM32CubeProgrammer tool)
+PD14 / OOB_WAKEUP ---- drive low -----> GPIO28 sees ready release
+SDIO CMD/CLK/DAT[0:3] <=============> SDIO CMD/CLK/DAT[0:3]
+```
 
-    - XSPI2_HSLV=1     I/O XSPIM_P2 High speed option enabled
+Build with make:
 
-###  <b>How to use it ?</b>
+```sh
+cd STM32CubeIDE/Appli/Debug
+make all CONFIG_SDIO_OOB=1
+```
 
-This application runs from the external Flash memory (LwIP_HTTP_Server_Socket_RTOS Appli).
-It boots from internal Flash (Template_XIP_Boot) then jumps to the application code in external Flash.
+Build with STM32CubeIDE:
 
-To configure STM32CubeIDE Debug Configuration, you must do the following :
+Open the `STM32CubeIDE/Appli` project, then add this preprocessor symbol:
 
-    1. Upload the template XIP
-    2. Add the adequate external loader (MX25UW25645G_NUCLEO-H7S3L8.stldr file) in Project->Debugger Configuration
-    3. Add in the startup the template_XIP_Boot in Project->Debugger Configuration
-    4. Move up the application in the startup
+```text
+CONFIG_SDIO_OOB=1
+```
 
-To run the program, follow these steps:
+CubeIDE menu path:
 
- - Open your preferred toolchain
- - Rebuild all files and load your image into target memory
- - Run the application
+```text
+Project Properties
+  -> C/C++ Build
+  -> Settings
+  -> MCU GCC Compiler
+  -> Preprocessor
+  -> Defined symbols (-D)
+```
+
+Add `CONFIG_SDIO_OOB=1`, then rebuild the application project.
+
+Use from the STM32 host shell:
+
+```text
+WIFI_WKIO 28 0
+wifi_connect <ssid> <passw>
+WIFI_PWR 2 1
+```
+
+### Generated Config Header
+
+`STM32CubeIDE/Appli/makefile.defs` generates `Appli/Inc/rcp_host_config.h` with
+a default value only when `CONFIG_SDIO_OOB` was not already provided by the
+compiler command line. This keeps the CubeIDE preprocessor setting from being
+overwritten by the generated header.
+
+`CONFIG_SDIO_OOB=1`, `CONFIG_SDIO_OOB=y`, and `CONFIG_SDIO_OOB=Y` are treated as
+enabled by `STM32CubeIDE/Appli/makefile.defs`; other values are treated as
+disabled.
+
+The make flow rewrites `Appli/Inc/rcp_host_config.h` before compilation. The
+generated `CONFIG_SDIO_OOB` default is wrapped as follows:
+
+```c
+#ifndef CONFIG_SDIO_OOB
+#define CONFIG_SDIO_OOB 0
+#endif
+```
+
+This means the effective value is:
+
+1. CubeIDE/compiler `-DCONFIG_SDIO_OOB=...`, if provided.
+2. Otherwise the value generated from `make CONFIG_SDIO_OOB=...`.
+3. Otherwise the default value `0`.

@@ -18,4 +18,14 @@ chiptest
 **/_build
 **/img_create_iot
 Docs/zh/_static/**
-**/Debug
+Appli/Inc/rcp_host_config.h
+**/Debug/**
+!/STM32CubeIDE/
+!/STM32CubeIDE/Appli/
+!/STM32CubeIDE/Appli/Debug/
+!/STM32CubeIDE/Appli/Debug/**/
+!/STM32CubeIDE/Appli/Debug/**/subdir.mk
+!/STM32CubeIDE/Appli/Debug/makefile
+!/STM32CubeIDE/Appli/Debug/objects.list
+!/STM32CubeIDE/Appli/Debug/objects.mk
+!/STM32CubeIDE/Appli/Debug/sources.mk

@@ -35,6 +35,10 @@ extern "C" {
 #define OTRADIO_RX_FRAME_BUFFER_NUM         8
 #endif
 
+#ifndef CONFIG_NXSPI_OPENTHREAD_RADIO
+#define CONFIG_NXSPI_OPENTHREAD_RADIO       0
+#endif
+
 typedef union {
     struct {
         uint16_t isCoexEnable:1;
@@ -420,7 +424,7 @@ void otrAppProcess(ot_system_event_t sevent);
  * @return None
  *
 *******************************************************************************/
-#if NXSPI_OPENTHREAD_RADIO
+#if CONFIG_NXSPI_OPENTHREAD_RADIO
 void ot_nxspi_notify_rxd(void);
 #endif
 

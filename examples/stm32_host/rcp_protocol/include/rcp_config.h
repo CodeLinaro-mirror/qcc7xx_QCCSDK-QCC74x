@@ -83,11 +83,6 @@
 #define RCP_UPLD_CREDIT_UPDATE_THRESHOLD 2U
 #endif
 
-/* Maximum WiFi event callback functions. */
-#ifndef RCP_WIFI_MAX_CB_CNT
-#define RCP_WIFI_MAX_CB_CNT 2
-#endif
-
 /* Buffer number of external buffer wrappers supported */
 #ifndef RCP_NUM_EXT_BUFFERS
 #define RCP_NUM_EXT_BUFFERS 5

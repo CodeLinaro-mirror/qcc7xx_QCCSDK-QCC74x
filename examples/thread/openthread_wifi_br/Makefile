@@ -5,24 +5,13 @@ export QCC74x_SDK_BASE
 
 CHIP ?= qcc743
 BOARD ?= ${CHIP}dk
-OTBR_REST ?= 1
-CONFIG_LMAC154_CMD ?= 0
-CONFIG_LMAC154_LOG ?= 0
-
 CROSS_COMPILE ?= riscv64-unknown-elf-
 
-cmake_definition+=-DOT_FTD=1
-cmake_definition+=-DOT_CLI=1
-cmake_definition+=-DOT_SERIAL=SYS_CLI
+CONFIG_LMAC154_CMD ?= n
+CONFIG_LMAC154_LOG ?= n
 
-cmake_definition+=-DCONFIG_SHELL_CMD_SIZE=256
-cmake_definition+=-DCONFIG_SHELL=1
-
-cmake_definition+=-DCONFIG_LMAC154_CMD=${CONFIG_LMAC154_CMD}
-cmake_definition+=-DCONFIG_LMAC154_LOG=${CONFIG_LMAC154_LOG}
-
-cmake_definition+=-DCONFIG_OTBR_REST=${OTBR_REST}
-cmake_definition+=-DOPENTHREAD_PROJECT_CORE_CONFIG_FILE=\"openthread-core-proj-config.h\"
-cmake_definition+=-DOPENTHREAD_CORE_CONFIG_PLATFORM_CHECK_FILE=\"openthread-core-platform-config-check.h\"
+CONFIG_OT_FTD = y
+CONFIG_OT_CLI = shell
+CONFIG_OTBR_REST ?= y
 
 include $(QCC74x_SDK_BASE)/project.build

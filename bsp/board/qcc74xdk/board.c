@@ -174,8 +174,9 @@ static void peripheral_clock_init_lp(void)
     // tmpVal = QCC74x_SET_REG_BITS_VAL(tmpVal, GLB_CGEN_S1_RF_TOP, 1); // ungate rf_top
     // tmpVal = QCC74x_SET_REG_BITS_VAL(tmpVal, GLB_CGEN_S1A_RSVD12, 1); // ungate audio
     // tmpVal = QCC74x_SET_REG_BITS_VAL(tmpVal, GLB_CGEN_S1A_RSVD11, 1); // ungate i2s
-    // tmpVal = QCC74x_SET_REG_BITS_VAL(tmpVal, GLB_CGEN_S1_RSVD13, 1); // ungate sdu&usb
-
+#if (defined(CONFIG_NETHUB_PROFILE_SDIO))
+    tmpVal = QCC74x_SET_REG_BITS_VAL(tmpVal, GLB_CGEN_S1_RSVD13, 1); // ungate sdu&usb
+#endif
     QCC74x_WR_REG(GLB_BASE, GLB_CGEN_CFG1, tmpVal);
 
     tmpVal = 0;

@@ -262,10 +262,10 @@ bool nh_rx_credit_need_update(nh_flow_cntrl_t *fc)
     return delta >= credit->threshold;
 }
 
-int nh_rx_credit_update(nh_flow_cntrl_t *fc)
+int nh_rx_credit_prepare(nh_flow_cntrl_t *fc)
 {
     uintptr_t irq_flags;
-    int need_update = -1;
+    int prepared = -1;
     nh_credit_t *credit;
 
     if (fc == NULL) {
@@ -280,18 +280,38 @@ int nh_rx_credit_update(nh_flow_cntrl_t *fc)
 
     irq_flags = rcp_os_irq_save();
     if (credit->credit_limit_cnt != credit->credit_consumed_cnt) {
-        credit->credit_limit_cnt = credit->credit_consumed_cnt;
-        need_update = credit->credit_consumed_cnt;
+        prepared = credit->credit_consumed_cnt;
     }
     rcp_os_irq_restore(irq_flags);
 
     NH_CREDIT_LOG(fc,
-                  "rx %supdate: limit=%u consumed=%u\r\n",
-                  (need_update >= 0) ? "" : "NOT ",
+                  "rx %sprepare: limit=%u consumed=%u\r\n",
+                  (prepared >= 0) ? "" : "NOT ",
                   credit->credit_limit_cnt,
                   credit->credit_consumed_cnt);
 
-    return need_update;
+    return prepared;
+}
+
+void nh_rx_credit_update(nh_flow_cntrl_t *fc, uint8_t new_limit)
+{
+    uintptr_t irq_flags;
+    nh_credit_t *credit;
+
+    if (fc == NULL || (fc->enable & NH_CREDIT_EN_RX) == 0U) {
+        return;
+    }
+
+    credit = &fc->credit[NH_CREDIT_DIR_RX];
+
+    irq_flags = rcp_os_irq_save();
+    credit->credit_limit_cnt = new_limit;
+    rcp_os_irq_restore(irq_flags);
+
+    NH_CREDIT_LOG(fc,
+                  "rx update: limit=%u consumed=%u\r\n",
+                  credit->credit_limit_cnt,
+                  credit->credit_consumed_cnt);
 }
 
 void nh_credit_deinit(nh_flow_cntrl_t *fc)

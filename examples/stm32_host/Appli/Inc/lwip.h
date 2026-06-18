@@ -32,7 +32,6 @@
 #include "netif/etharp.h"
 #include "lwip/dhcp.h"
 #include "lwip/timeouts.h"
-#include "ethernetif.h"
 
 /* Includes for RTOS ---------------------------------------------------------*/
 #if WITH_RTOS

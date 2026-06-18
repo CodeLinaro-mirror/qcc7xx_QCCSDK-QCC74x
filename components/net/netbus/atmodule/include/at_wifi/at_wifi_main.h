@@ -55,6 +55,8 @@ int at_wifi_mode_set(uint8_t ap_or_sta, wifi_proto proto);
 
 wifi_proto at_wifi_mode_get(uint8_t ap_or_sta);
 
+bool at_wifi_is_busy(void);
+
 #ifdef __cplusplus
 }
 #endif
