@@ -1573,7 +1573,12 @@ static int at_setup_cmd_mdns(int argc, const char **argv)
 
 static int at_query_cmd_cwhostname(int argc, const char **argv)
 {
-    at_response_string("+CWHOSTNAME:%s\r\n", at_wifi_hostname_get());
+    const char *hostname = at_wifi_hostname_get();
+
+    if (hostname == NULL) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+    at_response_string("+CWHOSTNAME:%s\r\n", hostname);
     return AT_RESULT_CODE_OK;
 }
 

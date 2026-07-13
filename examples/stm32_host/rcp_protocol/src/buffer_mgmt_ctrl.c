@@ -6,6 +6,8 @@
  */
 
 #include <string.h>
+#include <stddef.h>
+#include <stdint.h>
 #include "buffer_mgmt_ctrl.h"
 
 #define DBG_TAG "BF_CTRL"
@@ -29,12 +31,19 @@
 buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
 {
     buffer_mgmt_elem_t *elem_head;
+    size_t frame_buff_size;
 
-    if (!cfg || !cfg->frame_buff || !cfg->frame_elem_cnt ||
+    if (!cfg || !cfg->frame_buff || !cfg->frame_elem_cnt || !cfg->frame_elem_size ||
         cfg->frame_elem_size < cfg->frame_data_offset) {
         LOG_ERR("invalid buffer mgmt cfg");
         return NULL;
     }
+
+    if ((size_t)cfg->frame_elem_cnt > (SIZE_MAX / cfg->frame_elem_size)) {
+        LOG_ERR("buffer mgmt pool size overflow");
+        return NULL;
+    }
+    frame_buff_size = (size_t)cfg->frame_elem_cnt * cfg->frame_elem_size;
 
     buffer_mgmt_ctrl_t *ctrl = rcp_os_malloc(sizeof(buffer_mgmt_ctrl_t));
     if (!ctrl) {
@@ -49,7 +58,7 @@ buffer_mgmt_ctrl_t *buffer_mgmt_create(buffer_mgmt_ctrl_init_cfg_t *cfg)
         goto err_free_ctrl;
     }
 
-    memset(cfg->frame_buff, 0, (size_t)cfg->frame_elem_cnt * cfg->frame_elem_size);
+    memset(cfg->frame_buff, 0, frame_buff_size);
 
     for (int i = 0; i < cfg->frame_elem_cnt; i++) {
         elem_head = (buffer_mgmt_elem_t *)((uintptr_t)cfg->frame_buff + cfg->frame_elem_size * i);

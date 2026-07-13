@@ -35,10 +35,12 @@ void cntrl_msg_handler(uint8_t msg_type, uint8_t subtype, buffer_mgmt_elem_t *pa
 
 bool get_mcu_capability()
 {
-	if (!mcu_cap_sem_ready && !rcp_os_sem_init(&mcu_cap_sem, 0, 1)) {
-		return false;
+	if (!mcu_cap_sem_ready) {
+		if (!rcp_os_sem_init(&mcu_cap_sem, 0, 1)) {
+			return false;
+		}
+		mcu_cap_sem_ready = true;
 	}
-	mcu_cap_sem_ready = true;
 
 	mcu_capability = 0;
 	(void)rcp_os_sem_take(&mcu_cap_sem, 0);

@@ -22,12 +22,14 @@
 //#include <utils_time.h>
 #include <sys/stat.h>
 
+#include "mem.h"
 #include "at_main.h"
 #include "at_core.h"
 #include "at_base_config.h"
 #include "at_wifi_config.h"
 #include "at_net_main.h"
 #include "at_net_config.h"
+#include "at_pal.h"
 #include "at_through.h"
 #include "at_port.h"
 #include "assert.h"
@@ -1918,6 +1920,215 @@ static int at_setup_cmd_cipsntpintv(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+#if CONFIG_AT_MDNS_ENABLE
+static int at_mdns_result_payload_len(at_net_mdns_result_t *result)
+{
+    int len = 0;
+    int i;
+
+    len += snprintf(NULL, 0, "IF=%u\r\n", result->netif);
+    len += snprintf(NULL, 0, "IP=%u\r\n", result->ip_type);
+    if (result->ptr[0]) {
+        len += snprintf(NULL, 0, "PTR=%s\r\n", result->ptr);
+    }
+    if (result->srv[0]) {
+        len += snprintf(NULL, 0, "SRV=%s:%u\r\n", result->srv, result->port);
+    }
+    for (i = 0; i < result->txt_num; i++) {
+        len += snprintf(NULL, 0, "TXT=%s\r\n", result->txt[i]);
+    }
+    for (i = 0; i < result->a_num; i++) {
+        len += snprintf(NULL, 0, "A=%s\r\n", result->a[i]);
+    }
+    for (i = 0; i < result->aaaa_num; i++) {
+        len += snprintf(NULL, 0, "AAAA=%s\r\n", result->aaaa[i]);
+    }
+
+    return len;
+}
+
+static void at_mdns_result_output(at_net_mdns_result_t *result)
+{
+    int i;
+
+    at_response_string("+MDNS:%d,\r\n", at_mdns_result_payload_len(result));
+    at_response_string("IF=%u\r\n", result->netif);
+    at_response_string("IP=%u\r\n", result->ip_type);
+    if (result->ptr[0]) {
+        at_response_string("PTR=%s\r\n", result->ptr);
+    }
+    if (result->srv[0]) {
+        at_response_string("SRV=%s:%u\r\n", result->srv, result->port);
+    }
+    for (i = 0; i < result->txt_num; i++) {
+        at_response_string("TXT=%s\r\n", result->txt[i]);
+    }
+    for (i = 0; i < result->a_num; i++) {
+        at_response_string("A=%s\r\n", result->a[i]);
+    }
+    for (i = 0; i < result->aaaa_num; i++) {
+        at_response_string("AAAA=%s\r\n", result->aaaa[i]);
+    }
+}
+
+static int at_query_cmd_mdns(int argc, const char **argv)
+{
+    at_net_mdns_state_t state;
+
+    memset(&state, 0, sizeof(state));
+    at_net_mdns_get_state(&state);
+    if (!state.running) {
+        at_response_string("+MDNS:0\r\n");
+        return AT_RESULT_CODE_OK;
+    }
+
+    at_response_string("+MDNS:1,\"%s\",\"%s\",%u,\"%s\",\"%s\"\r\n",
+                       state.hostname,
+                       state.service,
+                       state.port,
+                       state.instance,
+                       state.proto);
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_setup_cmd_mdns(int argc, const char **argv)
+{
+    int mode;
+    char hostname[AT_NET_MDNS_LABEL_MAX_LEN + 1] = {0};
+    char service[AT_NET_MDNS_LABEL_MAX_LEN + 1] = {0};
+    char instance[AT_NET_MDNS_LABEL_MAX_LEN + 1] = {0};
+    char proto[5] = "_tcp";
+    char txt_items[AT_NET_MDNS_TXT_ITEM_MAX_NUM][AT_NET_MDNS_TXT_ITEM_MAX_LEN] = {0};
+    at_net_mdns_result_t *results = NULL;
+    int port = 0;
+    int query_type = 0;
+    int instance_valid = 0;
+    int proto_valid = 0;
+    int txt_count = 0;
+    int txt_count_valid = 0;
+    int timeout_ms = AT_NET_MDNS_QUERY_TIMEOUT_DEFAULT_MS;
+    int timeout_valid = 0;
+    int max_results = 1;
+    int max_results_valid = 0;
+    int result_count = 0;
+    int ret;
+    int i;
+
+    AT_CMD_PARSE_NUMBER(0, &mode);
+
+    if (mode == 0) {
+        if (argc != 1) {
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_NUM_MISMATCH);
+        }
+        ret = at_net_mdns_stop();
+        if (ret != 0) {
+            return AT_RESULT_WITH_SUB_CODE(ret);
+        }
+        return AT_RESULT_CODE_OK;
+    } else if (mode == 1) {
+        if (argc < 4) {
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_NUM_MISMATCH);
+        }
+
+        AT_CMD_PARSE_STRING(1, hostname, sizeof(hostname));
+        AT_CMD_PARSE_STRING(2, service, sizeof(service));
+        AT_CMD_PARSE_NUMBER(3, &port);
+        AT_CMD_PARSE_OPT_STRING(4, instance, sizeof(instance), instance_valid);
+        AT_CMD_PARSE_OPT_STRING(5, proto, sizeof(proto), proto_valid);
+        AT_CMD_PARSE_OPT_NUMBER(6, &txt_count, txt_count_valid);
+
+        if (port <= 0 || port > 65535) {
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+        }
+
+        if (!instance_valid) {
+            strlcpy(instance, hostname, sizeof(instance));
+        }
+        if (!proto_valid) {
+            strlcpy(proto, "_tcp", sizeof(proto));
+        }
+
+        if (txt_count_valid) {
+            if (txt_count < 1 || txt_count > AT_NET_MDNS_TXT_ITEM_MAX_NUM ||
+                argc != 7 + txt_count * 2) {
+                return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+            }
+
+            for (i = 0; i < txt_count; i++) {
+                char key[AT_NET_MDNS_TXT_ITEM_MAX_LEN] = {0};
+                char value[AT_NET_MDNS_TXT_ITEM_MAX_LEN] = {0};
+                int len;
+
+                AT_CMD_PARSE_STRING(7 + i * 2, key, sizeof(key));
+                AT_CMD_PARSE_STRING(8 + i * 2, value, sizeof(value));
+                len = snprintf(txt_items[i], sizeof(txt_items[i]), "%s=%s", key, value);
+                if (len < 0 || len >= (int)sizeof(txt_items[i])) {
+                    return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_LENGTH_MISMATCH);
+                }
+            }
+        } else if (argc > 6) {
+            return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_NUM_MISMATCH);
+        }
+
+        ret = at_net_mdns_start(hostname, service, (uint16_t)port,
+                                instance, proto, txt_items,
+                                (uint8_t)txt_count);
+        if (ret != 0) {
+            return AT_RESULT_WITH_SUB_CODE(ret);
+        }
+        return AT_RESULT_CODE_OK;
+    } else if (mode != 2) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    if (argc < 3) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_NUM_MISMATCH);
+    }
+
+    AT_CMD_PARSE_NUMBER(1, &query_type);
+    if (query_type != AT_NET_MDNS_QUERY_PTR) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    if (argc < 4 || argc > 6) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_NUM_MISMATCH);
+    }
+    AT_CMD_PARSE_STRING(2, service, sizeof(service));
+    AT_CMD_PARSE_STRING(3, proto, sizeof(proto));
+    AT_CMD_PARSE_OPT_NUMBER(4, &timeout_ms, timeout_valid);
+    AT_CMD_PARSE_OPT_NUMBER(5, &max_results, max_results_valid);
+
+    if (!timeout_valid) {
+        timeout_ms = AT_NET_MDNS_QUERY_TIMEOUT_DEFAULT_MS;
+    }
+    if (!max_results_valid) {
+        max_results = 1;
+    }
+
+    if (timeout_ms < AT_NET_MDNS_QUERY_TIMEOUT_MIN_MS ||
+        timeout_ms > AT_NET_MDNS_QUERY_TIMEOUT_MAX_MS ||
+        max_results <= 0 || max_results > AT_NET_MDNS_QUERY_RESULT_MAX) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    results = at_malloc(sizeof(*results) * max_results);
+    if (!results) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
+    ret = at_net_mdns_query(service, proto, timeout_ms, results, max_results, &result_count);
+    if (ret != 0) {
+        at_free(results);
+        return AT_RESULT_WITH_SUB_CODE(ret);
+    }
+
+    for (i = 0; i < result_count; i++) {
+        at_mdns_result_output(&results[i]);
+    }
+    at_free(results);
+    return AT_RESULT_CODE_OK;
+}
+#endif
+
 static int at_query_cmd_cipreconnintv(int argc, const char **argv)
 {
     at_response_string("+CIPRECONNINTV:%d\r\n", at_net_config->reconn_intv);
@@ -2369,6 +2580,9 @@ static const at_cmd_struct at_net_cmd[] = {
     {"+CIPSNTPCFG", NULL, at_query_cmd_cipsntpcfg, at_setup_cmd_cipsntpcfg, NULL, 1, 5},
     {"+CIPSNTPTIME", NULL, at_query_cmd_cipsntptime, NULL, NULL, 0, 0},
     {"+CIPSNTPINTV", NULL, at_query_cmd_cipsntpintv, at_setup_cmd_cipsntpintv, NULL, 1, 1},
+#if CONFIG_AT_MDNS_ENABLE
+    {"+MDNS", NULL, at_query_cmd_mdns, at_setup_cmd_mdns, NULL, 1, 17},
+#endif
     {"+CIPRECONNINTV", NULL, at_query_cmd_cipreconnintv, at_setup_cmd_cipreconnintv, NULL, 1, 1},
     {"+PING", NULL, NULL, at_setup_cmd_ping, NULL, 1, 5},
     {"+IPERF", NULL, NULL, at_setup_cmd_iperf, NULL, 2, 5},
@@ -2391,4 +2605,3 @@ bool at_net_cmd_regist(void)
     else
         return false;
 }
-

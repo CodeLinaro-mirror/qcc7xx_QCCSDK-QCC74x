@@ -299,7 +299,7 @@ int nethub_vchan_at_recv_register(nethub_vchan_recv_cb_t recv_cb, void *cb_arg)
 /**< Reset callback (optional) */
 int virtualchan_reset(mr_virtualchan_priv_t *priv)
 {
-    printf("========================= %s =========================\r\n");
+    printf("========================= %s =========================\r\n", priv->virtualchan_cfg.name);
 
     return 0;
 }

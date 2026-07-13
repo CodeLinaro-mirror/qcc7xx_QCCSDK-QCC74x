@@ -38,4 +38,8 @@ CONFIG_HTTP ?= y
 CONFIG_NETWORK ?= y
 CONFIG_ANTENNA_CONTROL ?= y
 
+ifeq ($(CONFIG_AT_MDNS_ENABLE), y)
+CONFIG_MDNS = y
+endif
+
 include $(QCC74x_SDK_BASE)/project.build 

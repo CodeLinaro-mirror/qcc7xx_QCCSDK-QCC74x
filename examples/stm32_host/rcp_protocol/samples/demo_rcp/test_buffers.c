@@ -85,7 +85,6 @@ int main(int argc, char *argv[])
 	for (int i = 0; i < RCP_NUM_BUFFERS; i++) {
 		rcp_buffer_free(&acquired_buff[i]);
 	}
-	rcp_buffer_free(&acquired_buff[8]);
 	printf("PASSED\n");
 
 	printf("Test: Use write_to_buffer: ");

@@ -61,6 +61,10 @@ struct wpa_rwnx_driver_data {
     u8 extended_capab[10];
     // Extended capabilities mask
     u8 extended_capab_mask[10];
+    // AP-specific extended capabilities
+    u8 ap_extended_capab[10];
+    // AP-specific extended capabilities mask
+    u8 ap_extended_capab_mask[10];
 };
 
 static void wpa_rwnx_msg_hdr_init(struct wpa_rwnx_driver_itf_data *drv,

@@ -46,6 +46,10 @@ static inline bool sdio_dma_buf_is_noncacheable(const void *data, uint16_t len)
 	uintptr_t nc_start = (uintptr_t)&__NONCACHEABLEBUFFER_BEGIN;
 	uintptr_t nc_end = (uintptr_t)&__NONCACHEABLEBUFFER_END;
 
+	if (end < start) {
+		return false;
+	}
+
 	return (start >= nc_start) && (end <= nc_end) && (end >= start);
 }
 
@@ -55,6 +59,10 @@ static inline bool sdio_dma_buf_is_cacheable(const void *data, uint16_t len)
 	uintptr_t end = start + (uintptr_t)len;
 	uintptr_t cache_start = (uintptr_t)&__data_start;
 	uintptr_t cache_end = (uintptr_t)&__NONCACHEABLEBUFFER_BEGIN;
+
+	if (end < start) {
+		return false;
+	}
 
 	return (start >= cache_start) && (end <= cache_end) && (end >= start);
 }

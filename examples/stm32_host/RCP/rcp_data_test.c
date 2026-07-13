@@ -284,6 +284,7 @@ bool start_data_test(rcp_data_test_mode_t mode, uint32_t duration_ms, uint32_t p
 
 		if (tx_enable) {
 			buffer_mgmt_elem_t *tx_buffer = NULL;
+			uint8_t *tx_data;
 			link_result_t send_result;
 			RCP_TX_PROF_BEGIN(alloc_start_cycles);
 
@@ -295,7 +296,13 @@ bool start_data_test(rcp_data_test_mode_t mode, uint32_t duration_ms, uint32_t p
 			}
 			RCP_TX_PROF_ACC(RCP_TX_PROF_PROD_ALLOC, alloc_start_cycles);
 			tx_buffer->offset = FRAME_BUFF_PAYLOAD_OFFSET;
-			memcpy(buffer_mgmt_data_ptr(tx_buffer), g_data_test_magic, DATA_TEST_TAG_SIZE);
+			tx_data = buffer_mgmt_data_ptr(tx_buffer);
+			if (tx_data == NULL || buffer_mgmt_max_size(tx_buffer) < tx_payload_len) {
+				buffer_mgmt_free_elem(tx_buffer);
+				printf("RCP data test TX stopped: invalid buffer\n");
+				break;
+			}
+			memcpy(tx_data, g_data_test_magic, DATA_TEST_TAG_SIZE);
 			tx_buffer->data_size = tx_payload_len;
 			RCP_TX_PROF_BEGIN(link_send_start_cycles);
 			send_result = link_send(DATA_TEST_STREAM, tx_buffer, RCP_OS_WAIT_FOREVER);

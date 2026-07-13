@@ -15,7 +15,12 @@
 #include <lwip/sys.h>
 #include <lwip/netdb.h>
 #include <lwip/sockets.h>
+#include <lwip/tcpip.h>
 #include "lwip/ip_addr.h"
+#if CONFIG_AT_MDNS_ENABLE
+#include <lwip/apps/mdns.h>
+#include <lwip/prot/dns.h>
+#endif
 #include <stream_buffer.h>
 #include <at_net_sntp.h>
 #include <wifi_mgmr_ext.h>
@@ -2184,6 +2189,543 @@ int at_net_throuthput_udp_linktype(int linkid)
     return (g_at_client_handle[linkid].type == NET_CLIENT_UDP);
 }
 
+#if CONFIG_AT_MDNS_ENABLE
+typedef struct {
+    uint8_t running;
+    struct netif *netif;
+    s8_t service_slot;
+    at_net_mdns_state_t info;
+    uint8_t txt_count;
+    char (*txt_items)[AT_NET_MDNS_TXT_ITEM_MAX_LEN];
+} at_net_mdns_handle_t;
+
+typedef struct {
+    SemaphoreHandle_t done;
+    at_net_mdns_result_t *results;
+    int max_results;
+    int result_count;
+    char service[AT_NET_MDNS_LABEL_MAX_LEN + 1];
+    char proto[5];
+    uint8_t current_valid;
+} at_net_mdns_search_t;
+
+static uint8_t g_at_net_mdns_is_init;
+static at_net_mdns_handle_t *g_at_net_mdns;
+
+static int at_net_mdns_label_valid(const char *label)
+{
+    size_t len;
+
+    if (!label) {
+        return 0;
+    }
+
+    len = strlen(label);
+    return len > 0 && len <= AT_NET_MDNS_LABEL_MAX_LEN;
+}
+
+static int at_net_mdns_proto_parse(const char *proto, enum mdns_sd_proto *out)
+{
+    if (strcmp(proto, "_tcp") == 0) {
+        *out = DNSSD_PROTO_TCP;
+        return 0;
+    }
+
+    if (strcmp(proto, "_udp") == 0) {
+        *out = DNSSD_PROTO_UDP;
+        return 0;
+    }
+
+    return -1;
+}
+
+static struct netif *at_net_mdns_get_netif(void)
+{
+    return netif_find("wl1");
+}
+
+static const char *at_net_mdns_get_netif_hostname(struct netif *netif)
+{
+#if LWIP_NETIF_HOSTNAME
+    if (netif && netif->hostname && netif->hostname[0] != '\0') {
+        return netif->hostname;
+    }
+#else
+    (void)netif;
+#endif
+
+    return "atmdns";
+}
+
+static int at_net_mdns_domain_to_string(const struct mdns_domain *domain, char *out, size_t out_len)
+{
+    const uint8_t *src;
+    size_t pos = 0;
+    uint16_t read_len = 0;
+
+    if (!domain || !out || out_len == 0) {
+        return -1;
+    }
+
+    src = domain->name;
+    out[0] = '\0';
+    while (read_len < domain->length && src[0] != 0) {
+        uint8_t label_len = src[0];
+
+        src++;
+        read_len++;
+        if (label_len == 0 || read_len + label_len > domain->length ||
+            pos + label_len + 2 > out_len) {
+            return -1;
+        }
+
+        if (pos > 0) {
+            out[pos++] = '.';
+        }
+        memcpy(&out[pos], src, label_len);
+        pos += label_len;
+        src += label_len;
+        read_len += label_len;
+    }
+
+    out[pos] = '\0';
+    return 0;
+}
+
+static void at_net_mdns_txt_fn(struct mdns_service *service, void *txt_userdata)
+{
+    at_net_mdns_handle_t *handle = (at_net_mdns_handle_t *)txt_userdata;
+    int i;
+
+    for (i = 0; i < handle->txt_count; i++) {
+        mdns_resp_add_service_txtitem(service, handle->txt_items[i], strlen(handle->txt_items[i]));
+    }
+}
+
+static void at_net_mdns_init_once(void)
+{
+    if (!g_at_net_mdns_is_init) {
+        mdns_resp_init();
+        g_at_net_mdns_is_init = 1;
+    }
+}
+
+static int at_net_mdns_err_to_sub_code(err_t err)
+{
+    if (err == ERR_OK) {
+        return 0;
+    }
+    if (err == ERR_MEM) {
+        return AT_SUB_NO_MEMORY;
+    }
+
+    return AT_SUB_CMD_EXEC_FAIL;
+}
+
+static int at_net_mdns_add_netif(struct netif *netif, const char *hostname)
+{
+    err_t err;
+
+    if (mdns_resp_netif_active(netif)) {
+        err = mdns_resp_rename_netif(netif, hostname);
+    } else {
+        err = mdns_resp_add_netif(netif, hostname);
+    }
+
+    return at_net_mdns_err_to_sub_code(err);
+}
+
+static void at_net_mdns_free_handle(void)
+{
+    if (g_at_net_mdns) {
+        if (g_at_net_mdns->txt_items) {
+            at_free(g_at_net_mdns->txt_items);
+        }
+        at_free(g_at_net_mdns);
+        g_at_net_mdns = NULL;
+    }
+}
+
+static void at_net_mdns_give_done(at_net_mdns_search_t *ctx)
+{
+    if (ctx->done) {
+        xSemaphoreGive(ctx->done);
+    }
+}
+
+static at_net_mdns_result_t *at_net_mdns_current_result(at_net_mdns_search_t *ctx, uint8_t ip_type)
+{
+    at_net_mdns_result_t *result;
+
+    if (ctx->result_count >= ctx->max_results) {
+        return NULL;
+    }
+
+    if (!ctx->current_valid) {
+        result = &ctx->results[ctx->result_count];
+        memset(result, 0, sizeof(*result));
+        result->netif = 1;
+        result->ip_type = ip_type;
+        ctx->current_valid = 1;
+    } else {
+        result = &ctx->results[ctx->result_count];
+    }
+
+    return result;
+}
+
+static void at_net_mdns_finish_current_result(at_net_mdns_search_t *ctx)
+{
+    at_net_mdns_result_t *result;
+
+    if (!ctx->current_valid || ctx->result_count >= ctx->max_results) {
+        return;
+    }
+
+    result = &ctx->results[ctx->result_count];
+    if (result->ptr[0] || result->srv[0] || result->txt_num ||
+        result->a_num || result->aaaa_num) {
+        ctx->result_count++;
+    }
+    ctx->current_valid = 0;
+}
+
+static int at_net_mdns_copy_ptr(at_net_mdns_result_t *result, const char *domain,
+                                const char *service, const char *proto)
+{
+    char suffix[AT_NET_MDNS_LABEL_MAX_LEN * 2 + 8];
+    const char *suffix_pos;
+    size_t len;
+
+    if (!result || !domain || domain[0] == '\0') {
+        return -1;
+    }
+
+    if (snprintf(suffix, sizeof(suffix), ".%s.%s", service, proto) >= (int)sizeof(suffix)) {
+        return -1;
+    }
+
+    suffix_pos = strstr(domain, suffix);
+    if (!suffix_pos || suffix_pos == domain) {
+        return -1;
+    }
+
+    if (suffix_pos[strlen(suffix)] != '\0' &&
+        strcmp(&suffix_pos[strlen(suffix)], ".local") != 0) {
+        return -1;
+    }
+
+    len = suffix_pos - domain;
+    if (len > AT_NET_MDNS_LABEL_MAX_LEN) {
+        len = AT_NET_MDNS_LABEL_MAX_LEN;
+    }
+    memcpy(result->ptr, domain, len);
+    result->ptr[len] = '\0';
+    return 0;
+}
+
+static void at_net_mdns_add_txt(at_net_mdns_result_t *result, const char *txt, int txt_len)
+{
+    int copy_len;
+
+    if (!result || !txt || txt_len <= 0 ||
+        result->txt_num >= AT_NET_MDNS_QUERY_RECORD_MAX) {
+        return;
+    }
+
+    copy_len = txt_len;
+    if (copy_len >= AT_NET_MDNS_TXT_ITEM_MAX_LEN) {
+        copy_len = AT_NET_MDNS_TXT_ITEM_MAX_LEN - 1;
+    }
+    memcpy(result->txt[result->txt_num], txt, copy_len);
+    result->txt[result->txt_num][copy_len] = '\0';
+    result->txt_num++;
+}
+
+static void at_net_mdns_parse_txt(at_net_mdns_result_t *result, const char *varpart, int varlen)
+{
+    int pos = 0;
+
+    while (pos < varlen) {
+        uint8_t len = (uint8_t)varpart[pos++];
+
+        if (len == 0) {
+            continue;
+        }
+        if (pos + len > varlen) {
+            break;
+        }
+
+        at_net_mdns_add_txt(result, &varpart[pos], len);
+        pos += len;
+    }
+}
+
+static void at_net_mdns_search_result(struct mdns_answer *answer, const char *varpart,
+                                      int varlen, int flags, void *arg)
+{
+    at_net_mdns_search_t *ctx = (at_net_mdns_search_t *)arg;
+    at_net_mdns_result_t *result;
+    char domain[AT_NET_MDNS_DOMAIN_MAX_LEN];
+
+    if (!answer || !varpart || !ctx) {
+        return;
+    }
+
+    result = at_net_mdns_current_result(ctx, answer->info.type == DNS_RRTYPE_AAAA ? 1 : 0);
+    if (!result) {
+        at_net_mdns_give_done(ctx);
+        return;
+    }
+
+    switch (answer->info.type) {
+        case DNS_RRTYPE_PTR: {
+            const struct mdns_domain *ptr = (const struct mdns_domain *)varpart;
+
+            if (at_net_mdns_domain_to_string(ptr, domain, sizeof(domain)) == 0) {
+                if (at_net_mdns_copy_ptr(result, domain, ctx->service, ctx->proto) != 0) {
+                    ctx->current_valid = 0;
+                    return;
+                }
+            }
+        } break;
+
+        case DNS_RRTYPE_SRV: {
+            uint16_t port;
+            const struct mdns_domain *target;
+
+            if (varlen < 6) {
+                break;
+            }
+
+            memcpy(&port, varpart + 4, sizeof(port));
+            target = (const struct mdns_domain *)(varpart + 6);
+            if (at_net_mdns_domain_to_string(target, domain, sizeof(domain)) == 0) {
+                strlcpy(result->srv, domain, sizeof(result->srv));
+                result->port = lwip_ntohs(port);
+            }
+        } break;
+
+        case DNS_RRTYPE_TXT:
+            at_net_mdns_parse_txt(result, varpart, varlen);
+            break;
+
+        case DNS_RRTYPE_A: {
+            ip4_addr_t addr;
+
+            if (varlen == sizeof(addr) && result->a_num < AT_NET_MDNS_QUERY_RECORD_MAX) {
+                memcpy(&addr, varpart, sizeof(addr));
+                ip4addr_ntoa_r(&addr, result->a[result->a_num], sizeof(result->a[result->a_num]));
+                result->a_num++;
+            }
+        } break;
+
+#if LWIP_IPV6
+        case DNS_RRTYPE_AAAA: {
+            ip6_addr_t addr;
+
+            if (varlen == sizeof(addr) && result->aaaa_num < AT_NET_MDNS_QUERY_RECORD_MAX) {
+                memcpy(&addr, varpart, sizeof(addr));
+                ip6addr_ntoa_r(&addr, result->aaaa[result->aaaa_num],
+                                sizeof(result->aaaa[result->aaaa_num]));
+                result->aaaa_num++;
+            }
+        } break;
+#endif
+
+        default:
+            break;
+    }
+
+    if (flags & MDNS_SEARCH_RESULT_LAST) {
+        at_net_mdns_finish_current_result(ctx);
+    }
+    if (ctx->result_count >= ctx->max_results) {
+        at_net_mdns_give_done(ctx);
+    }
+}
+
+int at_net_mdns_stop(void)
+{
+    at_net_mdns_handle_t *handle = g_at_net_mdns;
+
+    if (!handle) {
+        return 0;
+    }
+
+    if (handle->netif && handle->running) {
+        if (handle->service_slot >= 0) {
+            mdns_resp_del_service(handle->netif, handle->service_slot);
+        }
+    }
+
+    at_net_mdns_free_handle();
+    return 0;
+}
+
+int at_net_mdns_start(const char *hostname, const char *service, uint16_t port,
+                      const char *instance, const char *proto,
+                      const char txt_items[][AT_NET_MDNS_TXT_ITEM_MAX_LEN], uint8_t txt_count)
+{
+    enum mdns_sd_proto mdns_proto;
+    struct netif *netif;
+    at_net_mdns_handle_t *handle;
+    char (*new_txt_items)[AT_NET_MDNS_TXT_ITEM_MAX_LEN] = NULL;
+    int ret;
+    s8_t slot;
+
+    if (!at_net_mdns_label_valid(hostname) || !at_net_mdns_label_valid(service) ||
+        !at_net_mdns_label_valid(instance) || service[0] != '_' || port == 0 ||
+        txt_count > AT_NET_MDNS_TXT_ITEM_MAX_NUM) {
+        return AT_SUB_PARA_VALUE_INVALID;
+    }
+
+    if (at_net_mdns_proto_parse(proto, &mdns_proto) != 0) {
+        return AT_SUB_PARA_VALUE_INVALID;
+    }
+
+    netif = at_net_mdns_get_netif();
+    if (!netif) {
+        return AT_SUB_NOT_INIT;
+    }
+
+    handle = at_malloc(sizeof(*handle));
+    if (!handle) {
+        return AT_SUB_NO_MEMORY;
+    }
+    memset(handle, 0, sizeof(*handle));
+    handle->service_slot = -1;
+
+    if (txt_count) {
+        new_txt_items = at_malloc(txt_count * AT_NET_MDNS_TXT_ITEM_MAX_LEN);
+        if (!new_txt_items) {
+            at_free(handle);
+            return AT_SUB_NO_MEMORY;
+        }
+        memcpy(new_txt_items, txt_items, txt_count * AT_NET_MDNS_TXT_ITEM_MAX_LEN);
+    }
+
+    at_net_mdns_init_once();
+    at_net_mdns_stop();
+    handle->txt_count = txt_count;
+    handle->txt_items = new_txt_items;
+
+    ret = at_net_mdns_add_netif(netif, hostname);
+    if (ret != 0) {
+        goto fail;
+    }
+
+    slot = mdns_resp_add_service(netif, instance, service, mdns_proto, port,
+                                 handle->txt_count ? at_net_mdns_txt_fn : NULL,
+                                 handle);
+    if (slot < 0) {
+        ret = AT_SUB_NO_RESOURCE;
+        goto fail;
+    }
+
+    handle->running = 1;
+    handle->netif = netif;
+    handle->service_slot = slot;
+    handle->info.running = 1;
+    handle->info.port = port;
+    strlcpy(handle->info.hostname, hostname, sizeof(handle->info.hostname));
+    strlcpy(handle->info.service, service, sizeof(handle->info.service));
+    strlcpy(handle->info.instance, instance, sizeof(handle->info.instance));
+    strlcpy(handle->info.proto, proto, sizeof(handle->info.proto));
+    g_at_net_mdns = handle;
+
+    return 0;
+
+fail:
+    if (new_txt_items) {
+        at_free(new_txt_items);
+    }
+    at_free(handle);
+    return ret;
+}
+
+int at_net_mdns_query(const char *service, const char *proto, int timeout_ms,
+                      at_net_mdns_result_t *results, int max_results, int *result_count)
+{
+    enum mdns_sd_proto mdns_proto;
+    at_net_mdns_search_t ctx;
+    struct netif *netif;
+    uint8_t request_id;
+    err_t err;
+    int ret;
+
+    if (!at_net_mdns_label_valid(service) || service[0] != '_' ||
+        at_net_mdns_proto_parse(proto, &mdns_proto) != 0 ||
+        timeout_ms < AT_NET_MDNS_QUERY_TIMEOUT_MIN_MS ||
+        timeout_ms > AT_NET_MDNS_QUERY_TIMEOUT_MAX_MS || max_results <= 0 ||
+        max_results > AT_NET_MDNS_QUERY_RESULT_MAX || !results || !result_count) {
+        return AT_SUB_PARA_VALUE_INVALID;
+    }
+
+    netif = at_net_mdns_get_netif();
+    if (!netif) {
+        return AT_SUB_NOT_INIT;
+    }
+
+    *result_count = 0;
+    at_net_mdns_init_once();
+    memset(results, 0, sizeof(*results) * max_results);
+    memset(&ctx, 0, sizeof(ctx));
+    ctx.done = xSemaphoreCreateBinary();
+    if (!ctx.done) {
+        return AT_SUB_NO_MEMORY;
+    }
+    ctx.results = results;
+    ctx.max_results = max_results;
+    strlcpy(ctx.service, service, sizeof(ctx.service));
+    strlcpy(ctx.proto, proto, sizeof(ctx.proto));
+
+    LOCK_TCPIP_CORE();
+    if (!mdns_resp_netif_active(netif)) {
+        ret = at_net_mdns_add_netif(netif, at_net_mdns_get_netif_hostname(netif));
+        if (ret != 0) {
+            UNLOCK_TCPIP_CORE();
+            vSemaphoreDelete(ctx.done);
+            return ret;
+        }
+    }
+    err = mdns_search_service(NULL, service, mdns_proto, netif,
+                              at_net_mdns_search_result, &ctx, &request_id);
+    UNLOCK_TCPIP_CORE();
+    if (err != ERR_OK) {
+        vSemaphoreDelete(ctx.done);
+        return at_net_mdns_err_to_sub_code(err);
+    }
+
+    xSemaphoreTake(ctx.done, pdMS_TO_TICKS(timeout_ms));
+    LOCK_TCPIP_CORE();
+    mdns_search_stop(request_id);
+    UNLOCK_TCPIP_CORE();
+    vSemaphoreDelete(ctx.done);
+
+    at_net_mdns_finish_current_result(&ctx);
+    if (ctx.result_count == 0) {
+        return AT_SUB_TIMEOUT;
+    }
+
+    *result_count = ctx.result_count;
+    return 0;
+}
+
+int at_net_mdns_get_state(at_net_mdns_state_t *state)
+{
+    if (!state) {
+        return AT_SUB_PARA_VALUE_INVALID;
+    }
+
+    memset(state, 0, sizeof(*state));
+    if (g_at_net_mdns) {
+        memcpy(state, &g_at_net_mdns->info, sizeof(*state));
+    }
+    return 0;
+}
+#endif
+
 static void at_net_sntp_sync(void)
 {
     uint64_t time_stamp, time_stamp_ms;
@@ -2272,6 +2814,9 @@ int at_net_start(void)
 
 int at_net_stop(void)
 {
+#if LWIP_IPV6
+    wifi_sta_ipv6_enable(0);
+#endif
     at_net_client_close_all();
 
     wake_socket_close();
@@ -2750,4 +3295,3 @@ int at_net_ssl_verify_cert_key_pair(const char *cert_path, const char *key_path)
     at_free(key_buf);
     return ret;
 }
-

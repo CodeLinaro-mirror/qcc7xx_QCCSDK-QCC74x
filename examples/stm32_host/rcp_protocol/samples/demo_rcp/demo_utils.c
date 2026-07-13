@@ -48,6 +48,7 @@ void display_buffer(char *title, rcp_buffer_hdl_t *buffer_ptr, bool data_as_text
 		// truncate data
 		string_size = buffer_ptr->data_size < 64 ? buffer_ptr->data_size : 64;
 		strncpy(str_data, (char *)rcp_buffer_data_ptr(buffer_ptr), string_size);
+		str_data[string_size] = '\0';
 		printf("%s", str_data);
 	} else {
 		uint8_t *data_ptr = rcp_buffer_data_ptr(buffer_ptr);

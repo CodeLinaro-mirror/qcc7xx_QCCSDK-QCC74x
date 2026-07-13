@@ -18,9 +18,11 @@ static const char *const status_string[] = {
 	[2] = "RCP_BUS_ERR_NO_INST",
 	[3] = "RCP_BUS_ERR_IO",
 	[4] = "RCP_BUS_ERR_INVALID",
-	[5] = "RCP_BUS_ERR_CLOSED",
-	[6] = "RCP_BUS_ERR_MEMORY",
-	[7] = "RCP_BUS_ERR_UNKNOWN",
+	[5] = "RCP_BUS_ERR_EMPTY",
+	[6] = "RCP_BUS_ERR_CLOSED",
+	[7] = "RCP_BUS_ERR_MEMORY",
+	[8] = "RCP_BUS_ERR_PEER_MEMORY",
+	[9] = "RCP_BUS_ERR_TIMEOUT",
 };
 
 static inline bool is_registered(enum rcp_bus bus)
@@ -176,6 +178,10 @@ void rcp_bus_clear_flags(enum rcp_bus bus, uint8_t clr_flags)
 
 void __rcp_bus_set_flags(enum rcp_bus bus, uint8_t set_flags, uint8_t clr_flags)
 {
+	if (bus >= RCP_BUS_MAX || !is_registered(bus)) {
+		return;
+	}
+
 	if (set_flags) {
 		(void)rcp_os_event_set_bits(&bus_ctx.bus_evts[bus].evt, set_flags);
 	}
@@ -213,5 +219,16 @@ bool rcp_bus_runtime_recover(enum rcp_bus bus)
 
 const char *rcp_bus_status_to_str(enum rcp_bus_status status)
 {
-	return status_string[status];
+	size_t index;
+
+	if (status > RCP_BUS_OK || status < RCP_BUS_ERR_UNKNOWN) {
+		return "UNKNOWN";
+	}
+
+	index = (size_t)-status;
+	if (index >= sizeof(status_string) / sizeof(status_string[0])) {
+		return "UNKNOWN";
+	}
+
+	return status_string[index];
 }

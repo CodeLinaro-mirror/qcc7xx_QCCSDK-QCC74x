@@ -72,6 +72,11 @@ static void hostapd_wpa_auth_conf(struct hostapd_bss_config *conf,
 	wconf->beacon_prot = conf->beacon_prot;
 	wconf->group_mgmt_cipher = conf->group_mgmt_cipher;
 	wconf->sae_require_mfp = conf->sae_require_mfp;
+	if (!wconf->sae_require_mfp &&
+	    (conf->wpa_key_mgmt & WPA_KEY_MGMT_SAE) &&
+	    conf->ieee80211w != NO_MGMT_FRAME_PROTECTION) {
+		wconf->sae_require_mfp = 1;
+	}
 #ifdef CONFIG_IEEE80211R_AP
 	wconf->ssid_len = conf->ssid.ssid_len;
 	if (wconf->ssid_len > SSID_MAX_LEN)

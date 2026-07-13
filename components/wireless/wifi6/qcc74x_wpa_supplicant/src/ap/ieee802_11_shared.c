@@ -470,6 +470,11 @@ u8 * hostapd_eid_ext_capab(struct hostapd_data *hapd, u8 *eid)
 			*pos &= ~hapd->conf->ext_capa_mask[i];
 			*pos |= hapd->conf->ext_capa[i];
 		}
+
+		if (i == WLAN_EXT_CAPAB_20_40_COEX / 8 &&
+		    (!hapd->iconf->ieee80211n || hapd->conf->disable_11n ||
+		     !hapd->iconf->obss_interval))
+			*pos &= ~BIT(WLAN_EXT_CAPAB_20_40_COEX % 8);
 	}
 
 	while (len > 0 && eid[1 + len] == 0) {

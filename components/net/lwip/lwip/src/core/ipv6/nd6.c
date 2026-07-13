@@ -61,6 +61,7 @@
 #include "lwip/dhcp6.h"
 #include "lwip/ip.h"
 #include "lwip/stats.h"
+#include "lwip/timeouts.h"
 #include "lwip/dns.h"
 
 #include <string.h>
@@ -105,7 +106,7 @@ static netif_addr_idx_t nd6_cached_destination_index;
 /* Multicast address holder. */
 static ip6_addr_t multicast_address;
 
-static u8_t nd6_tmr_rs_reduction;
+static u32_t nd6_rs_ticks_until_send;
 
 /* Static buffer to parse RA packet options */
 union ra_options {
@@ -133,9 +134,21 @@ static s8_t nd6_new_onlink_prefix(const ip6_addr_t *prefix, struct netif *netif)
 static s8_t nd6_get_next_hop_entry(const ip6_addr_t *ip6addr, struct netif *netif);
 static err_t nd6_queue_packet(s8_t neighbor_index, struct pbuf *q);
 
+#if LWIP_TIMERS && IPV6_TIMER_PRECISE_NEEDED
+static void
+nd6_timer_update(void)
+{
+  ipv6_timer_needed(nd6_tmr);
+}
+#else
+#define nd6_timer_update() do { } while (0)
+#endif
+
 #define ND6_SEND_FLAG_MULTICAST_DEST 0x01
 #define ND6_SEND_FLAG_ALLNODES_DEST 0x02
 #define ND6_SEND_FLAG_ANY_SRC 0x04
+static err_t nd6_send_ns_with_src(struct netif *netif, const ip6_addr_t *src_addr,
+                                  const ip6_addr_t *target_addr, u8_t flags);
 static void nd6_send_ns(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags);
 static void nd6_send_na(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags);
 static void nd6_send_neighbor_cache_probe(struct nd6_neighbor_cache_entry *entry, u8_t flags);
@@ -143,13 +156,51 @@ static void nd6_send_neighbor_cache_probe(struct nd6_neighbor_cache_entry *entry
 static err_t nd6_send_rs(struct netif *netif);
 #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
 
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+struct nd6_lp_refresh_state {
+  struct netif *netif;
+  u8_t enabled;
+  u8_t mcast_uncertain;
+  u8_t fast_rs_left;
+  u32_t next_ns_ms[LWIP_IPV6_NUM_ADDRESSES];
+  u32_t next_rs_ms;
+  u32_t next_mld_ms;
+  u32_t last_ra_ms;
+};
+
+static struct nd6_lp_refresh_state nd6_lp_refresh_states[LWIP_IPV6_LP_REFRESH_MAX_NETIFS];
+static u8_t nd6_lp_refresh_timer_active;
+static struct nd6_lp_refresh_state *nd6_lp_refresh_state_get(struct netif *netif, int create);
+static void nd6_lp_refresh_timeout(void *arg);
+static void nd6_lp_refresh_tmr(void);
+static void nd6_lp_refresh_update_timer_enable(void);
+static int nd6_lp_refresh_netif_ready(struct netif *netif);
+static int nd6_lp_time_due(u32_t now, u32_t due);
+static int nd6_lp_default_addr_refresh(struct netif *netif, s8_t addr_idx);
+static int nd6_lp_addr_needs_downlink_refresh(struct netif *netif, s8_t addr_idx);
+static int nd6_lp_netif_has_refresh_addr(struct netif *netif);
+static const ip6_addr_t *nd6_lp_select_router_addr(struct netif *netif);
+static u16_t nd6_lp_current_router_lifetime(struct netif *netif);
+static int nd6_lp_has_router(struct netif *netif);
+static int nd6_lp_ns_due(struct nd6_lp_refresh_state *state, u32_t now);
+static int nd6_lp_rs_due(struct nd6_lp_refresh_state *state, u32_t now);
+static void nd6_lp_refresh_update_due(struct nd6_lp_refresh_state *state, u8_t flags,
+                                      err_t err, u32_t now);
+static u32_t nd6_lp_rs_delay_from_router_lifetime(u16_t router_lifetime);
+static void nd6_lp_refresh_note_ra(struct netif *netif, u16_t router_lifetime);
+
+#ifndef LWIP_HOOK_IPV6_LP_ADDR_REFRESH
+#define LWIP_HOOK_IPV6_LP_ADDR_REFRESH(netif, addr_idx) \
+  nd6_lp_default_addr_refresh(netif, addr_idx)
+#endif
+#endif /* LWIP_IPV6_LP_REACHABILITY_REFRESH */
+
 #if LWIP_ND6_QUEUEING
 static void nd6_free_q(struct nd6_q_entry *q);
 #else /* LWIP_ND6_QUEUEING */
 #define nd6_free_q(q) pbuf_free(q)
 #endif /* LWIP_ND6_QUEUEING */
 static void nd6_send_q(s8_t i);
-
 
 /**
  * A local address has been determined to be a duplicate. Take the appropriate
@@ -242,6 +293,7 @@ nd6_process_autoconfig_prefix(struct netif *netif,
         netif_ip6_addr_set_state(netif, i, IP6_ADDR_PREFERRED);
       }
       netif_ip6_addr_set_pref_life(netif, i, pref_life);
+      nd6_timer_update();
       return; /* there should be at most one matching address */
     }
   }
@@ -289,6 +341,7 @@ nd6_process_autoconfig_prefix(struct netif *netif,
   netif_ip6_addr_set_valid_life(netif, free_idx, valid_life);
   netif_ip6_addr_set_pref_life(netif, free_idx, pref_life);
   netif_ip6_addr_set_state(netif, free_idx, IP6_ADDR_TENTATIVE);
+  nd6_timer_update();
 }
 #endif /* LWIP_IPV6_AUTOCONFIG */
 
@@ -430,6 +483,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
       neighbor_cache[i].netif = inp;
       neighbor_cache[i].state = ND6_REACHABLE;
       neighbor_cache[i].counter.reachable_time = reachable_time;
+      nd6_timer_update();
 
       /* Send queued packets, if any. */
       if (neighbor_cache[i].q != NULL) {
@@ -537,6 +591,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
           /* Delay probe in case we get confirmation of reachability from upper layer (TCP). */
           neighbor_cache[i].state = ND6_DELAY;
           neighbor_cache[i].counter.delay_time = LWIP_ND6_DELAY_FIRST_PROBE_TIME / ND6_TMR_INTERVAL;
+          nd6_timer_update();
         }
       } else {
         /* Add their IPv6 address and link-layer address to neighbor cache.
@@ -558,6 +613,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
          * Delay probe in case we get confirmation of reachability from upper layer (TCP). */
         neighbor_cache[i].state = ND6_DELAY;
         neighbor_cache[i].counter.delay_time = LWIP_ND6_DELAY_FIRST_PROBE_TIME / ND6_TMR_INTERVAL;
+        nd6_timer_update();
       }
 
       /* Send back a NA for us. Allocate the reply pbuf. */
@@ -571,6 +627,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
     struct ra_header *ra_hdr;
     u8_t *buffer; /* Used to copy options. */
     u16_t offset;
+    u16_t router_lifetime;
 #if LWIP_ND6_RDNSS_MAX_DNS_SERVERS
     /* There can be multiple RDNSS options per RA */
     u8_t rdnss_server_idx = 0;
@@ -586,6 +643,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
     }
 
     ra_hdr = (struct ra_header *)p->payload;
+    router_lifetime = lwip_htons(ra_hdr->router_lifetime);
 
     /* Check a subset of the other RFC 4861 Sec. 6.1.2 requirements. */
     if (!ip6_addr_islinklocal(ip6_current_src_addr()) ||
@@ -607,6 +665,9 @@ nd6_input(struct pbuf *p, struct netif *inp)
     } else {
       inp->rs_count = 1;
     }
+    if (inp->rs_count > 0 && nd6_rs_ticks_until_send == 0) {
+      nd6_rs_ticks_until_send = 1;
+    }
 #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
 
     /* Get the matching default router entry. */
@@ -624,7 +685,11 @@ nd6_input(struct pbuf *p, struct netif *inp)
     }
 
     /* Re-set invalidation timer. */
-    default_router_list[i].invalidation_timer = lwip_htons(ra_hdr->router_lifetime);
+    default_router_list[i].invalidation_timer = router_lifetime;
+    nd6_timer_update();
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+    nd6_lp_refresh_note_ra(inp, router_lifetime);
+#endif
 
     /* Re-set default timer values. */
 #if LWIP_ND6_ALLOW_RA_UPDATES
@@ -696,6 +761,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
           SMEMCPY(default_router_list[i].neighbor_entry->lladdr, lladdr_opt->addr, inp->hwaddr_len);
           default_router_list[i].neighbor_entry->state = ND6_REACHABLE;
           default_router_list[i].neighbor_entry->counter.reachable_time = reachable_time;
+          nd6_timer_update();
         }
         break;
       }
@@ -751,6 +817,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
             }
             if (prefix >= 0) {
               prefix_list[prefix].invalidation_timer = valid_life;
+              nd6_timer_update();
             }
           }
 #if LWIP_IPV6_AUTOCONFIG
@@ -892,6 +959,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
              * Delay probe in case we get confirmation of reachability from upper layer (TCP). */
             neighbor_cache[i].state = ND6_DELAY;
             neighbor_cache[i].counter.delay_time = LWIP_ND6_DELAY_FIRST_PROBE_TIME / ND6_TMR_INTERVAL;
+            nd6_timer_update();
           }
         }
         if (i >= 0) {
@@ -901,6 +969,7 @@ nd6_input(struct pbuf *p, struct netif *inp)
              * Delay probe in case we get confirmation of reachability from upper layer (TCP). */
             neighbor_cache[i].state = ND6_DELAY;
             neighbor_cache[i].counter.delay_time = LWIP_ND6_DELAY_FIRST_PROBE_TIME / ND6_TMR_INTERVAL;
+            nd6_timer_update();
           }
         }
       }
@@ -970,11 +1039,116 @@ lenerr_drop_free_return:
  * - Perform duplicate address detection (DAD) for our addresses
  * - Send router solicitations
  */
-void
-nd6_tmr(void)
+#if IPV6_TIMER_PRECISE_NEEDED
+#define ND6_PRECISE_MAX_WAKE_MS 0x7fffffffUL
+
+static u32_t
+nd6_ticks_to_wake_ms(u32_t ticks)
+{
+  if (ticks == 0) {
+    ticks = 1;
+  }
+  if (ticks > (ND6_PRECISE_MAX_WAKE_MS / ND6_TMR_INTERVAL)) {
+    return ND6_PRECISE_MAX_WAKE_MS;
+  }
+  return ticks * ND6_TMR_INTERVAL;
+}
+
+static u32_t
+nd6_seconds_to_wake_ms(u32_t secs)
+{
+  if (secs == 0) {
+    secs = 1;
+  }
+  if (secs > (ND6_PRECISE_MAX_WAKE_MS / 1000U)) {
+    return ND6_PRECISE_MAX_WAKE_MS;
+  }
+  return secs * 1000U;
+}
+
+static u32_t
+nd6_ms_to_wake_ms(u32_t time_ms)
+{
+  u32_t ticks = (time_ms + ND6_TMR_INTERVAL - 1U) / ND6_TMR_INTERVAL;
+  return nd6_ticks_to_wake_ms(ticks);
+}
+
+static int
+nd6_has_fast_timer_work(void)
 {
   s8_t i;
   struct netif *netif;
+
+  for (i = 0; i < LWIP_ND6_NUM_NEIGHBORS; i++) {
+    if ((neighbor_cache[i].state == ND6_INCOMPLETE) ||
+        (neighbor_cache[i].state == ND6_PROBE)) {
+      return 1;
+    }
+  }
+
+  NETIF_FOREACH(netif) {
+    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; ++i) {
+      u8_t addr_state = netif_ip6_addr_state(netif, i);
+
+      if (ip6_addr_istentative(addr_state) &&
+          netif_is_up(netif) && netif_is_link_up(netif)) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+#endif /* IPV6_TIMER_PRECISE_NEEDED */
+
+#if LWIP_IPV6_SEND_ROUTER_SOLICIT
+static int
+nd6_has_pending_rs(void)
+{
+  struct netif *netif;
+
+  NETIF_FOREACH(netif) {
+    if ((netif->rs_count > 0) && netif_is_up(netif) &&
+        netif_is_link_up(netif) &&
+        !ip6_addr_isinvalid(netif_ip6_addr_state(netif, 0)) &&
+        !ip6_addr_isduplicated(netif_ip6_addr_state(netif, 0))) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+#endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
+
+void
+nd6_tmr(void)
+{
+  nd6_tmr_tick(1);
+}
+
+void
+nd6_tmr_tick(u32_t ticks)
+{
+  s8_t i;
+  struct netif *netif;
+  u32_t elapsed_ms;
+  u32_t elapsed_secs;
+
+  if (ticks == 0) {
+    return;
+  }
+
+#if IPV6_TIMER_PRECISE_NEEDED
+  if ((ticks > 1U) && nd6_has_fast_timer_work()) {
+    while (ticks-- > 0U) {
+      nd6_tmr_tick(1);
+    }
+    return;
+  }
+#endif /* IPV6_TIMER_PRECISE_NEEDED */
+
+  elapsed_ms = ticks * ND6_TMR_INTERVAL;
+  elapsed_secs = ticks * (ND6_TMR_INTERVAL / 1000U);
 
   /* Process neighbor entries. */
   for (i = 0; i < LWIP_ND6_NUM_NEIGHBORS; i++) {
@@ -995,24 +1169,24 @@ nd6_tmr(void)
       if (neighbor_cache[i].q != NULL) {
         nd6_send_q(i);
       }
-      if (neighbor_cache[i].counter.reachable_time <= ND6_TMR_INTERVAL) {
+      if (neighbor_cache[i].counter.reachable_time <= elapsed_ms) {
         /* Change to stale state. */
         neighbor_cache[i].state = ND6_STALE;
         neighbor_cache[i].counter.stale_time = 0;
       } else {
-        neighbor_cache[i].counter.reachable_time -= ND6_TMR_INTERVAL;
+        neighbor_cache[i].counter.reachable_time -= elapsed_ms;
       }
       break;
     case ND6_STALE:
-      neighbor_cache[i].counter.stale_time++;
+      neighbor_cache[i].counter.stale_time += ticks;
       break;
     case ND6_DELAY:
-      if (neighbor_cache[i].counter.delay_time <= 1) {
+      if (neighbor_cache[i].counter.delay_time <= ticks) {
         /* Change to PROBE state. */
         neighbor_cache[i].state = ND6_PROBE;
         neighbor_cache[i].counter.probes_sent = 0;
       } else {
-        neighbor_cache[i].counter.delay_time--;
+        neighbor_cache[i].counter.delay_time -= ticks;
       }
       break;
     case ND6_PROBE:
@@ -1035,14 +1209,14 @@ nd6_tmr(void)
 
   /* Process destination entries. */
   for (i = 0; i < LWIP_ND6_NUM_DESTINATIONS; i++) {
-    destination_cache[i].age++;
+    destination_cache[i].age += ticks;
   }
 
   /* Process router entries. */
   for (i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
     if (default_router_list[i].neighbor_entry != NULL) {
       /* Active entry. */
-      if (default_router_list[i].invalidation_timer <= ND6_TMR_INTERVAL / 1000) {
+      if (default_router_list[i].invalidation_timer <= elapsed_secs) {
         /* No more than 1 second remaining. Clear this entry. Also clear any of
          * its destination cache entries, as per RFC 4861 Sec. 5.3 and 6.3.5. */
         s8_t j;
@@ -1057,7 +1231,7 @@ nd6_tmr(void)
         default_router_list[i].invalidation_timer = 0;
         default_router_list[i].flags = 0;
       } else {
-        default_router_list[i].invalidation_timer -= ND6_TMR_INTERVAL / 1000;
+        default_router_list[i].invalidation_timer -= elapsed_secs;
       }
     }
   }
@@ -1065,12 +1239,12 @@ nd6_tmr(void)
   /* Process prefix entries. */
   for (i = 0; i < LWIP_ND6_NUM_PREFIXES; i++) {
     if (prefix_list[i].netif != NULL) {
-      if (prefix_list[i].invalidation_timer <= ND6_TMR_INTERVAL / 1000) {
+      if (prefix_list[i].invalidation_timer <= elapsed_secs) {
         /* Entry timed out, remove it */
         prefix_list[i].invalidation_timer = 0;
         prefix_list[i].netif = NULL;
       } else {
-        prefix_list[i].invalidation_timer -= ND6_TMR_INTERVAL / 1000;
+        prefix_list[i].invalidation_timer -= elapsed_secs;
       }
     }
   }
@@ -1098,27 +1272,27 @@ nd6_tmr(void)
       if (!ip6_addr_isinvalid(addr_state) &&
           !netif_ip6_addr_isstatic(netif, i)) {
         u32_t life = netif_ip6_addr_valid_life(netif, i);
-        if (life <= ND6_TMR_INTERVAL / 1000) {
+        if (life <= elapsed_secs) {
           /* The address has expired. */
           netif_ip6_addr_set_valid_life(netif, i, 0);
           netif_ip6_addr_set_pref_life(netif, i, 0);
           netif_ip6_addr_set_state(netif, i, IP6_ADDR_INVALID);
         } else {
           if (!ip6_addr_life_isinfinite(life)) {
-            life -= ND6_TMR_INTERVAL / 1000;
+            life -= elapsed_secs;
             LWIP_ASSERT("bad valid lifetime", life != IP6_ADDR_LIFE_STATIC);
             netif_ip6_addr_set_valid_life(netif, i, life);
           }
           /* The address is still here. Update the preferred lifetime too. */
           life = netif_ip6_addr_pref_life(netif, i);
-          if (life <= ND6_TMR_INTERVAL / 1000) {
+          if (life <= elapsed_secs) {
             /* This case must also trigger if 'life' was already zero, so as to
              * deal correctly with advertised preferred-lifetime reductions. */
             netif_ip6_addr_set_pref_life(netif, i, 0);
             if (addr_state == IP6_ADDR_PREFERRED)
               netif_ip6_addr_set_state(netif, i, IP6_ADDR_DEPRECATED);
           } else if (!ip6_addr_life_isinfinite(life)) {
-            life -= ND6_TMR_INTERVAL / 1000;
+            life -= elapsed_secs;
             netif_ip6_addr_set_pref_life(netif, i, life);
           }
         }
@@ -1155,24 +1329,110 @@ nd6_tmr(void)
 
 #if LWIP_IPV6_SEND_ROUTER_SOLICIT
   /* Send router solicitation messages, if necessary. */
-  if (!nd6_tmr_rs_reduction) {
-    nd6_tmr_rs_reduction = (ND6_RTR_SOLICITATION_INTERVAL / ND6_TMR_INTERVAL) - 1;
-    NETIF_FOREACH(netif) {
-      if ((netif->rs_count > 0) && netif_is_up(netif) &&
-          netif_is_link_up(netif) &&
-          !ip6_addr_isinvalid(netif_ip6_addr_state(netif, 0)) &&
-          !ip6_addr_isduplicated(netif_ip6_addr_state(netif, 0))) {
-        if (nd6_send_rs(netif) == ERR_OK) {
-          netif->rs_count--;
+  if (nd6_has_pending_rs()) {
+    u32_t rs_retry_ticks = LWIP_MAX(1U, ND6_RTR_SOLICITATION_INTERVAL / ND6_TMR_INTERVAL);
+
+    if (nd6_rs_ticks_until_send == 0) {
+      nd6_rs_ticks_until_send = 1;
+    }
+
+    if (nd6_rs_ticks_until_send <= ticks) {
+      NETIF_FOREACH(netif) {
+        if ((netif->rs_count > 0) && netif_is_up(netif) &&
+            netif_is_link_up(netif) &&
+            !ip6_addr_isinvalid(netif_ip6_addr_state(netif, 0)) &&
+            !ip6_addr_isduplicated(netif_ip6_addr_state(netif, 0))) {
+          if (nd6_send_rs(netif) == ERR_OK) {
+            netif->rs_count--;
+          }
         }
       }
+      nd6_rs_ticks_until_send = nd6_has_pending_rs() ? rs_retry_ticks : 0;
+    } else {
+      nd6_rs_ticks_until_send -= ticks;
     }
   } else {
-    nd6_tmr_rs_reduction--;
+    nd6_rs_ticks_until_send = 0;
   }
 #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
 
 }
+
+#if IPV6_TIMER_PRECISE_NEEDED
+u32_t
+nd6_tmr_sleeptime(void)
+{
+  s8_t i;
+  struct netif *netif;
+  u32_t min_wake = SYS_TIMEOUTS_SLEEPTIME_INFINITE;
+
+  for (i = 0; i < LWIP_ND6_NUM_NEIGHBORS; i++) {
+    switch (neighbor_cache[i].state) {
+    case ND6_INCOMPLETE:
+    case ND6_PROBE:
+      min_wake = LWIP_MIN(min_wake, ND6_TMR_INTERVAL);
+      break;
+    case ND6_REACHABLE:
+      min_wake = LWIP_MIN(min_wake, nd6_ms_to_wake_ms(neighbor_cache[i].counter.reachable_time));
+      break;
+    case ND6_DELAY:
+      min_wake = LWIP_MIN(min_wake, nd6_ticks_to_wake_ms(neighbor_cache[i].counter.delay_time));
+      break;
+    default:
+      break;
+    }
+  }
+
+  for (i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
+    if (default_router_list[i].neighbor_entry != NULL) {
+      min_wake = LWIP_MIN(min_wake,
+          nd6_seconds_to_wake_ms(default_router_list[i].invalidation_timer));
+    }
+  }
+
+  for (i = 0; i < LWIP_ND6_NUM_PREFIXES; i++) {
+    if (prefix_list[i].netif != NULL) {
+      min_wake = LWIP_MIN(min_wake,
+          nd6_seconds_to_wake_ms(prefix_list[i].invalidation_timer));
+    }
+  }
+
+  NETIF_FOREACH(netif) {
+    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; ++i) {
+      u8_t addr_state = netif_ip6_addr_state(netif, i);
+
+#if LWIP_IPV6_ADDRESS_LIFETIMES
+      if (!ip6_addr_isinvalid(addr_state) &&
+          !netif_ip6_addr_isstatic(netif, i)) {
+        u32_t life = netif_ip6_addr_valid_life(netif, i);
+
+        if (!ip6_addr_life_isinfinite(life)) {
+          min_wake = LWIP_MIN(min_wake, nd6_seconds_to_wake_ms(life));
+        }
+
+        life = netif_ip6_addr_pref_life(netif, i);
+        if (!ip6_addr_life_isinfinite(life)) {
+          min_wake = LWIP_MIN(min_wake, nd6_seconds_to_wake_ms(life));
+        }
+      }
+#endif /* LWIP_IPV6_ADDRESS_LIFETIMES */
+
+      if (ip6_addr_istentative(addr_state) &&
+          netif_is_up(netif) && netif_is_link_up(netif)) {
+        min_wake = LWIP_MIN(min_wake, ND6_TMR_INTERVAL);
+      }
+    }
+  }
+
+#if LWIP_IPV6_SEND_ROUTER_SOLICIT
+  if (nd6_has_pending_rs()) {
+    min_wake = LWIP_MIN(min_wake, nd6_ticks_to_wake_ms(nd6_rs_ticks_until_send));
+  }
+#endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
+
+  return min_wake;
+}
+#endif /* IPV6_TIMER_PRECISE_NEEDED */
 
 /** Send a neighbor solicitation message for a specific neighbor cache entry
  *
@@ -1192,30 +1452,45 @@ nd6_send_neighbor_cache_probe(struct nd6_neighbor_cache_entry *entry, u8_t flags
  * @param target_addr the IPv6 target address for the ND message
  * @param flags one of ND6_SEND_FLAG_*
  */
-static void
-nd6_send_ns(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags)
+static err_t
+nd6_send_ns_with_src(struct netif *netif, const ip6_addr_t *src_addr_in,
+                     const ip6_addr_t *target_addr, u8_t flags)
 {
   struct ns_header *ns_hdr;
   struct pbuf *p;
   const ip6_addr_t *src_addr = NULL;
   u16_t lladdr_opt_len;
+  err_t err;
 
   LWIP_ASSERT("target address is required", target_addr != NULL);
 
   if (!(flags & ND6_SEND_FLAG_ANY_SRC)) {
-    int i;
-    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-      if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
-            ip6_addr_net_eq(target_addr, netif_ip6_addr(netif, i))) {
-        src_addr = netif_ip6_addr(netif, i);
-        break;
+    if (src_addr_in != NULL) {
+      s8_t src_idx = netif_get_ip6_addr_match(netif, src_addr_in);
+      if ((src_idx < 0) ||
+          !ip6_addr_isvalid(netif_ip6_addr_state(netif, src_idx)) ||
+          ip6_addr_istentative(netif_ip6_addr_state(netif, src_idx)) ||
+          ip6_addr_isduplicated(netif_ip6_addr_state(netif, src_idx))) {
+        LWIP_DEBUGF(IP6_DEBUG | LWIP_DBG_LEVEL_WARNING, ("ICMPv6 NS: invalid explicit src address\n"));
+        ND6_STATS_INC(nd6.err);
+        return ERR_ARG;
       }
-    }
+      src_addr = netif_ip6_addr(netif, src_idx);
+    } else {
+      int i;
+      for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+        if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i)) &&
+              ip6_addr_net_eq(target_addr, netif_ip6_addr(netif, i))) {
+          src_addr = netif_ip6_addr(netif, i);
+          break;
+        }
+      }
 
-    if (i == LWIP_IPV6_NUM_ADDRESSES) {
-      LWIP_DEBUGF(IP6_DEBUG | LWIP_DBG_LEVEL_WARNING, ("ICMPv6 NS: no available src address\n"));
-      ND6_STATS_INC(nd6.err);
-      return;
+      if (i == LWIP_IPV6_NUM_ADDRESSES) {
+        LWIP_DEBUGF(IP6_DEBUG | LWIP_DBG_LEVEL_WARNING, ("ICMPv6 NS: no available src address\n"));
+        ND6_STATS_INC(nd6.err);
+        return ERR_RTE;
+      }
     }
 
     /* calculate option length (in 8-byte-blocks) */
@@ -1230,7 +1505,7 @@ nd6_send_ns(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags)
   p = pbuf_alloc(PBUF_IP, sizeof(struct ns_header) + (lladdr_opt_len << 3), PBUF_RAM);
   if (p == NULL) {
     ND6_STATS_INC(nd6.memerr);
-    return;
+    return ERR_MEM;
   }
 
   /* Set fields. */
@@ -1265,9 +1540,16 @@ nd6_send_ns(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags)
 
   /* Send the packet out. */
   ND6_STATS_INC(nd6.xmit);
-  ip6_output_if(p, (src_addr == IP6_ADDR_ANY6) ? NULL : src_addr, target_addr,
-      ND6_HOPLIM, 0, IP6_NEXTH_ICMP6, netif);
+  err = ip6_output_if(p, ip6_addr_isany(src_addr) ? NULL : src_addr, target_addr,
+                      ND6_HOPLIM, 0, IP6_NEXTH_ICMP6, netif);
   pbuf_free(p);
+  return err;
+}
+
+static void
+nd6_send_ns(struct netif *netif, const ip6_addr_t *target_addr, u8_t flags)
+{
+  (void)nd6_send_ns_with_src(netif, NULL, target_addr, flags);
 }
 
 /**
@@ -1574,6 +1856,7 @@ nd6_free_neighbor_cache_entry(s8_t i)
   neighbor_cache[i].netif = NULL;
   neighbor_cache[i].counter.reachable_time = 0;
   ip6_addr_set_zero(&(neighbor_cache[i].next_hop_address));
+  nd6_timer_update();
 }
 
 /**
@@ -1852,6 +2135,7 @@ nd6_new_router(const ip6_addr_t *router_addr, struct netif *netif)
     neighbor_cache[neighbor_index].state = ND6_INCOMPLETE;
     neighbor_cache[neighbor_index].counter.probes_sent = 1;
     nd6_send_neighbor_cache_probe(&neighbor_cache[neighbor_index], ND6_SEND_FLAG_MULTICAST_DEST);
+    nd6_timer_update();
   }
 
   /* Mark neighbor as router. */
@@ -2062,6 +2346,7 @@ nd6_get_next_hop_entry(const ip6_addr_t *ip6addr, struct netif *netif)
       neighbor_cache[i].state = ND6_INCOMPLETE;
       neighbor_cache[i].counter.probes_sent = 1;
       nd6_send_neighbor_cache_probe(&neighbor_cache[i], ND6_SEND_FLAG_MULTICAST_DEST);
+      nd6_timer_update();
     }
   }
 
@@ -2298,6 +2583,7 @@ nd6_get_next_hop_addr_or_queue(struct netif *netif, struct pbuf *q, const ip6_ad
     /* Switch to delay state. */
     neighbor_cache[i].state = ND6_DELAY;
     neighbor_cache[i].counter.delay_time = LWIP_ND6_DELAY_FIRST_PROBE_TIME / ND6_TMR_INTERVAL;
+    nd6_timer_update();
   }
   /* @todo should we send or queue if PROBE? send for now, to let unicast NS pass. */
   if ((neighbor_cache[i].state == ND6_REACHABLE) ||
@@ -2390,6 +2676,7 @@ nd6_reachability_hint(const ip6_addr_t *ip6addr)
   /* Set reachability state. */
   neighbor_cache[i].state = ND6_REACHABLE;
   neighbor_cache[i].counter.reachable_time = reachable_time;
+  nd6_timer_update();
 }
 #endif /* LWIP_ND6_TCP_REACHABILITY_HINTS */
 
@@ -2403,9 +2690,11 @@ nd6_cleanup_netif(struct netif *netif)
 {
   u8_t i;
   s8_t router_index;
+  u8_t prefix_cleared = 0;
   for (i = 0; i < LWIP_ND6_NUM_PREFIXES; i++) {
     if (prefix_list[i].netif == netif) {
       prefix_list[i].netif = NULL;
+      prefix_cleared = 1;
     }
   }
   for (i = 0; i < LWIP_ND6_NUM_NEIGHBORS; i++) {
@@ -2419,6 +2708,9 @@ nd6_cleanup_netif(struct netif *netif)
       neighbor_cache[i].isrouter = 0;
       nd6_free_neighbor_cache_entry(i);
     }
+  }
+  if (prefix_cleared) {
+    nd6_timer_update();
   }
   /* Clear the destination cache, since many entries may now have become
    * invalid for one of several reasons. As destination cache entries have no
@@ -2461,6 +2753,472 @@ nd6_adjust_mld_membership(struct netif *netif, s8_t addr_idx, u8_t new_state)
 }
 #endif /* LWIP_IPV6_MLD */
 
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+static int
+nd6_lp_time_due(u32_t now, u32_t due)
+{
+  return ((s32_t)(now - due) >= 0);
+}
+
+static struct nd6_lp_refresh_state *
+nd6_lp_refresh_state_get(struct netif *netif, int create)
+{
+  u8_t i;
+  struct nd6_lp_refresh_state *free_state = NULL;
+
+  if (netif == NULL) {
+    return NULL;
+  }
+
+  for (i = 0; i < LWIP_IPV6_LP_REFRESH_MAX_NETIFS; i++) {
+    if (nd6_lp_refresh_states[i].netif == netif) {
+      return &nd6_lp_refresh_states[i];
+    }
+    if ((free_state == NULL) && (nd6_lp_refresh_states[i].netif == NULL)) {
+      free_state = &nd6_lp_refresh_states[i];
+    }
+  }
+
+  if (create && (free_state != NULL)) {
+    memset(free_state, 0, sizeof(*free_state));
+    free_state->netif = netif;
+    return free_state;
+  }
+
+  return NULL;
+}
+
+static int
+nd6_lp_refresh_any_enabled(void)
+{
+  u8_t i;
+
+  for (i = 0; i < LWIP_IPV6_LP_REFRESH_MAX_NETIFS; i++) {
+    if (nd6_lp_refresh_states[i].enabled) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static void
+nd6_lp_refresh_update_timer_enable(void)
+{
+  if (nd6_lp_refresh_any_enabled()) {
+    if (!nd6_lp_refresh_timer_active) {
+      nd6_lp_refresh_timer_active = 1;
+      sys_timeout(LWIP_IPV6_LP_REFRESH_TIMER_INTERVAL_MS,
+                  nd6_lp_refresh_timeout, NULL);
+    }
+    return;
+  }
+
+  if (nd6_lp_refresh_timer_active) {
+    sys_untimeout(nd6_lp_refresh_timeout, NULL);
+    nd6_lp_refresh_timer_active = 0;
+  }
+}
+
+static void
+nd6_lp_refresh_timeout(void *arg)
+{
+  LWIP_UNUSED_ARG(arg);
+
+  nd6_lp_refresh_timer_active = 0;
+  nd6_lp_refresh_tmr();
+  nd6_lp_refresh_update_timer_enable();
+}
+
+static int
+nd6_lp_refresh_netif_ready(struct netif *netif)
+{
+  return (netif != NULL) && netif_is_up(netif) && netif_is_link_up(netif);
+}
+
+static int
+nd6_lp_default_addr_refresh(struct netif *netif, s8_t addr_idx)
+{
+  u8_t state;
+
+  state = netif_ip6_addr_state(netif, addr_idx);
+
+  return ip6_addr_ispreferred(state) &&
+         !ip6_addr_isany(netif_ip6_addr(netif, addr_idx));
+}
+
+static int
+nd6_lp_addr_needs_downlink_refresh(struct netif *netif, s8_t addr_idx)
+{
+  u8_t state = netif_ip6_addr_state(netif, addr_idx);
+
+  if (!ip6_addr_isvalid(state) ||
+      ip6_addr_istentative(state) ||
+      ip6_addr_isduplicated(state)) {
+    return 0;
+  }
+
+  return LWIP_HOOK_IPV6_LP_ADDR_REFRESH(netif, addr_idx) ? 1 : 0;
+}
+
+static int
+nd6_lp_netif_has_refresh_addr(struct netif *netif)
+{
+  s8_t i;
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (nd6_lp_addr_needs_downlink_refresh(netif, i)) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static const ip6_addr_t *
+nd6_lp_select_router_addr(struct netif *netif)
+{
+  s8_t i;
+
+  for (i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
+    if ((default_router_list[i].neighbor_entry != NULL) &&
+        (default_router_list[i].neighbor_entry->netif == netif) &&
+        (default_router_list[i].invalidation_timer > 0)) {
+      return &default_router_list[i].neighbor_entry->next_hop_address;
+    }
+  }
+
+  return NULL;
+}
+
+static u16_t
+nd6_lp_current_router_lifetime(struct netif *netif)
+{
+  s8_t i;
+  u16_t lifetime = 0;
+
+  for (i = 0; i < LWIP_ND6_NUM_ROUTERS; i++) {
+    if ((default_router_list[i].neighbor_entry != NULL) &&
+        (default_router_list[i].neighbor_entry->netif == netif) &&
+        (default_router_list[i].invalidation_timer > lifetime)) {
+      lifetime = default_router_list[i].invalidation_timer;
+    }
+  }
+
+  return lifetime;
+}
+
+static int
+nd6_lp_has_router(struct netif *netif)
+{
+  return nd6_lp_current_router_lifetime(netif) > 0;
+}
+
+static int
+nd6_lp_ns_due(struct nd6_lp_refresh_state *state, u32_t now)
+{
+  s8_t i;
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (nd6_lp_addr_needs_downlink_refresh(state->netif, i) &&
+        nd6_lp_time_due(now, state->next_ns_ms[i])) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+
+static int
+nd6_lp_rs_due(struct nd6_lp_refresh_state *state, u32_t now)
+{
+#if LWIP_IPV6_SEND_ROUTER_SOLICIT
+  if (state->next_rs_ms == 0) {
+    return 1;
+  }
+  return nd6_lp_time_due(now, state->next_rs_ms);
+#else
+  LWIP_UNUSED_ARG(state);
+  LWIP_UNUSED_ARG(now);
+  return 0;
+#endif
+}
+
+static void
+nd6_lp_refresh_update_due(struct nd6_lp_refresh_state *state, u8_t flags,
+                          err_t err, u32_t now)
+{
+  s8_t i;
+
+  if (flags & ND6_LP_REFRESH_MLD) {
+    state->mcast_uncertain = 0;
+    state->next_mld_ms = now + LWIP_IPV6_LP_MLD_INTERVAL_MS;
+  }
+
+  if (flags & ND6_LP_REFRESH_RS) {
+    u16_t router_lifetime = nd6_lp_current_router_lifetime(state->netif);
+
+    if ((router_lifetime == 0) && (state->fast_rs_left > 0)) {
+      state->fast_rs_left--;
+      state->next_rs_ms = now + LWIP_IPV6_LP_RS_FAST_RETRY_MS;
+    } else if (router_lifetime > 0) {
+      state->next_rs_ms = now + nd6_lp_rs_delay_from_router_lifetime(router_lifetime);
+    } else {
+      state->next_rs_ms = now + LWIP_IPV6_LP_RS_INTERVAL_MS;
+    }
+  }
+
+  if ((flags & ND6_LP_REFRESH_NS) && (err == ERR_OK)) {
+    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+      if (nd6_lp_addr_needs_downlink_refresh(state->netif, i)) {
+        state->next_ns_ms[i] = now + LWIP_IPV6_LP_NS_INTERVAL_MS;
+      } else {
+        state->next_ns_ms[i] = 0;
+      }
+    }
+  }
+}
+
+static u32_t
+nd6_lp_rs_delay_from_router_lifetime(u16_t router_lifetime)
+{
+  u32_t lifetime_ms = (u32_t)router_lifetime * 1000U;
+  u32_t lifetime_refresh_ms = 0;
+
+  if (lifetime_ms > LWIP_IPV6_LP_RS_ROUTER_LIFETIME_GUARD_MS) {
+    lifetime_refresh_ms = lifetime_ms - LWIP_IPV6_LP_RS_ROUTER_LIFETIME_GUARD_MS;
+  }
+
+  return LWIP_MIN(LWIP_IPV6_LP_RS_INTERVAL_MS, lifetime_refresh_ms);
+}
+
+static void
+nd6_lp_refresh_note_ra(struct netif *netif, u16_t router_lifetime)
+{
+  struct nd6_lp_refresh_state *state = nd6_lp_refresh_state_get(netif, 0);
+  u16_t current_router_lifetime;
+  u32_t now;
+
+  if (state == NULL) {
+    return;
+  }
+
+  now = sys_now();
+  state->last_ra_ms = now;
+
+  if (router_lifetime == 0) {
+    if (!nd6_lp_has_router(netif)) {
+      state->next_rs_ms = now;
+      state->fast_rs_left = LWIP_IPV6_LP_RS_FAST_RETRY_COUNT;
+    }
+    return;
+  }
+
+  current_router_lifetime = nd6_lp_current_router_lifetime(netif);
+  if (current_router_lifetime == 0) {
+    return;
+  }
+
+  state->fast_rs_left = 0;
+  state->next_rs_ms = now + nd6_lp_rs_delay_from_router_lifetime(current_router_lifetime);
+}
+
+void
+nd6_lp_refresh_netif_disable(struct netif *netif)
+{
+  struct nd6_lp_refresh_state *state = nd6_lp_refresh_state_get(netif, 0);
+
+  if (state == NULL) {
+    return;
+  }
+
+  memset(state, 0, sizeof(*state));
+  nd6_lp_refresh_update_timer_enable();
+}
+
+void
+nd6_lp_refresh_netif_state_changed(struct netif *netif)
+{
+  s8_t i;
+  u32_t now;
+  struct nd6_lp_refresh_state *state;
+
+  if (!nd6_lp_refresh_netif_ready(netif) ||
+      !nd6_lp_netif_has_refresh_addr(netif)) {
+    nd6_lp_refresh_netif_disable(netif);
+    return;
+  }
+
+  now = sys_now();
+  state = nd6_lp_refresh_state_get(netif, 1);
+  if (state == NULL) {
+    return;
+  }
+
+  if (!state->enabled) {
+    state->enabled = 1;
+    state->mcast_uncertain = 1;
+    state->fast_rs_left = LWIP_IPV6_LP_RS_FAST_RETRY_COUNT;
+    state->next_rs_ms = now;
+    state->next_mld_ms = now;
+  }
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (nd6_lp_addr_needs_downlink_refresh(netif, i)) {
+      if (state->next_ns_ms[i] == 0) {
+        state->next_ns_ms[i] = now;
+      }
+    } else {
+      state->next_ns_ms[i] = 0;
+    }
+  }
+
+  nd6_lp_refresh_update_timer_enable();
+}
+
+void
+nd6_lp_refresh_request(struct netif *netif, u8_t reason)
+{
+  struct nd6_lp_refresh_state *state;
+  u32_t now;
+
+  if (!nd6_lp_refresh_netif_ready(netif)) {
+    nd6_lp_refresh_netif_disable(netif);
+    return;
+  }
+
+  nd6_lp_refresh_netif_state_changed(netif);
+  state = nd6_lp_refresh_state_get(netif, 0);
+  if ((state == NULL) || !state->enabled) {
+    return;
+  }
+
+  now = sys_now();
+  if (reason & ND6_LP_REFRESH_REASON_MCAST_UNCERTAIN) {
+    state->mcast_uncertain = 1;
+    state->next_mld_ms = now;
+  }
+  if (reason & ND6_LP_REFRESH_REASON_LINK_RESUME) {
+    state->next_rs_ms = now;
+  }
+  if (reason & ND6_LP_REFRESH_REASON_DOWNLINK_REQUIRED) {
+    s8_t i;
+    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+      if (nd6_lp_addr_needs_downlink_refresh(netif, i)) {
+        state->next_ns_ms[i] = now;
+      }
+    }
+  }
+}
+
+err_t
+nd6_lp_refresh_netif(struct netif *netif, u8_t flags)
+{
+  s8_t i;
+  const ip6_addr_t *router_addr;
+
+  LWIP_ASSERT_CORE_LOCKED();
+
+  if (!nd6_lp_refresh_netif_ready(netif)) {
+    return ERR_IF;
+  }
+
+#if LWIP_IPV6_MLD
+  if (flags & ND6_LP_REFRESH_MLD) {
+#if LWIP_IPV6_LP_MLD_IMMEDIATE_REPORT
+    mld6_report_groups_now(netif);
+#else
+    mld6_report_groups(netif);
+#endif
+  }
+#endif
+
+#if LWIP_IPV6_SEND_ROUTER_SOLICIT
+  if (flags & ND6_LP_REFRESH_RS) {
+    (void)nd6_send_rs(netif);
+  }
+#endif
+
+  if (!(flags & ND6_LP_REFRESH_NS)) {
+    return ERR_OK;
+  }
+
+  router_addr = nd6_lp_select_router_addr(netif);
+  if (router_addr == NULL) {
+    return ERR_RTE;
+  }
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (!nd6_lp_addr_needs_downlink_refresh(netif, i)) {
+      continue;
+    }
+
+    (void)nd6_send_ns_with_src(netif, netif_ip6_addr(netif, i),
+      router_addr, ND6_SEND_FLAG_MULTICAST_DEST);
+  }
+
+  return ERR_OK;
+}
+
+static void
+nd6_lp_refresh_tmr(void)
+{
+  u8_t i;
+  u32_t now = sys_now();
+
+  LWIP_ASSERT_CORE_LOCKED();
+
+  for (i = 0; i < LWIP_IPV6_LP_REFRESH_MAX_NETIFS; i++) {
+    struct nd6_lp_refresh_state *state = &nd6_lp_refresh_states[i];
+    u8_t flags = 0;
+    err_t err;
+
+    if (!state->enabled) {
+      continue;
+    }
+
+    if (!nd6_lp_refresh_netif_ready(state->netif) ||
+        !nd6_lp_netif_has_refresh_addr(state->netif)) {
+      memset(state, 0, sizeof(*state));
+      continue;
+    }
+
+    if (state->mcast_uncertain || nd6_lp_time_due(now, state->next_mld_ms)) {
+      flags |= ND6_LP_REFRESH_MLD;
+    }
+    if (nd6_lp_rs_due(state, now)) {
+      flags |= ND6_LP_REFRESH_RS;
+    }
+    if (nd6_lp_has_router(state->netif) && nd6_lp_ns_due(state, now)) {
+      flags |= ND6_LP_REFRESH_NS;
+    }
+
+    if (flags == 0) {
+      continue;
+    }
+
+    err = nd6_lp_refresh_netif(state->netif, flags);
+    if (err == ERR_IF) {
+      memset(state, 0, sizeof(*state));
+      continue;
+    }
+    nd6_lp_refresh_update_due(state, flags, err, now);
+  }
+}
+#endif /* LWIP_IPV6_LP_REACHABILITY_REFRESH */
+
+/** Netif state changed in a way that can affect ND6 timer scheduling. */
+void
+nd6_netif_state_changed(struct netif *netif)
+{
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+  nd6_lp_refresh_netif_state_changed(netif);
+#else
+  LWIP_UNUSED_ARG(netif);
+#endif
+  nd6_timer_update();
+}
+
 /** Netif was added, set up, or reconnected (link up) */
 void
 nd6_restart_netif(struct netif *netif)
@@ -2468,7 +3226,14 @@ nd6_restart_netif(struct netif *netif)
 #if LWIP_IPV6_SEND_ROUTER_SOLICIT
   /* Send Router Solicitation messages (see RFC 4861, ch. 6.3.7). */
   netif->rs_count = LWIP_ND6_MAX_MULTICAST_SOLICIT;
+  nd6_rs_ticks_until_send = 1;
 #endif /* LWIP_IPV6_SEND_ROUTER_SOLICIT */
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+  nd6_lp_refresh_request(netif, ND6_LP_REFRESH_REASON_LINK_RESUME |
+                                ND6_LP_REFRESH_REASON_MCAST_UNCERTAIN |
+                                ND6_LP_REFRESH_REASON_DOWNLINK_REQUIRED);
+#endif
+  nd6_timer_update();
 }
 
 #endif /* LWIP_IPV6 */

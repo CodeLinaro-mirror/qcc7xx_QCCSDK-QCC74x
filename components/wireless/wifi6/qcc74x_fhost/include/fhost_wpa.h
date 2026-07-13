@@ -284,25 +284,46 @@ int fhost_wpa_execute_cmd(int fhost_vif_idx, char *resp_buf, int *resp_buf_len,
 
 /**
  ****************************************************************************************
+ * @brief Parameters for @ref fhost_wpa_create_network.
+ ****************************************************************************************
+ */
+struct fhost_wpa_network_params
+{
+    /// Per-network configuration. Each token separated by ';' is passed to SET_NETWORK.
+    char *net_cfg;
+    /// SSID configuration token passed to SET_NETWORK.
+    char *ssid_cfg;
+    /// Key/PSK configuration token passed to SET_NETWORK. May be empty.
+    char *key_cfg;
+    /// SAE mechanism for PWE derivation: 0 = HnP only, 1 = H2E only, 2 = both.
+    uint8_t sae_pwe;
+    /// Transition Disable bitmap (0 = disabled, bit0 = disable WPA3-Personal).
+    /// A non-zero value is passed as SET_NETWORK transition_disable.
+    int transition_disable;
+    /// Whether network should be enabled.
+    bool enable;
+    /// Timeout in ms for enabling the network when enable is true.
+    int timeout_ms;
+};
+
+/**
+ ****************************************************************************************
  * @brief Add interface to WPA task and create a network configuration.
  *
  * This function should be used instead of @ref fhost_wpa_add_vif to start the
  * wpa_supplicant with a network already configured.
  * The network configuration is a string in which each token separated by a ';' is used
  * as parameter to 'SET_NETWORK' command.
- * If @p enable is true then the function is blocking until connection to the network.
- * (see @ref fhost_wpa_enable_network for details)
+ * If @p params->enable is true then the function is blocking until connection
+ * to the network. (see @ref fhost_wpa_enable_network for details)
  *
  * @param[in] fhost_vif_idx  Index of the FHOST interface.
- * @param[in] net_cfg        Network configuration.
- * @param[in] enable         Whether network should be enabled.
- * @param[in] timeout_ms     Timeout, in ms, passed to @ref fhost_wpa_enable_network if
- *                           @p enable is true.
+ * @param[in] params         Network parameters.
  *
  * @return 0 on success, <0 if error occurred.
  ****************************************************************************************
  */
-int fhost_wpa_create_network(int fhost_vif_idx, char *net_cfg, char *ssid_cfg, char *key_cfg, bool enable, int timeout_ms);
+int fhost_wpa_create_network(int fhost_vif_idx, const struct fhost_wpa_network_params *params);
 
 /**
  ****************************************************************************************

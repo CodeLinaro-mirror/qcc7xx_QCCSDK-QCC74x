@@ -996,7 +996,13 @@ err_t net_eth_receive(struct pbuf *pbuf, struct netif *netif)
     if (!filter)
         return ERR_VAL;
 
-    if (eloop_event_commit(ELOOP_EVT_WPA_L2_DATA, pbuf->payload,
+    /*
+     * Hand the frame to the supplicant event loop. eloop_event_commit copies it
+     * into a heap buffer sized to the exact frame length (no fixed-size receive
+     * limit) and the event loop frees that buffer after dispatch, so large WPS
+     * M2/M8 frames are no longer dropped.
+     */
+    if (eloop_event_commit(ELOOP_EVT_WPA_L2_DATA, (const char *)pbuf->payload,
                            pbuf->tot_len)) {
         printf("failed to commit L2 data\r\n");
     }

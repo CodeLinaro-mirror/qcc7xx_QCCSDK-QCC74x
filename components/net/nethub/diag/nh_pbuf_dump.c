@@ -20,7 +20,7 @@ static bool nh_diag_pbuf_read(const struct pbuf *p, uint16_t offset, void *dst, 
     }
 
     end = (size_t)offset + len;
-    if (end > p->tot_len) {
+    if (end < (size_t)offset || end > p->tot_len) {
         return false;
     }
 

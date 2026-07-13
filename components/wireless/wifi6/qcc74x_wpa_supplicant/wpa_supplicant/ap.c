@@ -390,6 +390,9 @@ int wpa_supplicant_conf_ap_ht(struct wpa_supplicant *wpa_s,
 			if (conf->secondary_channel)
 				conf->ht_capab |=
 					HT_CAP_INFO_SUPP_CHANNEL_WIDTH_SET;
+			if (conf->secondary_channel &&
+			    (wpa_s->drv_flags & WPA_DRIVER_FLAGS_HT_2040_COEX))
+				conf->obss_interval = 10;
 
 			/*
 			 * white-list capabilities that won't cause issues

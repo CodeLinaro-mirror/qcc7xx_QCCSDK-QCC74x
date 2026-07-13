@@ -12,6 +12,8 @@
 
 #define WIFI_MAX_ERR_MSG_SIZE 50
 #define RCP_WIFI_MAX_L2_INTERFACES 2
+#define RCP_WIFI_STA_IFACE_INDEX 1U
+#define RCP_WIFI_AP_IFACE_INDEX  2U
 
 #define RCP_WIFI_SCAN_SSID_FILT_MAX 8
 #define RCP_WIFI_SCAN_CHAN_MAX_MANUAL 10
@@ -250,7 +252,11 @@ struct rcp_wifi_conn_req {
 	uint32_t timeout_ms;
 	uint8_t bssid[WIFI_BSSID_SIZE];
 	uint8_t bssid_len;
-    bool    dhcp;
+	uint16_t reconnection_interval;
+	uint16_t reconnection_nb_attempts;
+	uint32_t wps;
+	uint32_t wep;
+	bool dhcp;
 };
 
 /* L2 interfaces response data. */
@@ -317,39 +323,13 @@ enum rcp_wifi_status rcp_wifi_deinit(void);
  */
 enum rcp_wifi_status rcp_wifi_register_callback(rcp_wifi_event_callback evt_cb);
 
-/* Connect to a WiFi network.
- *
- * req - pointer to connect request parameters
- *
- * Returns RCP WiFi status code.
- *
- * Specific error codes:
- * - RCP_WIFI_ERR_NOT_SUPP - one or more request parameters not supported by the device
- */
-enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req);
-
-/* Disconnect from the current WiFi network without clearing saved credentials.
- *
- * Returns RCP WiFi status code.
- */
-enum rcp_wifi_status rcp_wifi_disconnect(void);
-
 /* Disconnect from the current WiFi network.
  *
  * restore - nonzero to remove saved connection information on the device
  *
  * Returns RCP WiFi status code.
  */
-enum rcp_wifi_status rcp_wifi_disconnect_restore(uint32_t restore);
-
-/* Query L2 interfaces exposed by the RCP (inventory).
- *
- * net_if_type - filter (RCP_NET_IF_TYPE_UNKNOWN => all)
- * index       - filter (0 => any)
- *
- * Returns RCP WiFi status code.
- */
-enum rcp_wifi_status rcp_wifi_get_l2_interfaces(enum rcp_netif_type net_if_type, uint32_t index);
+enum rcp_wifi_status rcp_wifi_disconnect(uint32_t restore);
 
 /* Request WiFi scan.
  *
@@ -363,13 +343,17 @@ enum rcp_wifi_status rcp_wifi_scan(rcp_wifi_scan_opts_t *scan_opts,
 
 /* Request WiFi interface status.
  *
- * if_index - interface index to query
- *
- * Posts RCP_WIFI_IFACE_STATUS_RESP through the registered callback on success.
+ * if_index - interface index to query:
+ *            RCP_WIFI_STA_IFACE_INDEX for STA,
+ *            RCP_WIFI_AP_IFACE_INDEX for SoftAP.
+ *            In AP+STA mode both interfaces can be active and are queried
+ *            independently.
+ * resp     - output response buffer
  *
  * Returns RCP WiFi status code.
  */
-enum rcp_wifi_status rcp_wifi_get_iface_status(uint32_t if_index);
+enum rcp_wifi_status rcp_wifi_get_iface_status(uint32_t if_index,
+					       struct rcp_wifi_evt_iface_status *resp);
 
 /* Start station mode.
  *
@@ -402,26 +386,6 @@ static inline enum rcp_wifi_status rcp_wifi_get_auto_connect(uint32_t *onoff)
 	return rcp_wifi_status_from_rcp_status(RCP_WiFi_GetAutoConnect(RCP_ObjGet(), onoff));
 }
 
-/* Set raw RCP WiFi scan options.
- *
- * scan_opts - scan option structure consumed by the RCP WiFi AT layer
- *
- * Returns RCP WiFi status code.
- */
-static inline enum rcp_wifi_status rcp_wifi_set_scan_opts(rcp_wifi_scan_opts_t *scan_opts)
-{
-	return rcp_wifi_status_from_rcp_status(RCP_WiFi_SetScanOpts(RCP_ObjGet(), scan_opts));
-}
-
-/* Start a scan using the current raw RCP WiFi scan options.
- *
- * Returns RCP WiFi status code.
- */
-static inline enum rcp_wifi_status rcp_wifi_scan_start(void)
-{
-	return rcp_wifi_status_from_rcp_status(RCP_WiFi_Scan(RCP_ObjGet()));
-}
-
 /* Set raw RCP WiFi reconnection options.
  *
  * connect_opts - connection options containing reconnection interval and count
@@ -434,32 +398,13 @@ static inline enum rcp_wifi_status rcp_wifi_set_reconnection_opts(rcp_wifi_conne
 		RCP_WiFi_SetReconnectionOpts(RCP_ObjGet(), connect_opts));
 }
 
-/* Connect using raw RCP WiFi connection options.
+/* Connect to a WiFi network.
  *
- * connect_opts - raw RCP WiFi connection options
- *
- * Returns RCP WiFi status code.
- */
-static inline enum rcp_wifi_status rcp_wifi_connect_opts(rcp_wifi_connect_opts_t *connect_opts)
-{
-	return rcp_wifi_status_from_rcp_status(RCP_WiFi_Connect(RCP_ObjGet(), connect_opts));
-}
-
-/* Query current station connection information.
- *
- * rssi     - output pointer receiving RSSI
- * security - output pointer receiving security mode
- * protocol - output pointer receiving WiFi protocol mode
+ * req - connection request
  *
  * Returns RCP WiFi status code.
  */
-static inline enum rcp_wifi_status rcp_wifi_get_connect_info(int32_t *rssi,
-                                                             rcp_wifi_security_type_t *security,
-                                                             rcp_wifi_protocol_t *protocol)
-{
-	return rcp_wifi_status_from_rcp_status(
-		RCP_WiFi_GetConnectInfo(RCP_ObjGet(), rssi, security, protocol));
-}
+enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req);
 
 /* Query the station MAC address.
  *

@@ -128,7 +128,13 @@
 #define DNS_FRAG_TIMER_PRECISE_NEEDED   1
 #define DNS_TIMER_PRECISE_NEEDED        1
 #define DHCP_TIMER_PRECISE_NEEDED       1
+#define IPV6_TIMER_PRECISE_NEEDED       1
 #define LWIP_DHCP_DOES_ACD_CHECK        0
+
+#ifdef CFG_IPV6
+#define LWIP_IPV6                       1
+#define LWIP_IPV6_DHCP6                 1
+#endif
 
 extern int *__errno(void);
 #define errno                         (*__errno())

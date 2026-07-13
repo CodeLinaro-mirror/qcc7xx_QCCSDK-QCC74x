@@ -2602,6 +2602,7 @@ enum mac_radio_measurement_action {
 #define MAC_RS_802_1X_AUTH_FAIL                  23
 #define MAC_RS_CIPHER_SUITE_REJECTED             24
 #define MAC_RS_TIMEOUT                           39
+#define MAC_RS_UNEXPECTED_FRAME                  40
 /** @} */
 
 

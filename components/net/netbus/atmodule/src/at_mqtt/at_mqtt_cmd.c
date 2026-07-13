@@ -11,6 +11,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include <stdbool.h>
+#include <FreeRTOS.h>
+#include <semphr.h>
 #include "at_main.h"
 #include "at_core.h"
 #include "mqtt.h"
@@ -93,10 +95,24 @@ typedef struct at_mqtt {
         char *topic;
         uint8_t qos;
     } sub_topic[AT_MQTT_SUB_TOPIC_MAX];
-
+    SemaphoreHandle_t mutex;
 } at_mqtt_t;
 
 static __attribute__((section(".wifi_ram."))) at_mqtt_t g_at_mqtt[AT_MQTT_LINK_MAX];
+
+static void mqtt_socket_lock(at_mqtt_t *mqtt)
+{
+    if (mqtt) {
+        xSemaphoreTake(mqtt->mutex, portMAX_DELAY);
+    }
+}
+
+static void mqtt_socket_unlock(at_mqtt_t *mqtt)
+{
+    if (mqtt) {
+        xSemaphoreGive(mqtt->mutex);
+    }
+}
 
 static int at_ssl_sni_set(int linkid, const char *sni)
 {
@@ -197,6 +213,12 @@ static int initserver_tls(ssl_param_t **ctx, const char* addr, const char* port,
     mbedtls_net_context net_ctx;
     ssl_conn_param_t ssl_param = {0};
 
+    /* Always start from a clean output handle. Otherwise an early failure
+     * (e.g. TCP connect to an unreachable IP returns before *ctx is assigned)
+     * would leave the caller's ctx pointing at a stale/dangling ssl context
+     * from a previous connection, which later gets dereferenced. */
+    *ctx = NULL;
+
     net_ctx.fd = initserver_tcp(addr, port);
     if (net_ctx.fd < 0) {
         printf("TCP connect fail:%d\r\n", net_ctx.fd);
@@ -224,12 +246,16 @@ static int initserver_tls(ssl_param_t **ctx, const char* addr, const char* port,
         printf("mbedtls_ssl_connect handle NULL, fd:%d\r\n", net_ctx.fd);
         close(net_ctx.fd);
         net_ctx.fd = -1;
-    }
-
-    rv = mbedtls_net_set_nonblock(&net_ctx);
-    if (rv != 0) {
-        close(net_ctx.fd);
-        net_ctx.fd = -1;
+    } else {
+        rv = mbedtls_net_set_nonblock(&net_ctx);
+        if (rv != 0) {
+            /* Tear down the ssl context we just created, otherwise it leaks
+             * and *ctx would dangle after we return failure. */
+            mbedtls_ssl_close(*ctx);
+            close(net_ctx.fd);
+            net_ctx.fd = -1;
+            *ctx = NULL;
+        }
     }
     //mbedtls_ssl_conf_read_timeout(&(*ctx)->conf, 200);
 
@@ -243,6 +269,13 @@ static int initserver_tls(ssl_param_t **ctx, const char* addr, const char* port,
 static int open_nb_socket(struct custom_socket_handle *sockfd, int linkid, uint8_t type, const char* addr, const char* port) 
 {
     int ret = -1;
+
+    sockfd->type = type;
+    if (type == MQTTC_PAL_CONNTION_TYPE_TCP) {
+        sockfd->ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
+    } else {
+        sockfd->ctx.ssl_ctx = NULL;
+    }
 
     switch (type)
     {
@@ -275,10 +308,6 @@ static int open_nb_socket(struct custom_socket_handle *sockfd, int linkid, uint8
         return -1;
     }
 
-    /* Set client connection type */
-
-    sockfd->type = type;
-
     return 0;
 }
 
@@ -286,6 +315,14 @@ static void client_refresher_task(void* arg);
 
 static void socketfd_close(int linkid, mqtt_pal_socket_handle sockfd)
 {
+    /* socketfd_close may be invoked concurrently from the AT command context
+     * and from the refresher task. Without serialization the two paths can
+     * read the same fd before either clears it and both call close() on it
+     * (double close), which frees a netconn still owned by another socket
+     * (e.g. fd 0 = the net loopback wake socket) and corrupts it. Serialize
+     * here. */
+    mqtt_socket_lock(&g_at_mqtt[linkid]);
+
     if (sockfd->type == MQTTC_PAL_CONNTION_TYPE_TCP && AT_MQTT_SOCKET_FD_IS_VALID(sockfd->ctx.fd)) {
         close(sockfd->ctx.fd);
         sockfd->ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
@@ -304,6 +341,8 @@ static void socketfd_close(int linkid, mqtt_pal_socket_handle sockfd)
             g_at_mqtt[linkid].ctx = NULL;
         }
     }
+
+    mqtt_socket_unlock(&g_at_mqtt[linkid]);
 }
 
 static uint8_t socketfd_is_connected(mqtt_pal_socket_handle sockfd)
@@ -1417,6 +1456,7 @@ static const at_cmd_struct at_mqtt_cmd[] = {
 int at_mqtt_init()
 {
     for (int i = 0; i < AT_MQTT_LINK_MAX; i++) {
+        g_at_mqtt[i].mutex = xSemaphoreCreateMutex();
         g_at_mqtt[i].sockfd.ctx.fd = AT_MQTT_SOCKET_FD_INVALID;
         g_at_mqtt[i].connect_flags = MQTT_CONNECT_CLEAN_SESSION;
 

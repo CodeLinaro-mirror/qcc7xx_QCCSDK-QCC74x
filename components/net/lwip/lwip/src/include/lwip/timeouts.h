@@ -40,6 +40,7 @@
 
 #include "lwip/opt.h"
 #include "lwip/err.h"
+#include <stdbool.h>
 #if !NO_SYS
 #include "lwip/sys.h"
 #endif
@@ -79,6 +80,9 @@ struct lwip_cyclic_timer {
 #if LWIP_DEBUG_TIMERNAMES
   const char* handler_name;
 #endif /* LWIP_DEBUG_TIMERNAMES */
+#if IPV6_TIMER_PRECISE_NEEDED
+  u32_t precise_sleep_ms;
+#endif
 };
 
 /** This array contains all stack-internal cyclic timers. To get the number of
@@ -109,6 +113,7 @@ struct sys_timeo {
 void sys_timeouts_init(void);
 
 void sys_timeouts_set_timer_enable(bool enable, lwip_cyclic_timer_handler handler);
+void ipv6_timer_needed(lwip_cyclic_timer_handler handler);
 #if LWIP_DEBUG_TIMERNAMES
 void sys_timeout_debug(u32_t msecs, sys_timeout_handler handler, void *arg, const char* handler_name);
 #define sys_timeout(msecs, handler, arg) sys_timeout_debug(msecs, handler, arg, #handler)
@@ -130,8 +135,21 @@ struct sys_timeo** sys_timeouts_get_next_timeout(void);
 void lwip_cyclic_timer(void *arg);
 #endif
 
-#if LWIP_IPV6
-void ipv6_timer_switch(u8_t enable);
+#if LWIP_IPV6 && IPV6_TIMER_PRECISE_NEEDED
+typedef struct lwip_ipv6_precise_timer_diag {
+  const char *name;
+  lwip_timer_status_t status;
+  u32_t armed_sleep_ms;
+  u32_t next_sleep_ms;
+  u32_t schedule_count;
+  u32_t compensate_count;
+  u32_t last_scheduled_ms;
+  u32_t last_compensated_ms;
+} lwip_ipv6_precise_timer_diag_t;
+
+void ipv6_precise_timer_trace_set(u8_t enable);
+void ipv6_precise_timer_trace_reset(void);
+int ipv6_precise_timer_collect_diag(lwip_ipv6_precise_timer_diag_t *diags, int max_diags);
 #endif
 
 #endif /* LWIP_TIMERS */

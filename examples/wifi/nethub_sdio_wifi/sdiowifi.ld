@@ -10,7 +10,7 @@ psram_heap_min_size = 0x1000;
 __EM_SIZE = DEFINED(btble_controller_init) ? 32K : 0K;
 /* ram_lp grows 18K downwards into the ram_wifi block to host the
  * nh_msg_ctrl 47K dnld frame pool. ram_wifi shrinks by the same 18K. */
-__LP_EXTRA   = 19K;
+__LP_EXTRA   = 18K;
 __LPFW_SIZE  = (DEFINED(btble_controller_init) ? 28K : 60K) + __LP_EXTRA;
 
 __RFTLV_SIZE_OFFSET = 1K;

@@ -44,6 +44,7 @@ int cmd_atef_set(int argc, char **argv)
 
     if (argc != 3) {
         printf("arg error\r\n");
+        return -1;
     }
 
     ret = ef_set_env_blob(argv[1], (const char *)(argv[2]), strlen(argv[2]));

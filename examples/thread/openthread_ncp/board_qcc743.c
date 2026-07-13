@@ -101,7 +101,8 @@ void board_ncp_init(void)
     console_ncp_init();
 
     heap_len = ((size_t)&__HeapLimit - (size_t)&__HeapBase);
-    kmem_init((void *)&__HeapBase, heap_len);
+    mem_manager_init();
+    mm_register_heap(MM_HEAP_OCRAM_0, "OCRAM", MM_ALLOCATOR_TLSF, &__HeapBase, heap_len);
 
     log_start();
 

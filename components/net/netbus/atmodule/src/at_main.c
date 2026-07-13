@@ -280,7 +280,7 @@ int at_module_init(void)
     int ret = -1;
     at_device_ops *devops;
     static __attribute__((section(".wifi_ram."))) uint8_t at_through_buffer[(AT_THROUGH_MAX_LEN > AT_CMD_MAX_LEN) ? AT_THROUGH_MAX_LEN : AT_CMD_MAX_LEN];
-    static __attribute__((section(".wifi_ram."))) StackType_t at_workq_task_stack[AT_WORKQ_TASK_STACK_SIZE];
+    static StackType_t at_workq_task_stack[AT_WORKQ_TASK_STACK_SIZE];
     static StaticTask_t at_workq_task_tcb;
 
     if (at) {

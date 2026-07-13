@@ -64,6 +64,9 @@ static void atsdio_fakepush_forpop_cmd(int argc, char **argv)
 
     at->fakeoutput = 1;
     pushed = xStreamBufferSend(at_tty.rxbuf, buf, cmd_len, 0);
+    if (pushed != (size_t)cmd_len) {
+        printf("[ATMODULE] Error: fakewrite failed %d/%d\r\n", (int)pushed, cmd_len);
+    }
     printf("fakewrite len:%d, hascrlf:%d\r\n", (int)pushed, hascrlf);
 
     vPortFree(buf);

@@ -113,6 +113,7 @@ RCP_Status_t RCP_WiFi_Init(RCP_Object_t *Obj)
 
   Obj->Callbacks.WiFi_event_cb = RCP_WiFi_AT_Event;
   Obj->Callbacks.WiFi_event_scan_cb = RCP_WiFi_scan_result;
+  Obj->Callbacks.WiFi_csi_report_cb = NULL;
 
   return RCP_STATUS_OK;
 }
@@ -130,6 +131,7 @@ RCP_Status_t RCP_WiFi_DeInit(RCP_Object_t *Obj)
 
   Obj->Callbacks.WiFi_event_cb = NULL;
   Obj->Callbacks.WiFi_event_scan_cb = NULL;
+  Obj->Callbacks.WiFi_csi_report_cb = NULL;
 
   return RCP_STATUS_OK;
 }
@@ -268,7 +270,7 @@ RCP_Status_t RCP_WiFi_Scan(RCP_Object_t *Obj)
   Obj->WifiCtx.ScanResults.More = 0;
 
   snprintf(MAC, 20, "\"" MACSTR "\"", MAC2STR(ScanOptions.MAC));
-  if (strcmp((char *)ScanOptions.SSID, "\0") == 0)
+  if (ScanOptions.SSID[0] == '\0')
   {
     snprintf(SSID, RCP_WIFI_MAX_SSID_SIZE + 3, "%s", ScanOptions.SSID);
   }
@@ -906,14 +908,35 @@ RCP_Status_t RCP_WiFi_AP_GetMACAddress(RCP_Object_t *Obj, uint8_t *Mac)
   return ret;
 }
 
-RCP_Status_t RCP_WiFi_SetPowerMode(RCP_Object_t *Obj, uint32_t ps_mode, uint32_t hbn_level)
-{
-  return RCP_SetPowerMode(Obj, ps_mode, hbn_level);
+RCP_Status_t RCP_WiFi_SetPowerMode(RCP_Object_t *Obj, uint32_t ps_mode,
+                              uint32_t hbn_level) {
+  RCP_Status_t ret;
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  RCP_NULL_ASSERT(Obj);
+
+  if (ps_mode == 1U) {
+    snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+PWR=%" PRIu32 ",%" PRIu32 "\r\n",
+             ps_mode, hbn_level);
+    /* Hibernate mode does not return a response. */
+    ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, 0U);
+  } else {
+    snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+PWR=%" PRIu32 "\r\n", ps_mode);
+    ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
+  }
+
+  if (ret == RCP_STATUS_OK) {
+    Obj->LowPowerCfg.PSMode = ps_mode;
+  }
+
+  return ret;
 }
 
-RCP_Status_t RCP_WiFi_GetPowerMode(RCP_Object_t *Obj, uint32_t *ps_mode)
-{
-  return RCP_GetPowerMode(Obj, ps_mode);
+RCP_Status_t RCP_WiFi_GetPowerMode(RCP_Object_t *Obj, uint32_t *ps_mode) {
+  RCP_NULL_ASSERT(Obj);
+  RCP_NULL_ASSERT(ps_mode);
+
+  *ps_mode = Obj->LowPowerCfg.PSMode;
+  return RCP_STATUS_OK;
 }
 
 RCP_Status_t RCP_WiFi_SetWakeUpPin(RCP_Object_t *Obj, uint32_t wakeup_pin, uint32_t mode)
@@ -925,14 +948,59 @@ RCP_Status_t RCP_WiFi_SetWakeUpPin(RCP_Object_t *Obj, uint32_t wakeup_pin, uint3
   return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
 }
 
-RCP_Status_t RCP_WiFi_SetClockSource(RCP_Object_t *Obj, uint32_t source)
-{
-  return RCP_SetClockSource(Obj, source);
+RCP_Status_t RCP_WiFi_SetClockSource(RCP_Object_t *Obj, uint32_t source) {
+  RCP_Status_t ret = RCP_STATUS_ERROR;
+  uint32_t current_source;
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  RCP_NULL_ASSERT(Obj);
+
+  if ((source == 0U) || (source > 3U)) {
+    return RCP_STATUS_ERROR;
+  }
+
+  ret = RCP_WiFi_GetClockSource(Obj, &current_source);
+  if (ret != RCP_STATUS_OK) {
+    return ret;
+  }
+
+  if (current_source == source) {
+    return RCP_STATUS_OK;
+  }
+
+  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+SET_CLOCK=%" PRIu32 "\r\n", source);
+  ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, 0U);
+  if (ret != RCP_STATUS_OK) {
+    SYS_LOG_ERROR("Failed to set clock source");
+    return ret;
+  }
+
+  ret = RCP_WaitForReady(Obj, RCP_READY_DEFAULT_TIMEOUT_MS);
+  if (ret != RCP_STATUS_OK) {
+    SYS_LOG_ERROR("sem_if_ready not received\n");
+  }
+  return ret;
 }
 
-RCP_Status_t RCP_WiFi_GetClockSource(RCP_Object_t *Obj, uint32_t *source)
-{
-  return RCP_GetClockSource(Obj, source);
+RCP_Status_t RCP_WiFi_GetClockSource(RCP_Object_t *Obj, uint32_t *source) {
+  char *argv[CONFIG_MODEM_CMD_HANDLER_MAX_PARAM_COUNT];
+  char cmd[RCP_CMD_MATCH_BUFF_SIZE];
+  uint16_t argc = 0;
+  RCP_Status_t ret;
+  RCP_NULL_ASSERT(Obj);
+  RCP_NULL_ASSERT(source);
+
+  strncpy(cmd, "AT+GET_CLOCK\r\n", sizeof(cmd));
+  ret = RCP_Common_Query_Parse(Obj, cmd, "+GET_CLOCK:", &argc, argv,
+                               RCP_NCP_TIMEOUT);
+  if (ret != RCP_STATUS_OK) {
+    return ret;
+  }
+  if (argc < 1U) {
+    return RCP_STATUS_ERROR;
+  }
+
+  *source = (uint32_t)atoi(argv[0]);
+  return ret;
 }
 
 RCP_Status_t RCP_WiFi_SetDTIM(RCP_Object_t *Obj, uint32_t dtim)
@@ -1407,6 +1475,149 @@ RCP_Status_t RCP_WiFi_GetAntennaUsed(RCP_Object_t *Obj, uint32_t *antenna_id)
   return ret;
 }
 
+RCP_Status_t RCP_WiFi_CSI_Start(RCP_Object_t *Obj,
+                                const RCP_WiFi_CSI_Start_Params_t *params,
+                                RCP_WiFi_CSI_Report_cb_t cb)
+{
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  RCP_WiFi_CSI_Report_cb_t old_cb;
+  RCP_Status_t ret;
+  RCP_NULL_ASSERT(Obj);
+  RCP_NULL_ASSERT(params);
+
+  if ((params->buf >= RCP_WIFI_CSI_MAX_BUFFERS) ||
+      (params->mode > RCP_WIFI_CSI_MODE_AUTO) ||
+      (params->ts_mode > RCP_WIFI_CSI_TS_FTM) ||
+      (params->ready_after_isr > 1U))
+  {
+    return RCP_STATUS_ERROR;
+  }
+
+  old_cb = Obj->Callbacks.WiFi_csi_report_cb;
+  Obj->Callbacks.WiFi_csi_report_cb = cb;
+
+  /* Emit only the parameters that differ from the device defaults
+     (mode=0, ts=2, interval=0, ready=1). As they are positional, a field
+     must be emitted when itself or any field to its right is non-default. */
+  {
+    bool emit_ready = (params->ready_after_isr != 1U);
+    bool emit_itvl = (params->interval_ms != 0U) || emit_ready;
+    bool emit_ts = (params->ts_mode != RCP_WIFI_CSI_TS_PERIODIC) || emit_itvl;
+    bool emit_mode = (params->mode != RCP_WIFI_CSI_MODE_LEGACY_LTF) || emit_ts;
+    int len;
+
+    len = snprintf(cmd, RCP_CMDRSP_STRING_SIZE,
+                   "AT+CSIDMASTART=\"" MACSTR "\",%" PRIu16,
+                   MAC2STR(params->MAC), (uint16_t)params->buf);
+    if (emit_mode) {
+      len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%" PRIu16,
+                      (uint16_t)params->mode);
+    }
+    if (emit_ts) {
+      len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%" PRIu16,
+                      (uint16_t)params->ts_mode);
+    }
+    if (emit_itvl) {
+      len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%" PRIu32,
+                      params->interval_ms);
+    }
+    if (emit_ready) {
+      len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%" PRIu16,
+                      (uint16_t)params->ready_after_isr);
+    }
+    snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, "\r\n");
+  }
+  ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
+  if (ret != RCP_STATUS_OK) {
+    Obj->Callbacks.WiFi_csi_report_cb = old_cb;
+  }
+  return ret;
+}
+
+RCP_Status_t RCP_WiFi_CSI_Stop(RCP_Object_t *Obj, int32_t buf)
+{
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  RCP_Status_t ret;
+  RCP_NULL_ASSERT(Obj);
+
+  if (buf == RCP_WIFI_CSI_STOP_ALL) {
+    ret = RCP_Common_SetExecute(Obj, (uint8_t *)"AT+CSIDMASTOP\r\n", RCP_NCP_TIMEOUT);
+    if (ret == RCP_STATUS_OK) {
+      Obj->Callbacks.WiFi_csi_report_cb = NULL;
+    }
+    return ret;
+  }
+
+  if ((buf < 0) || (buf >= RCP_WIFI_CSI_MAX_BUFFERS)) {
+    return RCP_STATUS_ERROR;
+  }
+
+  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+CSIDMASTOP=%" PRIi32 "\r\n", buf);
+  return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
+}
+
+RCP_Status_t RCP_WiFi_Monitor_Start(RCP_Object_t *Obj,
+                                    const RCP_WiFi_Monitor_Params_t *params)
+{
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  char min_s[8] = "";
+  char max_s[8] = "";
+  char out_s[8] = "";
+  bool out_valid;
+  bool max_valid;
+  bool min_valid;
+  int len;
+  RCP_NULL_ASSERT(Obj);
+  RCP_NULL_ASSERT(params);
+
+  /* channel is mandatory on the device side and must be >= 1 */
+  if (params->channel == 0U) {
+    return RCP_STATUS_ERROR;
+  }
+  if ((params->output != 0U) && (params->output != 1U) &&
+      (params->output != RCP_WIFI_MONITOR_OUTPUT_DEFAULT)) {
+    return RCP_STATUS_ERROR;
+  }
+
+  /* An optional field must be emitted (even if empty) when a later field is
+     present, otherwise positional parameters would shift on the device. */
+  out_valid = (params->output != RCP_WIFI_MONITOR_OUTPUT_DEFAULT);
+  max_valid = (params->max_pkg_len != 0U) || out_valid;
+  min_valid = (params->min_pkg_len != 0U) || max_valid;
+
+  if (min_valid && (params->min_pkg_len != 0U)) {
+    snprintf(min_s, sizeof(min_s), "%" PRIu16, params->min_pkg_len);
+  }
+  if (max_valid && (params->max_pkg_len != 0U)) {
+    snprintf(max_s, sizeof(max_s), "%" PRIu16, params->max_pkg_len);
+  }
+  if (out_valid) {
+    snprintf(out_s, sizeof(out_s), "%" PRIu16, (uint16_t)params->output);
+  }
+
+  len = snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+CWMONITOR=1,%" PRIu16,
+                 (uint16_t)params->channel);
+  if (min_valid) {
+    len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%s", min_s);
+  }
+  if (max_valid) {
+    len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%s", max_s);
+  }
+  if (out_valid) {
+    len += snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, ",%s", out_s);
+  }
+  snprintf(cmd + len, RCP_CMDRSP_STRING_SIZE - len, "\r\n");
+
+  return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
+}
+
+RCP_Status_t RCP_WiFi_Monitor_Stop(RCP_Object_t *Obj)
+{
+  RCP_NULL_ASSERT(Obj);
+  return RCP_Common_SetExecute(Obj, (uint8_t *)"AT+CWMONITOR=0\r\n",
+                               RCP_NCP_TIMEOUT);
+}
+
 /* Private Functions Definition ----------------------------------------------*/
 MODEM_CMD_DEFINE(on_cmd_ap_liststa)
 {
@@ -1442,7 +1653,10 @@ MODEM_CMD_DEFINE(on_cmd_twt_status)
       twt_status->flow[flow_index].wake_int_exp = atoi((char *)argv[4]);
       twt_status->flow[flow_index].min_twt_wake_dur = atoi((char *)argv[5]);
       twt_status->flow[flow_index].wake_int_mantissa = atoi((char *)argv[6]);
-      twt_status->flow_count++;
+      if (twt_status->flow_count < RCP_WIFI_MAX_TWT_FLOWS)
+      {
+        twt_status->flow_count++;
+      }
     }
   }
   else
@@ -1648,6 +1862,11 @@ static void RCP_WiFi_scan_result(void *hObj, uint16_t *argc, char **argv)
         return;
     }
     /* Remove last ')' */
+    if (strlen((char *)argv[7]) < 2U)
+    {
+      SYS_LOG_ERROR("Invalid WPS field\n");
+      return;
+    }
     argv[7][1] = '\0';
     scan_result->AP[scan_result->Count].WPS = atoi((char *)argv[7]);
     scan_result->Count++;

@@ -217,7 +217,7 @@ static qcc74x_lp_io_cfg_t lp_wake_io_cfg;
 int lp_set_wakeup_by_io(uint8_t io, uint8_t mode)
 {
     if ((io != 28 && io != 10) || (mode !=0 && mode != 1)) {
-        printf("[PM] Error: only support gpio 16, 10 and mode 0/1\r\n");
+        printf("[PM] Error: only support gpio 28, 10 and mode 0/1\r\n");
         return -1;
     }
 
@@ -408,6 +408,7 @@ void createAndStartTimer(const char* timerName, TickType_t timerPeriod)
     if (xTimerStart(timer, 0) != pdPASS)
     {
         printf("Failed to start timer.\n");
+        xTimerDelete(timer, 0);
         return;
     }
 }

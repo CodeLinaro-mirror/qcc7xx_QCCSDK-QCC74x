@@ -72,11 +72,19 @@ void *rtos_malloc(uint32_t size)
 
     ptr = kmalloc(size, MM_KERNEL);
     if (NULL == ptr) {
-        while (1) {
-            /*dead loop now*/
-        }
+        /* Out of memory: log (with the caller's return address so the failing
+         * allocation site can be resolved via addr2line) and return NULL so
+         * callers can recover (e.g. drop the frame) instead of hanging the
+         * whole system in an infinite loop. */
+        printf("rtos_malloc: out of memory, size %lu, caller %p\r\n",
+               (unsigned long)size, __builtin_return_address(0));
     }
     return ptr;
+}
+
+void *rtos_try_malloc(uint32_t size)
+{
+    return kmalloc(size, MM_KERNEL);
 }
 
 void *rtos_calloc(uint32_t nb_elt, uint32_t size)
@@ -84,6 +92,9 @@ void *rtos_calloc(uint32_t nb_elt, uint32_t size)
     void *res = kmalloc(nb_elt * size, MM_KERNEL);
     if (res)
         memset(res, 0, nb_elt * size);
+    else
+        printf("rtos_calloc: out of memory, size %lu, caller %p\r\n",
+               (unsigned long)(nb_elt * size), __builtin_return_address(0));
 
     return res;
 }

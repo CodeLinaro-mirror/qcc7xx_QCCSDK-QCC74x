@@ -60,6 +60,22 @@ static enum rcp_wifi_sec_type rcp_wifi_security_from_api(RCP_WiFi_SecurityType_e
 	}
 }
 
+static enum rcp_wifi_sec_type rcp_wifi_ap_security_from_api(RCP_WiFi_ApSecurityType_e security)
+{
+	switch (security) {
+	case RCP_WIFI_AP_SECURITY_OPEN:
+		return RCP_WIFI_SEC_TYPE_NONE;
+	case RCP_WIFI_AP_SECURITY_WEP:
+		return RCP_WIFI_SEC_TYPE_WEP;
+	case RCP_WIFI_AP_SECURITY_WPA3_PSK:
+		return RCP_WIFI_SEC_TYPE_SAE;
+	case RCP_WIFI_AP_SECURITY_WPA_PSK:
+	case RCP_WIFI_AP_SECURITY_WPA2_PSK:
+	default:
+		return RCP_WIFI_SEC_TYPE_PSK;
+	}
+}
+
 static enum rcp_wifi_link_mode rcp_wifi_link_mode_from_api(RCP_WiFi_Protocol_e protocol)
 {
 	switch (protocol) {
@@ -75,6 +91,77 @@ static enum rcp_wifi_link_mode rcp_wifi_link_mode_from_api(RCP_WiFi_Protocol_e p
 	default:
 		return RCP_WIFI_LINK_MODE_UNKNOWN;
 	}
+}
+
+static enum rcp_wifi_status rcp_wifi_get_sta_iface_status(
+	RCP_Object_t *obj, uint32_t if_index, struct rcp_wifi_evt_iface_status *resp)
+{
+	RCP_WiFi_SecurityType_e security = RCP_WIFI_SECURITY_UNKNOWN;
+	RCP_WiFi_Protocol_e protocol = RCP_WIFI_PROTOCOL_UNKNOWN;
+	int32_t rssi = 0;
+	RCP_Status_t ret;
+
+	ret = RCP_WiFi_GetConnectInfo(obj, &rssi, &security, &protocol);
+	if (ret != RCP_STATUS_OK) {
+		return rcp_wifi_status_from_rcp_status(ret);
+	}
+
+	resp->iface_index = if_index;
+	resp->status.iface_mode = RCP_WIFI_MODE_INFRA;
+	resp->status.rssi = rssi;
+	resp->status.channel = obj->WifiCtx.STASettings.Channel;
+	resp->status.security = rcp_wifi_security_from_api(security);
+	resp->status.link_mode = rcp_wifi_link_mode_from_api(protocol);
+	resp->status.ssid_len = (uint8_t)strnlen((const char *)obj->WifiCtx.SSID,
+						 sizeof(resp->status.ssid));
+	memcpy(resp->status.ssid, obj->WifiCtx.SSID, resp->status.ssid_len);
+	memcpy(resp->status.bssid, obj->WifiCtx.APSettings.MAC_Addr,
+	       sizeof(resp->status.bssid));
+
+	if (obj->WifiCtx.StaState == RCP_WIFI_STATE_STA_CONNECTED ||
+	    obj->WifiCtx.StaState == RCP_WIFI_STATE_STA_GOT_IP) {
+		resp->status.state = RCP_WIFI_STATE_COMPLETED;
+	} else {
+		resp->status.state = RCP_WIFI_STATE_DISCONNECTED;
+	}
+
+	return RCP_WIFI_OK;
+}
+
+static enum rcp_wifi_status rcp_wifi_get_ap_iface_status(
+	RCP_Object_t *obj, uint32_t if_index, struct rcp_wifi_evt_iface_status *resp)
+{
+	RCP_WiFi_ApConfig_t config = {0};
+	RCP_Status_t ret;
+
+	resp->iface_index = if_index;
+	resp->status.iface_mode = RCP_WIFI_MODE_AP;
+
+	if (obj->WifiCtx.ApState != RCP_WIFI_STATE_AP_RUNNING) {
+		resp->status.state = RCP_WIFI_STATE_DISCONNECTED;
+		return RCP_WIFI_OK;
+	}
+
+	resp->status.state = RCP_WIFI_STATE_COMPLETED;
+
+	ret = RCP_WiFi_AP_GetConfig(obj, &config);
+	if (ret != RCP_STATUS_OK) {
+		return rcp_wifi_status_from_rcp_status(ret);
+	}
+
+	ret = RCP_WiFi_AP_GetMACAddress(obj, resp->status.bssid);
+	if (ret != RCP_STATUS_OK) {
+		return rcp_wifi_status_from_rcp_status(ret);
+	}
+
+	resp->status.channel = config.Channel;
+	resp->status.security = rcp_wifi_ap_security_from_api(config.Security);
+	resp->status.link_mode = rcp_wifi_link_mode_from_api(config.Protocol);
+	resp->status.ssid_len = (uint8_t)strnlen((const char *)config.SSID,
+						 sizeof(resp->status.ssid));
+	memcpy(resp->status.ssid, config.SSID, resp->status.ssid_len);
+
+	return RCP_WIFI_OK;
 }
 
 static void rcp_wifi_notify(enum rcp_wifi_evt evt, const void *data)
@@ -128,6 +215,11 @@ enum rcp_wifi_status rcp_wifi_register_callback(rcp_wifi_event_callback evt_cb)
 	return RCP_WIFI_OK;
 }
 
+enum rcp_wifi_status rcp_wifi_disconnect(uint32_t restore)
+{
+	return rcp_wifi_status_from_rcp_status(RCP_WiFi_Disconnect(RCP_ObjGet(), restore));
+}
+
 enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req)
 {
 	RCP_Object_t *obj = RCP_ObjGet();
@@ -142,6 +234,7 @@ enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req)
 	    req->bssid_len > WIFI_BSSID_SIZE) {
 		return RCP_WIFI_ERR_NOT_SUPP;
 	}
+
 	if (req->pmf > RCP_WIFI_MFP_REQUIRED) {
 		return RCP_WIFI_ERR_NOT_SUPP;
 	}
@@ -158,11 +251,12 @@ enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req)
 		memcpy(opts.MAC, req->bssid, sizeof(opts.MAC));
 	}
 
-	opts.Reconnection_interval = 0U;
-	opts.Reconnection_nb_attempts = 0U;
-	opts.WPS = 0U;
+	opts.Reconnection_interval = req->reconnection_interval;
+	opts.Reconnection_nb_attempts = req->reconnection_nb_attempts;
+	opts.WPS = req->wps;
 	opts.PMF = req->pmf;
 	rcp_wifi_security_to_api(req->sec_type, &opts);
+	opts.WEP = req->wep;
 	g_rcp_wifi_mgmt.dhcp_enabled = req->dhcp;
 
     // In RCP mode, turn off the dhcp of Softap and STA on the device side.
@@ -172,18 +266,8 @@ enum rcp_wifi_status rcp_wifi_connect(struct rcp_wifi_conn_req *req)
     if (ret != RCP_STATUS_OK) {
       SYS_LOG_ERROR("Disable device DHCP failed\n");
 	  return RCP_WIFI_ERR;
-    }
+	}
 	return rcp_wifi_status_from_rcp_status(RCP_WiFi_Connect(obj, &opts));
-}
-
-enum rcp_wifi_status rcp_wifi_disconnect(void)
-{
-	return rcp_wifi_disconnect_restore(0U);
-}
-
-enum rcp_wifi_status rcp_wifi_disconnect_restore(uint32_t restore)
-{
-	return rcp_wifi_status_from_rcp_status(RCP_WiFi_Disconnect(RCP_ObjGet(), restore));
 }
 
 enum rcp_wifi_status rcp_wifi_ap_start(rcp_wifi_ap_config_t *ap_config)
@@ -205,31 +289,6 @@ enum rcp_wifi_status rcp_wifi_ap_stop(uint8_t reconnect)
 	}
 
 	return status;
-}
-
-enum rcp_wifi_status rcp_wifi_get_l2_interfaces(enum rcp_netif_type net_if_type,
-						uint32_t index)
-{
-	struct rcp_wifi_l2_interfaces resp = {0};
-	struct rcp_wifi_l2_interface *iface = &resp.net_ifs[0];
-
-	if (net_if_type != RCP_NET_IF_TYPE_UNKNOWN && net_if_type != RCP_NET_IF_TYPE_WIFI) {
-		return RCP_WIFI_ERR_NOT_SUPP;
-	}
-
-	if (index > 1U) {
-		return RCP_WIFI_ERR_NOT_SUPP;
-	}
-
-	resp.count = 1U;
-	iface->index = 1U;
-	iface->net_if_type = RCP_NET_IF_TYPE_WIFI;
-	iface->offload_supported = false;
-	iface->mtu = 1500U;
-	(void)rcp_wifi_get_mac(iface->mac_address, 0U);
-
-	rcp_wifi_notify(RCP_WIFI_L2_INTERFACES_RESP, &resp);
-	return RCP_WIFI_OK;
 }
 
 enum rcp_wifi_status rcp_wifi_scan(rcp_wifi_scan_opts_t *opts,
@@ -254,44 +313,26 @@ enum rcp_wifi_status rcp_wifi_scan(rcp_wifi_scan_opts_t *opts,
 	return rcp_wifi_status_from_rcp_status(ret);
 }
 
-enum rcp_wifi_status rcp_wifi_get_iface_status(uint32_t if_index)
+enum rcp_wifi_status rcp_wifi_get_iface_status(uint32_t if_index,
+					       struct rcp_wifi_evt_iface_status *resp)
 {
 	RCP_Object_t *obj = RCP_ObjGet();
-	struct rcp_wifi_evt_iface_status resp = {0};
-	RCP_WiFi_SecurityType_e security = RCP_WIFI_SECURITY_UNKNOWN;
-	RCP_WiFi_Protocol_e protocol = RCP_WIFI_PROTOCOL_UNKNOWN;
-	int32_t rssi = 0;
-	RCP_Status_t ret;
 
-	if (obj == NULL || if_index != 1U) {
+	if (obj == NULL || resp == NULL) {
 		return RCP_WIFI_ERR_NOT_SUPP;
 	}
 
-	ret = RCP_WiFi_GetConnectInfo(obj, &rssi, &security, &protocol);
-	if (ret != RCP_STATUS_OK) {
-		return rcp_wifi_status_from_rcp_status(ret);
+	memset(resp, 0, sizeof(*resp));
+
+	if (if_index == RCP_WIFI_STA_IFACE_INDEX) {
+		return rcp_wifi_get_sta_iface_status(obj, if_index, resp);
 	}
 
-	resp.iface_index = if_index;
-	resp.status.iface_mode = RCP_WIFI_MODE_INFRA;
-	resp.status.rssi = rssi;
-	resp.status.channel = obj->WifiCtx.STASettings.Channel;
-	resp.status.security = rcp_wifi_security_from_api(security);
-	resp.status.link_mode = rcp_wifi_link_mode_from_api(protocol);
-	resp.status.ssid_len = (uint8_t)strnlen((const char *)obj->WifiCtx.SSID,
-						sizeof(resp.status.ssid));
-	memcpy(resp.status.ssid, obj->WifiCtx.SSID, resp.status.ssid_len);
-	memcpy(resp.status.bssid, obj->WifiCtx.APSettings.MAC_Addr, sizeof(resp.status.bssid));
-
-	if (obj->WifiCtx.StaState == RCP_WIFI_STATE_STA_CONNECTED ||
-	    obj->WifiCtx.StaState == RCP_WIFI_STATE_STA_GOT_IP) {
-		resp.status.state = RCP_WIFI_STATE_COMPLETED;
-	} else {
-		resp.status.state = RCP_WIFI_STATE_DISCONNECTED;
+	if (if_index == RCP_WIFI_AP_IFACE_INDEX) {
+		return rcp_wifi_get_ap_iface_status(obj, if_index, resp);
 	}
 
-	rcp_wifi_notify(RCP_WIFI_IFACE_STATUS_RESP, &resp);
-	return RCP_WIFI_OK;
+	return RCP_WIFI_ERR_NOT_SUPP;
 }
 
 enum rcp_wifi_status rcp_wifi_set_power_mode(uint32_t ps_mode, uint32_t hbn_level)

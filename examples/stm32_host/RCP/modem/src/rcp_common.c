@@ -259,6 +259,16 @@ MODEM_CMD_DECLARE(on_cmd_net_ping_event);
  */
 MODEM_CMD_DECLARE(on_cmd_wifi_scan_event);
 
+/**
+ * @brief  Callback function to handle Wi-Fi CSI reports
+ * @param  data: pointer to the modem_cmd_handler_data structure
+ * @param  len: length of the data
+ * @param  argv: array of argument strings (unused)
+ * @param  argc: number of arguments (unused)
+ * @return process length on success, negative value on error
+ */
+MODEM_CMD_DIRECT_DECLARE(on_cmd_wifi_csi_event);
+
 /** @} */
 
 /* Private variables ---------------------------------------------------------*/
@@ -281,6 +291,7 @@ static const struct modem_cmd unsol_cmds[] = {
     MODEM_CMD_DIRECT("+BLE:GATTREAD:", on_cmd_ble_read_data_event),
     MODEM_CMD_DIRECT("+BLE:NOTIDATA:", on_cmd_ble_noti_data_event),
     MODEM_CMD_DIRECT("+MQTT:SUBRECV:", on_cmd_mqtt_data_event),
+    MODEM_CMD_DIRECT("+CSIDMA:", on_cmd_wifi_csi_event),
     MODEM_CMD_ARGS_MAX("+IPD:", on_cmd_net_data_event, 1U, 10U, ","),
     MODEM_CMD_ARGS_MAX("+CW:", on_cmd_wifi_event, 1U, 10U, ", "),
     MODEM_CMD_ARGS_MAX("+BLE:", on_cmd_ble_event, 1U, 11U, ",:()"),
@@ -483,77 +494,6 @@ RCP_Status_t RCP_Common_Query_Parse(RCP_Object_t *Obj, char *p_cmd,
   return ret;
 }
 
-RCP_Status_t RCP_Common_RequestSendOtaData(RCP_Object_t *Obj, uint8_t *p_cmd,
-                                           uint8_t *pdata, uint32_t len,
-                                           uint32_t timeout_ms,
-                                           bool check_resp) {
-  struct modem *mdm = (struct modem *)&Obj->Modem;
-  int32_t ret;
-  int32_t bytes_consumed_by_the_bus = 0;
-  int32_t bytes_to_send;
-
-  static const struct modem_cmd cmds[] = {
-      // MODEM_CMD_DIRECT("OK", on_cmd_recv),
-      MODEM_CMD_ARGS_MAX("Recv ", on_cmd_recv, 1U, 2U, " "),
-      MODEM_CMD("SEND OK", on_cmd_ok, 0U, ""),
-      MODEM_CMD("SEND FAIL", on_cmd_error, 0U, ""),
-      MODEM_CMD_DIRECT(">", on_cmd_tx_ready),
-  };
-
-  (void)rcp_os_mutex_lock(&mdm->modem_cmd_handler_data.sem_tx_lock,
-                          RCP_OS_WAIT_FOREVER);
-  /*reset mdm->sem_tx_read */
-  (void)rcp_os_sem_take(&mdm->sem_tx_ready, 0);
-
-  ret = modem_cmd_send_ext(
-      &mdm->iface, &mdm->modem_cmd_handler, cmds, ARRAY_SIZE(cmds), p_cmd,
-      &mdm->sem_response,
-      check_resp ? timeout_ms
-                 : 0, /* If check_resp is false don't wait for OK */
-      MODEM_NO_TX_LOCK | MODEM_NO_UNSET_CMDS);
-  if (ret < 0) {
-    printf("Failed to send command\n");
-    goto out;
-  }
-
-  /* Reset semaphore that will be released by "Recv " */
-  /*reset mdm->sem_response */
-  (void)rcp_os_sem_take(&mdm->sem_response, 0);
-
-  /* Set rx_data_len to be checked during "Recv " event */
-  mdm->rx_data_len = len;
-
-  /* Wait for "OK" */
-  if (!rcp_os_sem_take(&mdm->sem_tx_ready, 5000)) {
-    printf("Timeout waiting for tx\n");
-    ret = -ETIMEDOUT;
-    goto out;
-  }
-
-  ret = modem_cmd_send_data_nolock(&mdm->iface, pdata, len);
-  if (ret < 0) {
-    printf("calling rcp_wifi_send_data error:%d\n", ret);
-  }
-  /* Wait for "Recv " */
-  if (!rcp_os_sem_take(&mdm->sem_response, timeout_ms)) {
-    printf("No send response\n");
-    ret = -ETIMEDOUT;
-    goto out;
-  }
-
-  ret = modem_cmd_handler_get_error(&mdm->modem_cmd_handler_data);
-  if (ret != 0) {
-    printf("Failed to send data\n");
-  }
-
-out:
-  (void)modem_cmd_handler_update_cmds(&mdm->modem_cmd_handler_data, NULL, 0U,
-                                      false);
-  (void)rcp_os_mutex_unlock(&mdm->modem_cmd_handler_data.sem_tx_lock);
-
-  return RCP_Status(ret);
-}
-
 RCP_Status_t RCP_Common_RequestSendData(RCP_Object_t *Obj, uint8_t *p_cmd,
                                         uint8_t *pdata, uint32_t len,
                                         uint32_t timeout_ms, bool check_resp) {
@@ -600,6 +540,7 @@ RCP_Status_t RCP_Common_RequestSendData(RCP_Object_t *Obj, uint8_t *p_cmd,
   ret = modem_cmd_send_data_nolock(&mdm->iface, pdata, len);
   if (ret < 0) {
     printf("calling rcp_wifi_send_data error:%d\n", ret);
+    goto out;
   }
   /* Wait for "Recv " */
   if (!rcp_os_sem_take(&mdm->sem_response, timeout_ms)) {
@@ -629,7 +570,7 @@ void RCP_RemoveStrQuotes(char *inbuf) {
   }
   inbuf[len - 1] = '\0'; /* Ensure the last character is null-terminated */
   /* Ensure the first character is not a double quote */
-  memmove(inbuf, inbuf + 1, len);
+  memmove(inbuf, inbuf + 1, len - 1);
 }
 
 void RCP_Logger(uint8_t *pBuf, uint32_t len, char *inOut) {
@@ -828,6 +769,46 @@ MODEM_CMD_DEFINE(on_cmd_wifi_scan_event) {
     Obj->Callbacks.WiFi_event_scan_cb(Obj, &argc, (char **)argv);
   }
   return 0;
+}
+
+MODEM_CMD_DIRECT_DEFINE(on_cmd_wifi_csi_event) {
+  struct modem *mdm = (struct modem *)data->user_data;
+  RCP_Object_t *Obj = CONTAINER_OF(mdm, RCP_Object_t, Modem);
+  uint16_t payload_offset = (data->direct_continue_cmd != NULL) ? 0U : len;
+  uint16_t i = payload_offset;
+
+  (void)argv;
+  (void)argc;
+
+  if (data->rx_buf == NULL) {
+    return -EINVAL;
+  }
+
+  while (i < data->rx_buf_len) {
+    if ((data->rx_buf[i] == '\r') || (data->rx_buf[i] == '\n')) {
+      uint16_t payload_len = i - payload_offset;
+
+      if (Obj->Callbacks.WiFi_csi_report_cb != NULL) {
+        Obj->Callbacks.WiFi_csi_report_cb(data->rx_buf + payload_offset,
+                                             payload_len, true);
+      }
+      data->direct_continue_pending = false;
+      return i + 1U;
+    }
+    i++;
+  }
+
+  if (data->rx_buf_len > payload_offset) {
+    if (Obj->Callbacks.WiFi_csi_report_cb != NULL) {
+      Obj->Callbacks.WiFi_csi_report_cb(data->rx_buf + payload_offset,
+                                           data->rx_buf_len - payload_offset,
+                                           false);
+    }
+    data->direct_continue_pending = true;
+    return data->rx_buf_len;
+  }
+
+  return -EAGAIN;
 }
 
 MODEM_CMD_DEFINE(on_cmd_ble_event) {

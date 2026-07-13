@@ -2,6 +2,7 @@
 #include <FreeRTOS.h>
 #include "task.h"
 #include "board.h"
+#include "mem.h"
 
 #include "bluetooth.h"
 #include "conn.h"

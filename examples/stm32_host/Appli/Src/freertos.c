@@ -94,14 +94,20 @@ __weak void configureTimerForRunTimeStats(void)
 
 __weak uint64_t getRunTimeCounterValue(void)
 {
-  uint32_t cycle = DWT->CYCCNT;
+  UBaseType_t uxSavedInterruptStatus;
+  uint32_t cycle;
+  uint64_t counter;
 
+  uxSavedInterruptStatus = taskENTER_CRITICAL_FROM_ISR();
+  cycle = DWT->CYCCNT;
   if (cycle < runtime_stats_cycle_last) {
     runtime_stats_cycle_high += (1ULL << 32);
   }
   runtime_stats_cycle_last = cycle;
+  counter = runtime_stats_cycle_high | cycle;
+  taskEXIT_CRITICAL_FROM_ISR(uxSavedInterruptStatus);
 
-  return runtime_stats_cycle_high | cycle;
+  return counter;
 }
 
 /* USER CODE END Application */

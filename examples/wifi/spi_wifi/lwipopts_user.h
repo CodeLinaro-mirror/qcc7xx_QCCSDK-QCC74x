@@ -67,6 +67,7 @@
 #define MEMP_NUM_ND6_QUEUE            3
 #define MEMP_NUM_FRAG_PBUF            5
 
+#define MDNS_DOMAIN_MAXLEN            200
 #define MAC_TXQ_DEPTH                 CONFIG_MAC_TXQ_DEPTH
 #define MAC_RXQ_DEPTH                 CONFIG_MAC_RXQ_DEPTH
 
@@ -150,5 +151,15 @@ extern int *__errno(void);
 #define LWIP_SUPPORT_CUSTOM_PBUF      1
 #define LWIP_NETIF_TX_SINGLE_PBUF 1
 #define LWIP_RAND()                                      ((u32_t)random())
+
+#if CONFIG_AT_MDNS_ENABLE
+#define LWIP_MDNS_RESPONDER           1
+#define MDNS_MAX_SERVICES             1
+#define LWIP_NUM_NETIF_CLIENT_DATA    1
+#undef LWIP_IGMP
+#define LWIP_IGMP                     1
+#undef MEMP_NUM_SYS_TIMEOUT
+#define MEMP_NUM_SYS_TIMEOUT          (LWIP_NUM_SYS_TIMEOUT_INTERNAL + 11)
+#endif
 
 #endif /* LWIP_HDR_LWIPOPTS_H__ */

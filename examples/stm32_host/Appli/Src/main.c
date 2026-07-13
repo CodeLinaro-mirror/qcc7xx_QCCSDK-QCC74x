@@ -38,6 +38,7 @@
 #include "rcp_bus_sdio_master.h"
 #include "rcp_interface.h"
 #include "app_ble.h"
+#include "rcp_api.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -452,11 +453,7 @@ void rcp_init_thread(void *argument)
 	shell_commands_init();
 	shell_task_start();
 
-    for(;;)
-    {
-      /* Delete the Init Thread */
-      osThreadTerminate(StartHandle);
-    }
+    osThreadExit();
   /* USER CODE END 5 */
 }
 

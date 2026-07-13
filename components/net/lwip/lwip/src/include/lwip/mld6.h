@@ -74,7 +74,14 @@ struct mld_group {
 
 err_t  mld6_stop(struct netif *netif);
 void   mld6_report_groups(struct netif *netif);
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+void   mld6_report_groups_now(struct netif *netif);
+#endif
 void   mld6_tmr(void);
+void   mld6_tmr_tick(u16_t ticks);
+#if IPV6_TIMER_PRECISE_NEEDED
+u32_t  mld6_tmr_sleeptime(void);
+#endif
 struct mld_group *mld6_lookfor_group(struct netif *ifp, const ip6_addr_t *addr);
 void   mld6_input(struct pbuf *p, struct netif *inp);
 err_t  mld6_joingroup(const ip6_addr_t *srcaddr, const ip6_addr_t *groupaddr);

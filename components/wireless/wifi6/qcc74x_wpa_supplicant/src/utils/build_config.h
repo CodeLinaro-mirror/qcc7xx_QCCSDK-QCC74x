@@ -17,8 +17,6 @@
 
 /* Insert configuration defines, e.g., #define EAP_MD5, here, if needed. */
 
-#define CONFIG_QCC74x_PMK_CACHE_IN_MGMR
-
 #define CONFIG_QCC74x_EXTRA_WPA_SSID_FLAG
 #define CONFIG_ONLY_STA_AP_MODE
 #define CONFIG_NO_HIGHER_40M_OR_NON_24G
@@ -27,6 +25,8 @@
 #define CONFIG_RANDOM_OPT
 #define CONFIG_EAP_SERVER
 #ifdef CONFIG_WFA
+#define CONFIG_QCC74x_PMK_CACHE_IN_MGMR
+#define CONFIG_PMKSA_CACHE        /* STA-side RSN PMKSA cache (distinct from CONFIG_PMKSA_CACHE_EXTERNAL which is AP-side) */
 #define CONFIG_WNM
 #define CONFIG_MBO
 #define CONFIG_RRM
@@ -109,7 +109,6 @@
 #define CONFIG_WNM_AP
 #endif
 #define CONFIG_WPS
-#define IEEE8021X_EAPOL
 #define EAP_WSC
 #if NX_P2P
 #define CONFIG_P2P

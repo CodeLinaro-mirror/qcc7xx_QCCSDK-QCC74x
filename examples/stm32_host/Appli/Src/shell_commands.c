@@ -70,6 +70,7 @@ static void shell_handle_char(uint8_t ch);
 static void shell_uart_rx_start(void);
 
 /* iperf commands */
+void cmd_ping(int argc, char **argv);
 static void cmd_iperf_tcp_tx(int argc, char **argv);
 static void cmd_iperf_tcp_rx(int argc, char **argv);
 static void cmd_iperf_udp_tx(int argc, char **argv);
@@ -151,7 +152,7 @@ static const shell_cmd_t commands[] = {
     {RCP_MCU_CAP_BT, "bt_connect", cmd_bt_connect, "Connect (Central): bt_connect <addr_type> <XX:XX:XX:XX:XX:XX>"},
     {RCP_MCU_CAP_BT, "bt_add_service", cmd_bt_add_service, "Add example GATT service (call before advertising)"},
 	  /* ACI HAL vendor commands (OGF=0x3F) */
-    {RCP_MCU_CAP_BT, "bt_set_tx_power", cmd_bt_set_tx_power, "Set TX power: bt_set_tx_power <0-7> (-15..8 dBm)"},
+    {RCP_MCU_CAP_BT, "bt_set_tx_power", cmd_bt_set_tx_power, "Set TX power: bt_set_tx_power <0-35> (0x00..0x23 -> 0..20 dBm)"},
     {RCP_MCU_CAP_BT, "bt_read_rssi", cmd_bt_read_rssi, "Read RSSI of first connected link"},
     {RCP_MCU_CAP_BT, "bt_link_status", cmd_bt_link_status, "Get ACI link status V2"},
     {RCP_MCU_CAP_BT, "bt_radio_activity_mask", cmd_bt_radio_activity_mask, "Set radio activity event mask: bt_radio_activity_mask <hex16>"},
@@ -169,6 +170,7 @@ static const shell_cmd_t commands[] = {
     {RCP_MCU_CAP_BT, "bt_ead", cmd_bt_ead, "EAD encrypt/decrypt round-trip self-test (no args)"},
     {RCP_MCU_CAP_BT, "bt_selftest", cmd_bt_selftest, "Run ACI HAL self-test (all non-RF commands)"},
 
+    {RCP_MCU_CAP_WIFI, "ping", cmd_ping, "Ping host: ping [-c count] [-i interval_ms] [-s size] destination"},
     {RCP_MCU_CAP_WIFI, "iperf_c", cmd_iperf_tcp_tx,"Start iperf TCP TX: iperf_tcp_tx <server_ip>"},
     {RCP_MCU_CAP_WIFI, "iperf_s", cmd_iperf_tcp_rx,"Start iperf TCP RX on default port 5001"},
     {RCP_MCU_CAP_WIFI, "iperf_u_c", cmd_iperf_udp_tx,"Start iperf UDP TX: iperf_udp_tx <server_ip>"},
@@ -499,6 +501,10 @@ static void cmd_at_cmd(int argc, char **argv) {
   char cmd[MAX_AT_CMD_LEN] = {0};
 
   if (argc == 2) {
+    if (strlen(argv[1]) > MAX_AT_CMD_LEN - 3U) {
+      printf("AT command too long\n");
+      return;
+    }
     snprintf(cmd, MAX_AT_CMD_LEN, "%s\r\n", argv[1]);
     rcp_tty_send(cmd, strlen(cmd), 3000);
   }
@@ -973,13 +979,13 @@ static void cmd_bt_add_service(int argc, char **argv)
 static void cmd_bt_set_tx_power(int argc, char **argv)
 {
     if (argc < 2) {
-        printf("Usage: bt_set_tx_power <pa_level 0-7>\n");
-        printf("  0=-15 1=-9 2=-6 3=-2 4=0 5=2 6=5 7=8 dBm\n");
+        printf("Usage: bt_set_tx_power <pa_level 0-35>\n");
+        printf("  0x00..0x23 -> 0..20 dBm (linear)\n");
         return;
     }
     int level = atoi(argv[1]);
-    if (level < 0 || level > 7) {
-        printf("pa_level must be 0-7\n");
+    if (level < 0 || level > 0x23) {
+        printf("pa_level must be 0..35 (0x00..0x23)\n");
         return;
     }
     tBleStatus ret = aci_hal_set_tx_power_level(0, (uint8_t)level);
@@ -1314,8 +1320,8 @@ static void cmd_bt_selftest(int argc, char **argv)
         BT_TEST_ASSERT("read_config_data(SC_KEY_TYPE) returns SUCCESS", ret == BLE_STATUS_SUCCESS);
         BT_TEST_ASSERT("read back SC_KEY_TYPE == 0xAB", data[0] == 0xAB);
 
-        /* RSSI golden range */
-        uint8_t rssi_test[2] = {0x80, 0xC0};
+        /* RSSI golden range (lower < upper, both within [-127,+20] dBm) */
+        uint8_t rssi_test[2] = {0xCE, 0xE2}; /* -50 (lower), -30 (upper) */
         ret = aci_hal_write_config_data(CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET, 2, rssi_test);
         BT_TEST_ASSERT("write_config_data(RSSI_RANGE) SUCCESS", ret == BLE_STATUS_SUCCESS);
         ret = aci_hal_read_config_data(CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET, &data_len, data);
@@ -1515,6 +1521,22 @@ static void cmd_bt_selftest(int argc, char **argv)
         ret = aci_hal_write_config_data(CONFIG_DATA_PUBLIC_ADDRESS_OFFSET, 0, (const uint8_t[]){0x00});
         BT_TEST_ASSERT("write_config_data(len=0) zero length => error",
                        ret != BLE_STATUS_SUCCESS);
+
+        /* RSSI golden range invalid values (validated: range [-127,+20], lower < upper) */
+        ret = aci_hal_write_config_data(CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET, 2, (const uint8_t[]){0x80, 0xC0});
+        BT_TEST_ASSERT("write_config_data(RSSI lower=-128) out of range => error",
+                       ret != BLE_STATUS_SUCCESS);
+        ret = aci_hal_write_config_data(CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET, 2, (const uint8_t[]){0xD8, 0xC4});
+        BT_TEST_ASSERT("write_config_data(RSSI lower=-40 >= upper=-60) reversed => error",
+                       ret != BLE_STATUS_SUCCESS);
+        ret = aci_hal_write_config_data(CONFIG_DATA_LL_RSSI_GOLDEN_RANGE_OFFSET, 2, (const uint8_t[]){0xCE, 0xCE});
+        BT_TEST_ASSERT("write_config_data(RSSI lower == upper) not strictly increasing => error",
+                       ret != BLE_STATUS_SUCCESS);
+
+        /* Unsupported offset RX_ACL_CTRL (0xC4): kept in protocol table but not implemented */
+        ret = aci_hal_write_config_data(CONFIG_DATA_LL_RX_ACL_CTRL_OFFSET, 2, (const uint8_t[]){0x00, 0x00});
+        BT_TEST_ASSERT("write_config_data(RX_ACL_CTRL 0xC4) unsupported => error",
+                       ret != BLE_STATUS_SUCCESS);
     }
 
     /* 10c: READ_CONFIG_DATA abnormal parameters */
@@ -1530,6 +1552,11 @@ static void cmd_bt_selftest(int argc, char **argv)
                        ret != BLE_STATUS_SUCCESS);
         ret = aci_hal_read_config_data(0xFE, &data_len, data);
         BT_TEST_ASSERT("read_config_data(offset=0xFE) invalid offset => error",
+                       ret != BLE_STATUS_SUCCESS);
+
+        /* Unsupported offset RX_ACL_CTRL (0xC4): kept in protocol table but not implemented */
+        ret = aci_hal_read_config_data(CONFIG_DATA_LL_RX_ACL_CTRL_OFFSET, &data_len, data);
+        BT_TEST_ASSERT("read_config_data(RX_ACL_CTRL 0xC4) unsupported => error",
                        ret != BLE_STATUS_SUCCESS);
     }
 

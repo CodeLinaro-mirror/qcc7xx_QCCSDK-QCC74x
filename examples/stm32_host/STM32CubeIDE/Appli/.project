@@ -104,6 +104,11 @@
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/main.c</locationURI>
 		</link>
 		<link>
+			<name>Application/User/ping.c</name>
+			<type>1</type>
+			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/ping.c</locationURI>
+		</link>
+		<link>
 			<name>Application/User/rcp_unit_test.c</name>
 			<type>1</type>
 			<locationURI>PARENT-2-PROJECT_LOC/Appli/Src/rcp_unit_test.c</locationURI>

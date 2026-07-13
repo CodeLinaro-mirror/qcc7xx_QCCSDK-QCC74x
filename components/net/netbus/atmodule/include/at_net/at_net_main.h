@@ -73,6 +73,56 @@ int at_net_sntp_stop(void);
 
 int at_net_sntp_is_start(void);
 
+#if CONFIG_AT_MDNS_ENABLE
+#define AT_NET_MDNS_LABEL_MAX_LEN 63
+#define AT_NET_MDNS_TXT_ITEM_MAX_NUM 5
+#define AT_NET_MDNS_TXT_ITEM_MAX_LEN 64
+#define AT_NET_MDNS_DOMAIN_MAX_LEN MDNS_DOMAIN_MAXLEN
+#define AT_NET_MDNS_QUERY_RESULT_MAX 255
+#define AT_NET_MDNS_QUERY_TIMEOUT_DEFAULT_MS 5000
+#define AT_NET_MDNS_QUERY_TIMEOUT_MIN_MS     1000
+#define AT_NET_MDNS_QUERY_TIMEOUT_MAX_MS     180000
+#define AT_NET_MDNS_QUERY_RECORD_MAX         4
+
+typedef enum {
+    AT_NET_MDNS_QUERY_PTR = 0,
+} at_net_mdns_query_type_t;
+
+typedef struct {
+    uint8_t running;
+    char hostname[AT_NET_MDNS_LABEL_MAX_LEN + 1];
+    char service[AT_NET_MDNS_LABEL_MAX_LEN + 1];
+    char instance[AT_NET_MDNS_LABEL_MAX_LEN + 1];
+    char proto[5];
+    uint16_t port;
+} at_net_mdns_state_t;
+
+typedef struct {
+    uint8_t netif;
+    uint8_t ip_type;
+    char ptr[AT_NET_MDNS_LABEL_MAX_LEN + 1];
+    char srv[AT_NET_MDNS_DOMAIN_MAX_LEN];
+    uint16_t port;
+    uint8_t txt_num;
+    char txt[AT_NET_MDNS_QUERY_RECORD_MAX][AT_NET_MDNS_TXT_ITEM_MAX_LEN];
+    uint8_t a_num;
+    char a[AT_NET_MDNS_QUERY_RECORD_MAX][16];
+    uint8_t aaaa_num;
+    char aaaa[AT_NET_MDNS_QUERY_RECORD_MAX][40];
+} at_net_mdns_result_t;
+
+int at_net_mdns_start(const char *hostname, const char *service, uint16_t port,
+                      const char *instance, const char *proto,
+                      const char txt_items[][AT_NET_MDNS_TXT_ITEM_MAX_LEN], uint8_t txt_count);
+
+int at_net_mdns_stop(void);
+
+int at_net_mdns_query(const char *service, const char *proto, int timeout_ms,
+                      at_net_mdns_result_t *results, int max_results, int *result_count);
+
+int at_net_mdns_get_state(at_net_mdns_state_t *state);
+#endif
+
 int at_net_recvbuf_size_set(int linkid, uint32_t size);
 
 int at_net_recvbuf_size_get(int linkid);
@@ -118,4 +168,3 @@ int at_net_ssl_verify_cert_key_pair(const char *cert_path, const char *key_path)
 #endif
 
 #endif/* AT_NET_MAIN_H */
-

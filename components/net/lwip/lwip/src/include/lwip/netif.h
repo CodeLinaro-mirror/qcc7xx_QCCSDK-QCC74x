@@ -540,6 +540,7 @@ void netif_ip6_addr_set(struct netif *netif, s8_t addr_idx, const ip6_addr_t *ad
 void netif_ip6_addr_set_parts(struct netif *netif, s8_t addr_idx, u32_t i0, u32_t i1, u32_t i2, u32_t i3);
 #define netif_ip6_addr_state(netif, i)  ((netif)->ip6_addr_state[i])
 void netif_ip6_addr_set_state(struct netif* netif, s8_t addr_idx, u8_t state);
+void netif_ip6_disable(struct netif *netif);
 s8_t netif_get_ip6_addr_match(struct netif *netif, const ip6_addr_t *ip6addr);
 void netif_create_ip6_linklocal_address(struct netif *netif, u8_t from_mac_48bit);
 err_t netif_add_ip6_address(struct netif *netif, const ip6_addr_t *ip6addr, s8_t *chosen_idx);

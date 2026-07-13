@@ -401,4 +401,16 @@ int eloop_rtos_sock_send(int sock, const void *buf, int len);
  */
 int eloop_rtos_sock_recv(int sock, void *buf, int len, int flags);
 
+/**
+ * eloop_rtos_sock_get_buf - borrow the current message buffer without copying.
+ * @sock - event type actually, ref eloop_rtos.h
+ * @buf - OUT pointer to the message payload (owned by the event loop; valid
+ *        only for the duration of the dispatch callback, do not free).
+ * @len - OUT payload length in bytes.
+ *
+ * Returns the payload length (>= 0) on success, or -1 if no message is being
+ * dispatched for this event.
+ */
+int eloop_rtos_sock_get_buf(int sock, void **buf, int *len);
+
 #endif /* ELOOP_H */

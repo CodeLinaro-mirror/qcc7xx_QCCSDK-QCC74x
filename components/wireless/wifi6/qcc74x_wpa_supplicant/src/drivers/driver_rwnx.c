@@ -98,6 +98,10 @@ struct wpa_rwnx_driver_data {
 	u8 extended_capab[10];
 	// Extended capabilities mask
 	u8 extended_capab_mask[10];
+	// AP-specific extended capabilities
+	u8 ap_extended_capab[10];
+	// AP-specific extended capabilities mask
+	u8 ap_extended_capab_mask[10];
 };
 
 struct wpa_rwnx_driver_scan_res {
@@ -1520,16 +1524,103 @@ err:
 	return NULL;
 }
 
+static void rwnx_driver_update_ext_capa_bit(struct wpa_rwnx_driver_data *gdrv,
+					    unsigned int bit, bool enabled)
+{
+	size_t offset = bit / 8;
+	u8 mask = BIT(bit % 8);
+
+	if (offset >= sizeof(gdrv->extended_capab))
+		return;
+
+	if (enabled)
+		gdrv->extended_capab[offset] |= mask;
+	else
+		gdrv->extended_capab[offset] &= ~mask;
+
+	gdrv->extended_capab_mask[offset] |= mask;
+}
+
+static void rwnx_driver_prepare_ap_ext_capa(struct wpa_rwnx_driver_data *gdrv)
+{
+	size_t offset = WLAN_EXT_CAPAB_20_40_COEX / 8;
+	u8 mask = BIT(WLAN_EXT_CAPAB_20_40_COEX % 8);
+
+	os_memcpy(gdrv->ap_extended_capab, gdrv->extended_capab,
+		  sizeof(gdrv->ap_extended_capab));
+	os_memcpy(gdrv->ap_extended_capab_mask, gdrv->extended_capab_mask,
+		  sizeof(gdrv->ap_extended_capab_mask));
+
+	/*
+	 * AP 20/40 coexistence is BSS-configuration dependent. Do not let the
+	 * global STA/driver capability mask force it into AP Beacon/ProbeResp.
+	 */
+	gdrv->ap_extended_capab[offset] &= ~mask;
+	gdrv->ap_extended_capab_mask[offset] &= ~mask;
+}
+
+static bool rwnx_driver_ht40_enabled(struct wpa_rwnx_driver_itf_data *drv)
+{
+	struct cfgrwnx_msg cmd;
+	struct cfgrwnx_hw_feature feat;
+
+	wpa_rwnx_msg_hdr_init(drv, &cmd.hdr, CFGRWNX_HW_FEATURE_CMD, sizeof(cmd));
+	wpa_rwnx_msg_hdr_init(drv, &feat.hdr, CFGRWNX_HW_FEATURE_RESP, sizeof(feat));
+
+	if (fhost_cntrl_cfgrwnx_cmd_send(&cmd.hdr, &feat.hdr))
+		return false;
+
+	return feat.me_config.ht_supp &&
+	       feat.me_config.phy_bw_max >= PHY_CHNL_BW_40 &&
+	       (feat.me_config.ht_cap.ht_capa_info & MAC_HTCAPA_40_MHZ);
+}
+
+static int wpa_rwnx_driver_get_ext_capab(void *priv,
+					 enum wpa_driver_if_type type,
+					 const u8 **ext_capa,
+					 const u8 **ext_capa_mask,
+					 unsigned int *ext_capa_len)
+{
+	struct wpa_rwnx_driver_itf_data *drv = priv;
+	bool ht40_enabled;
+
+	if (!drv || !drv->gdrv || !ext_capa || !ext_capa_mask || !ext_capa_len)
+		return -1;
+
+	ht40_enabled = rwnx_driver_ht40_enabled(drv);
+	rwnx_driver_update_ext_capa_bit(drv->gdrv, WLAN_EXT_CAPAB_20_40_COEX,
+					ht40_enabled);
+
+	switch (type) {
+	case WPA_IF_AP_BSS:
+	case WPA_IF_P2P_GO:
+		rwnx_driver_prepare_ap_ext_capa(drv->gdrv);
+		*ext_capa = drv->gdrv->ap_extended_capab;
+		*ext_capa_mask = drv->gdrv->ap_extended_capab_mask;
+		*ext_capa_len = sizeof(drv->gdrv->ap_extended_capab);
+		break;
+	default:
+		*ext_capa = drv->gdrv->extended_capab;
+		*ext_capa_mask = drv->gdrv->extended_capab_mask;
+		*ext_capa_len = sizeof(drv->gdrv->extended_capab);
+		break;
+	}
+
+	return 0;
+}
+
 static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 {
 	struct wpa_rwnx_driver_itf_data *drv = priv;
 	struct cfgrwnx_msg cmd;
 	struct cfgrwnx_msg resp;
+	bool ht40_enabled;
 
 	wpa_rwnx_msg_hdr_init(drv, &cmd.hdr, CFGRWNX_GET_CAPA_CMD, sizeof(cmd));
 	wpa_rwnx_msg_hdr_init(drv, &resp.hdr, CFGRWNX_GET_CAPA_RESP, sizeof(resp));
 
 	os_memset(capa, 0, sizeof(*capa));
+	ht40_enabled = rwnx_driver_ht40_enabled(drv);
 
 	capa->key_mgmt = WPA_DRIVER_CAPA_KEY_MGMT_WPA |
 			 WPA_DRIVER_CAPA_KEY_MGMT_WPA_PSK |
@@ -1552,6 +1643,8 @@ static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 	capa->flags = WPA_DRIVER_FLAGS_SET_KEYS_AFTER_ASSOC_DONE |
 		      WPA_DRIVER_FLAGS_HT_2040_COEX |
 		      WPA_DRIVER_FLAGS_VALID_ERROR_CODES;
+	if (ht40_enabled)
+		capa->flags |= WPA_DRIVER_FLAGS_OBSS_SCAN;
 
 #if NX_BEACONING
 	capa->flags |= WPA_DRIVER_FLAGS_AP |
@@ -1578,7 +1671,6 @@ static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 	capa->flags |= WPA_DRIVER_FLAGS_MESH;
 #endif
 #ifdef CONFIG_WFA
-    capa->flags |= WPA_DRIVER_FLAGS_OBSS_SCAN;
     printf("CI: WFA macro active, sentinel=%d\r\n", __ci_wfa_sentinel);
 #endif
 
@@ -1597,6 +1689,8 @@ static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 	//capa->probe_resp_offloads;
 	//capa->max_acl_mac_addrs;
 	capa->num_multichan_concurrent = 2;
+	rwnx_driver_update_ext_capa_bit(drv->gdrv, WLAN_EXT_CAPAB_20_40_COEX,
+					ht40_enabled);
 	capa->extended_capa = drv->gdrv->extended_capab;
 	capa->extended_capa_mask = drv->gdrv->extended_capab_mask;
 	capa->extended_capa_len = sizeof(drv->gdrv->extended_capab);
@@ -2672,6 +2766,7 @@ const struct wpa_driver_ops wpa_driver_rwnx_ops = {
 	.global_deinit = wpa_rwnx_driver_global_deinit,
 	.get_hw_feature_data = wpa_rwnx_driver_get_hw_feature_data,
 	.get_capa = wpa_rwnx_driver_get_capa,
+	.get_ext_capab = wpa_rwnx_driver_get_ext_capab,
 	.set_key = wpa_rwnx_driver_set_key,
 	.scan2 = wpa_rwnx_driver_scan2,
 	.get_scan_results2 = wpa_rwnx_driver_get_scan_results2,

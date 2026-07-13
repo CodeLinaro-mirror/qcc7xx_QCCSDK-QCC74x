@@ -4,7 +4,6 @@ define task_dump
   set $SAVE_FRAME_SIZE=30
   #set $SAVE_FRAME_SIZE=30 + 34
   p *(TCB_t *)$arg0
-  set $pc = *((TCB_t *)$arg0).pxTopOfStack - 4
   set $sp = ((TCB_t *)$arg0).pxTopOfStack + $SAVE_FRAME_SIZE
   # have can run bt
 
@@ -36,6 +35,8 @@ define task_dump
   set $t4 = *(uint32_t *)($sp - 120 + 104)
   set $t5 = *(uint32_t *)($sp - 120 + 108)
   set $t6 = *(uint32_t *)($sp - 120 + 112)
+
+  set $pc = *((TCB_t *)$arg0).pxTopOfStack - 4
   bt
 end
 define task_list

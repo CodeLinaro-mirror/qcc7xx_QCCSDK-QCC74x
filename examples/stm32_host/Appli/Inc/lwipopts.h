@@ -59,7 +59,7 @@
 #define LWIP_HEAP_SIZE                 (74 * 1024)
 #define LWIP_RAM_HEAP_ARRAY            u8_t ram_heap[MEM_SIZE_ALIGNED + (2U * SIZEOF_STRUCT_MEM)] __attribute__((aligned(4))) __attribute__((section("noncacheable_buffer")))
 #define LWIP_DECLARE_MEMORY_ALIGNED(variable_name, size) u8_t variable_name[size] __attribute__((aligned(4)))
-#define TCP_OOSEQ_MAX_PBUFS           (RCP_ETH_RX_WND - 1)
+#define TCP_OOSEQ_MAX_PBUFS           (RCP_ETH_RX_WND - RCP_CREDIT_ETH_THRESHOLD)
 
 #define TCP_MSS                       (1500 - 40)
 #define TCP_WND                       ((2 * MAC_RXQ_DEPTH) * TCP_MSS)

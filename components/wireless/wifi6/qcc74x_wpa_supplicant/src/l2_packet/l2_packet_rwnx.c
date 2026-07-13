@@ -28,15 +28,19 @@ static void l2_packet_receive(int sock, void *eloop_ctx, void *sock_ctx)
 {
 	struct l2_packet_data *l2 = eloop_ctx;
 	struct mac_eth_hdr *eth;
-#ifdef CONFIG_WFA
-	uint8_t buf[ELOOP_MSG_INBUF_LEN];
-#else
-	uint8_t buf[500];
-#endif
+	void *frame = NULL;
+	uint8_t *buf = NULL;
 	uint8_t *payload;
-	int len;
+	int len = 0;
 
-	len = eloop_rtos_sock_recv(sock, buf, sizeof(buf), 0);
+	/*
+	 * Borrow the frame from the event loop without copying. The buffer is
+	 * owned by the event loop (sized to the exact frame length, no fixed
+	 * limit) and stays valid for the duration of this callback.
+	 */
+	if (eloop_rtos_sock_get_buf(sock, &frame, &len) < 0 || frame == NULL)
+		return;
+	buf = frame;
 	if (len < (signed)sizeof(*eth)) {
         printf("len %d is too short for a mac_eth hdr\r\n", len);
 		return;

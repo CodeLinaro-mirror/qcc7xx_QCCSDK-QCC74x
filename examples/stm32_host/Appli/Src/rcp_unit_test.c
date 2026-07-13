@@ -43,8 +43,6 @@ static void cmd_send_RCP_RESTORE(int argc, char **argv);
 static void cmd_send_RCP_SYSSTORE(int argc, char **argv);
 static void cmd_send_RCP_EFUSE_R(int argc, char **argv);
 static void cmd_send_RCP_IORST(int argc, char **argv);
-static void cmd_send_RCP_OTASTART(int argc, char **argv);
-static void cmd_send_RCP_OTAFIN(int argc, char **argv);
 static void cmd_send_RCP_FS_DEL(int argc, char **argv);
 static void cmd_send_RCP_FS_CREATE(int argc, char **argv);
 static void cmd_send_RCP_FS_SIZE(int argc, char **argv);
@@ -76,9 +74,6 @@ static void cmd_send_RCP_FLASH_R_HEX(int argc, char **argv);
 static void cmd_send_RCP_PART(int argc, char **argv);
 static void cmd_send_RCP_MINIDUMP(int argc, char **argv);
 static void cmd_send_RCP_PWR(int argc, char **argv);
-static void cmd_send_RCP_SetWakeUpPin(int argc, char **argv);
-static void cmd_wifi_connect(int argc, char **argv);
-static void cmd_wifi_disconnect(int argc, char **argv);
 static void cmd_ota_start(int argc, char **argv);
 static int ota_recv_exact(int sock, uint8_t *buf, uint32_t len);
 static int ota_parse_header(const ota_header_t *ota_header, uint32_t *body_len,
@@ -88,12 +83,9 @@ static void cmd_wifi_sta_start(int argc, char **argv);
 static void cmd_wifi_auto_conn_set(int argc, char **argv);
 static void cmd_wifi_auto_conn_get(int argc, char **argv);
 static void cmd_wifi_scan(int argc, char **argv);
-static void cmd_wifi_set_scan_opts(int argc, char **argv);
-static void cmd_wifi_scan_start(int argc, char **argv);
 static void cmd_wifi_reconn_set(int argc, char **argv);
-static void cmd_wifi_connect_opts(int argc, char **argv);
-static void cmd_wifi_disconnect_restore(int argc, char **argv);
-static void cmd_wifi_connect_info(int argc, char **argv);
+static void cmd_wifi_connect(int argc, char **argv);
+static void cmd_wifi_disconnect(int argc, char **argv);
 static void cmd_wifi_sta_mac(int argc, char **argv);
 static void cmd_wifi_set_mac(int argc, char **argv);
 static void cmd_wifi_get_mac(int argc, char **argv);
@@ -108,7 +100,6 @@ static void cmd_wifi_ap_disconnect_sta(int argc, char **argv);
 static void cmd_wifi_ap_mode_get(int argc, char **argv);
 static void cmd_wifi_ap_mode_set(int argc, char **argv);
 static void cmd_wifi_ap_mac(int argc, char **argv);
-static void cmd_wifi_l2_ifaces(int argc, char **argv);
 static void cmd_wifi_iface_status(int argc, char **argv);
 static void cmd_wifi_pwr(int argc, char **argv);
 static void cmd_wifi_get_pwr(int argc, char **argv);
@@ -139,6 +130,8 @@ static void cmd_wifi_coex_en_get(int argc, char **argv);
 static void cmd_wifi_ant_set(int argc, char **argv);
 static void cmd_wifi_ant_get(int argc, char **argv);
 static void cmd_wifi_ant_used(int argc, char **argv);
+static void cmd_wifi_csi_start(int argc, char **argv);
+static void cmd_wifi_csi_stop(int argc, char **argv);
 
 const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_ANY, "RCP", cmd_send_RCP, "send basic AT probe to the module"},
@@ -146,10 +139,7 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_ANY, "RCP_SYSRAM", cmd_send_RCP_SYSRAM, "send RCP_SYSRAM to the module"},
     {RCP_MCU_CAP_ANY, "RCP_RESTORE", cmd_send_RCP_RESTORE, "factory reset module: RCP_RESTORE"},
     {RCP_MCU_CAP_ANY, "RCP_SYSSTORE", cmd_send_RCP_SYSSTORE, "query SYSSTORE mode"},
-    {RCP_MCU_CAP_ANY, "RCP_EFUSE-R", cmd_send_RCP_EFUSE_R, "read EFUSE: RCP_EFUSE-R <nbytes> <addr> [reload]"},
     {RCP_MCU_CAP_ANY, "RCP_IORST", cmd_send_RCP_IORST, "reset GPIO: RCP_IORST <pin>"},
-    {RCP_MCU_CAP_ANY, "RCP_OTASTART", cmd_send_RCP_OTASTART, "start/stop OTA mode: RCP_OTASTART <0|1>"},
-    {RCP_MCU_CAP_ANY, "RCP_OTAFIN", cmd_send_RCP_OTAFIN, "finish OTA mode: RCP_OTAFIN"},
     {RCP_MCU_CAP_ANY, "RCP_FS_DEL", cmd_send_RCP_FS_DEL, "delete file: RCP_FS_DEL <filename>"},
     {RCP_MCU_CAP_ANY, "RCP_FS_CREATE", cmd_send_RCP_FS_CREATE, "create file: RCP_FS_CREATE <filename>"},
     {RCP_MCU_CAP_ANY, "RCP_FS_WRITE", cmd_send_RCP_FS_WRITE, "write file data: RCP_FS_WRITE <filename> <offset> <data>"},
@@ -182,20 +172,14 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_ANY, "RCP_PART", cmd_send_RCP_PART, "query partition table: RCP_PART"},
     {RCP_MCU_CAP_ANY, "RCP_MINIDUMP", cmd_send_RCP_MINIDUMP, "RCP_MINIDUMP"},
     {RCP_MCU_CAP_ANY, "RCP_PWR", cmd_send_RCP_PWR, "RCP_PWR <ps_mode> [hbn_level]"},
-    {RCP_MCU_CAP_ANY, "RCP_SetWakeUpPin", cmd_send_RCP_SetWakeUpPin, "RCP_SetWakeUpPin <pin>"},
-    {RCP_MCU_CAP_WIFI, "wifi_connect", cmd_wifi_connect, "Connect to WiFi: wifi_connect <SSID> [PSK] [PMF:0|1|2]"},
-    {RCP_MCU_CAP_WIFI, "wifi_disconnect", cmd_wifi_disconnect, "Disconnect from WiFi"},
     {RCP_MCU_CAP_ANY, "ota_start", cmd_ota_start, "ota_start <server_ip> [port], default port is 3365"},
     {RCP_MCU_CAP_WIFI, "WIFI_STA_START", cmd_wifi_sta_start, "rcp_wifi_station_start"},
     {RCP_MCU_CAP_WIFI, "WIFI_AUTO_SET", cmd_wifi_auto_conn_set, "RCP_WIFI_AUTO_SET <0|1>"},
     {RCP_MCU_CAP_WIFI, "WIFI_AUTO_GET", cmd_wifi_auto_conn_get, "rcp_wifi_get_auto_connect"},
-    {RCP_MCU_CAP_WIFI, "WIFI_SCAN", cmd_wifi_scan, "RCP_WIFI_SCAN [active|passive] [channel] [max_cnt] [ssid]"},
-    {RCP_MCU_CAP_WIFI, "WIFI_SET_SCAN_OPTS", cmd_wifi_set_scan_opts, "RCP_WIFI_SET_SCAN_OPTS [active|passive] [channel] [max_cnt] [ssid] [mac]"},
-    {RCP_MCU_CAP_WIFI, "WIFI_SCAN_START", cmd_wifi_scan_start, "rcp_wifi_scan_start"},
+    {RCP_MCU_CAP_WIFI, "WIFI_SCAN", cmd_wifi_scan, "RCP_WIFI_SCAN [active|passive] [channel] [max_cnt] [ssid] [mac]"},
     {RCP_MCU_CAP_WIFI, "WIFI_RECONN_SET", cmd_wifi_reconn_set, "RCP_WIFI_RECONN_SET <interval_s> <attempts>"},
-    {RCP_MCU_CAP_WIFI, "WIFI_CONNECT_OPTS", cmd_wifi_connect_opts, "RCP_WIFI_CONNECT_OPTS <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]"},
-    {RCP_MCU_CAP_WIFI, "WIFI_DISCONN_RESTORE", cmd_wifi_disconnect_restore, "RCP_WIFI_DISCONN_RESTORE <0|1>"},
-    {RCP_MCU_CAP_WIFI, "WIFI_CONN_INFO", cmd_wifi_connect_info, "rcp_wifi_get_connect_info"},
+    {RCP_MCU_CAP_WIFI, "wifi_connect", cmd_wifi_connect, "wifi_connect <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]"},
+    {RCP_MCU_CAP_WIFI, "wifi_disconnect", cmd_wifi_disconnect, "wifi_disconnect <restore:0|1>"},
     {RCP_MCU_CAP_WIFI, "WIFI_STA_MAC", cmd_wifi_sta_mac, "rcp_wifi_station_get_mac_address"},
     {RCP_MCU_CAP_WIFI, "WIFI_SET_MAC", cmd_wifi_set_mac, "RCP_WIFI_SET_MAC <mac>"},
     {RCP_MCU_CAP_WIFI, "WIFI_GET_MAC", cmd_wifi_get_mac, "RCP_WIFI_GET_MAC [timeout_ms]"},
@@ -210,8 +194,7 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_WIFI, "WIFI_AP_MODE_GET", cmd_wifi_ap_mode_get, "rcp_wifi_ap_get_mode"},
     {RCP_MCU_CAP_WIFI, "WIFI_AP_MODE_SET", cmd_wifi_ap_mode_set, "RCP_WIFI_AP_MODE_SET <protocol>"},
     {RCP_MCU_CAP_WIFI, "WIFI_AP_MAC", cmd_wifi_ap_mac, "rcp_wifi_ap_get_mac_address"},
-    {RCP_MCU_CAP_WIFI, "WIFI_L2_IFACES", cmd_wifi_l2_ifaces, "RCP_WIFI_L2_IFACES [net_if_type] [index]"},
-    {RCP_MCU_CAP_WIFI, "WIFI_IFACE_STATUS", cmd_wifi_iface_status, "RCP_WIFI_IFACE_STATUS [index]"},
+    {RCP_MCU_CAP_WIFI, "WIFI_IFACE_STATUS", cmd_wifi_iface_status, "RCP_WIFI_IFACE_STATUS [index: 1=STA, 2=AP]"},
     {RCP_MCU_CAP_WIFI, "WIFI_PWR", cmd_wifi_pwr, "RCP_WIFI_PWR <ps_mode> <hbn_level>"},
     {RCP_MCU_CAP_WIFI, "WIFI_GET_PWR", cmd_wifi_get_pwr, "rcp_wifi_get_power_mode"},
     {RCP_MCU_CAP_WIFI, "WIFI_WKIO", cmd_wifi_wkio, "RCP_WIFI_WKIO <pin> <mode>"},
@@ -241,6 +224,8 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_WIFI, "WIFI_ANT_SET", cmd_wifi_ant_set, "RCP_WIFI_ANT_SET <0|1|2>"},
     {RCP_MCU_CAP_WIFI, "WIFI_ANT_GET", cmd_wifi_ant_get, "rcp_wifi_get_antenna_enable"},
     {RCP_MCU_CAP_WIFI, "WIFI_ANT_USED", cmd_wifi_ant_used, "rcp_wifi_get_antenna_used"},
+    {RCP_MCU_CAP_WIFI, "WIFI_CSI_START", cmd_wifi_csi_start, "WIFI_CSI_START <mac> [buf] [mode] [ts] [interval_ms] [ready]"},
+    {RCP_MCU_CAP_WIFI, "WIFI_CSI_STOP", cmd_wifi_csi_stop, "WIFI_CSI_STOP [buf|all]"},
 };
 
 const size_t rcp_unit_test_commands_count =
@@ -286,54 +271,31 @@ static bool parse_mac(const char *text, uint8_t mac[6])
   return true;
 }
 
-static void rcp_unit_test_wifi_event_cb(enum rcp_wifi_evt evt, const void *data)
+static uint32_t csi_report_count;
+static uint32_t csi_report_bytes;
+
+static void csi_report_cb(const uint8_t *report, uint16_t len, bool last)
 {
-  if (evt == RCP_WIFI_L2_INTERFACES_RESP) {
-    const struct rcp_wifi_l2_interfaces *resp =
-        (const struct rcp_wifi_l2_interfaces *)data;
+  uint16_t preview_len = (len < 96U) ? len : 96U;
 
-    if (resp == NULL) {
-      printf("l2 interfaces: null response\n");
-      return;
-    }
-
-    printf("l2 interface count=%lu\n", (unsigned long)resp->count);
-    for (uint32_t i = 0U; i < resp->count && i < RCP_WIFI_MAX_L2_INTERFACES;
-         i++) {
-      printf("if[%lu]: index=%lu type=%d mtu=%lu offload=%d mac=",
-             (unsigned long)i, (unsigned long)resp->net_ifs[i].index,
-             resp->net_ifs[i].net_if_type,
-             (unsigned long)resp->net_ifs[i].mtu,
-             resp->net_ifs[i].offload_supported);
-      print_mac(resp->net_ifs[i].mac_address);
-      printf("\n");
-    }
-    return;
+  csi_report_bytes += len;
+  if (last) {
+    csi_report_count++;
   }
 
-  if (evt == RCP_WIFI_IFACE_STATUS_RESP) {
-    const struct rcp_wifi_evt_iface_status *resp =
-        (const struct rcp_wifi_evt_iface_status *)data;
-
-    if (resp == NULL) {
-      printf("iface status: null response\n");
-      return;
+  printf("csi report fragment len=%u last=%u total_reports=%lu total_bytes=%lu",
+         len, last ? 1U : 0U, (unsigned long)csi_report_count,
+         (unsigned long)csi_report_bytes);
+  if ((report != NULL) && (preview_len > 0U)) {
+    printf(" data=");
+    for (uint16_t i = 0U; i < preview_len; i++) {
+      putchar(report[i]);
     }
-
-    printf("iface index=%lu state=%d mode=%d link=%d channel=%lu rssi=%ld "
-           "security=%d pmf=%d ssid_len=%u ssid=",
-           (unsigned long)resp->iface_index, resp->status.state,
-           resp->status.iface_mode, resp->status.link_mode,
-           (unsigned long)resp->status.channel, (long)resp->status.rssi,
-           resp->status.security, resp->status.mfp, resp->status.ssid_len);
-    for (uint32_t i = 0U; i < resp->status.ssid_len; i++) {
-      putchar(resp->status.ssid[i]);
+    if (preview_len < len) {
+      printf("...");
     }
-    printf(" bssid=");
-    print_mac(resp->status.bssid);
-    printf("\n");
-    return;
   }
+  printf("\n");
 }
 
 static void hexstr_to_bytes(const char *hexstr, uint8_t *buf,
@@ -479,35 +441,6 @@ static void cmd_send_RCP_IORST(int argc, char **argv)
     printf("OK\n");
   } else {
     printf("RCP_IORST failed\n");
-  }
-}
-
-static void cmd_send_RCP_OTASTART(int argc, char **argv)
-{
-  if (argc < 2) {
-    printf("Usage: RCP_OTASTART <0|1>\n");
-    return;
-  }
-  uint32_t enable = arg_u32(argv, 1);
-  RCP_Object_t *Obj = RCP_ObjGet();
-  int ret = RCP_FWU_starts(Obj, enable);
-  if (ret == RCP_STATUS_OK) {
-    printf("OK\n");
-  } else {
-    printf("RCP_OTASTART failed\n");
-  }
-}
-
-static void cmd_send_RCP_OTAFIN(int argc, char **argv)
-{
-  (void)argc;
-  (void)argv;
-  RCP_Object_t *Obj = RCP_ObjGet();
-  int ret = RCP_FWU_Finish(Obj);
-  if (ret == RCP_STATUS_OK) {
-    printf("OK\n");
-  } else {
-    printf("RCP_OTAFIN failed\n");
   }
 }
 
@@ -1111,74 +1044,12 @@ static void cmd_send_RCP_PWR(int argc, char **argv)
   if (argc >= 3) {
     hbn_level = arg_u32(argv, 2);
   }
-  ret = RCP_SetPowerMode(Obj, ps_mode, hbn_level);
+  ret = RCP_WiFi_SetPowerMode(Obj, ps_mode, hbn_level);
   if (ret != RCP_STATUS_OK) {
     printf("RCP_PWR failed\n");
     return;
   }
   printf("\nOK\n");
-}
-
-static void cmd_send_RCP_SetWakeUpPin(int argc, char **argv)
-{
-  int ret;
-  RCP_Object_t *Obj = RCP_ObjGet();
-
-  if (argc < 2) {
-    printf("Usage: RCP_SetWakeUpPin <pin>\n");
-    return;
-  }
-  ret = RCP_SetWakeUpPin(Obj, arg_u32(argv, 1));
-  if (ret != RCP_STATUS_OK) {
-    printf("SetWakeUpPin failed\n");
-    return;
-  }
-  printf("\nOK\n");
-}
-
-static void cmd_wifi_connect(int argc, char **argv)
-{
-  struct rcp_wifi_conn_req req = {0};
-
-  if (argc < 2) {
-    printf("Usage: wifi_connect <SSID> [PSK] [PMF:0|1|2]\n");
-    return;
-  }
-
-  strncpy((char *)req.ssid, argv[1], sizeof(req.ssid) - 1U);
-  req.ssid_len = (uint8_t)strlen(argv[1]);
-  req.pmf = RCP_WIFI_MFP_OPTIONAL;
-  req.dhcp = true;
-
-  if (argc >= 3) {
-    strncpy((char *)req.psk, argv[2], sizeof(req.psk) - 1U);
-    req.psk_len = (uint8_t)strlen(argv[2]);
-    req.sec_type = RCP_WIFI_SEC_TYPE_PSK;
-  } else {
-    req.sec_type = RCP_WIFI_SEC_TYPE_NONE;
-  }
-
-  if (argc >= 4) {
-    uint32_t pmf = arg_u32(argv, 3);
-    if (pmf > RCP_WIFI_MFP_REQUIRED) {
-      printf("Invalid PMF value '%s', expected 0, 1, or 2\n", argv[3]);
-      return;
-    }
-    req.pmf = (enum rcp_wifi_mfp_options)pmf;
-  }
-
-  printf("Connecting to '%s' (pmf=%d)...\n", argv[1], (int)req.pmf);
-  (void)rcp_wifi_station_start();
-  print_wifi_status("rcp_wifi_connect", rcp_wifi_connect(&req));
-}
-
-static void cmd_wifi_disconnect(int argc, char **argv)
-{
-  (void)argc;
-  (void)argv;
-
-  printf("Disconnecting from WiFi...\n");
-  print_wifi_status("rcp_wifi_disconnect", rcp_wifi_disconnect());
 }
 
 static int ota_recv_exact(int sock, uint8_t *buf, uint32_t len)
@@ -1417,6 +1288,7 @@ static void cmd_wifi_auto_conn_get(int argc, char **argv)
 static void cmd_wifi_scan(int argc, char **argv)
 {
   rcp_wifi_scan_opts_t opts = {0};
+  uint8_t mac[6];
   enum rcp_wifi_status status;
 
   opts.scan_type = RCP_WIFI_SCAN_STATE_ACTIVE;
@@ -1438,53 +1310,18 @@ static void cmd_wifi_scan(int argc, char **argv)
   }
   if (argc >= 5) {
     strncpy((char *)opts.SSID, argv[4], sizeof(opts.SSID) - 1U);
-  }
-
-  status = rcp_wifi_scan(&opts, print_scan_result);
-  print_wifi_status("rcp_wifi_scan", status);
-}
-
-static void cmd_wifi_set_scan_opts(int argc, char **argv)
-{
-  rcp_wifi_scan_opts_t opts = {0};
-  uint8_t mac[6];
-
-  opts.scan_type = RCP_WIFI_SCAN_STATE_ACTIVE;
-  opts.MaxCnt = 50U;
-  if (argc >= 2) {
-    if (strcmp(argv[1], "passive") == 0) {
-      opts.scan_type = RCP_WIFI_SCAN_STATE_PASSIVE;
-    } else if (strcmp(argv[1], "active") == 0) {
-      opts.scan_type = RCP_WIFI_SCAN_STATE_ACTIVE;
-    } else {
-      opts.scan_type = (RCP_WiFi_scan_type_e)arg_u32(argv, 1);
-    }
-  }
-  if (argc >= 3) {
-    opts.Channel = (uint8_t)arg_u32(argv, 2);
-  }
-  if (argc >= 4) {
-    opts.MaxCnt = (uint8_t)arg_u32(argv, 3);
-  }
-  if (argc >= 5) {
-    strncpy((char *)opts.SSID, argv[4], sizeof(opts.SSID) - 1U);
+    opts.SSID[sizeof(opts.SSID) - 1U] = '\0';
   }
   if (argc >= 6) {
     if (!parse_mac(argv[5], mac)) {
-      printf("Usage: RCP_WIFI_SET_SCAN_OPTS [active|passive] [channel] [max_cnt] [ssid] [mac]\n");
+      printf("Usage: RCP_WIFI_SCAN [active|passive] [channel] [max_cnt] [ssid] [mac]\n");
       return;
     }
     memcpy(opts.MAC, mac, sizeof(opts.MAC));
   }
 
-  print_wifi_status("rcp_wifi_set_scan_opts", rcp_wifi_set_scan_opts(&opts));
-}
-
-static void cmd_wifi_scan_start(int argc, char **argv)
-{
-  (void)argc;
-  (void)argv;
-  print_wifi_status("rcp_wifi_scan_start", rcp_wifi_scan_start());
+  status = rcp_wifi_scan(&opts, print_scan_result);
+  print_wifi_status("rcp_wifi_scan", status);
 }
 
 static void cmd_wifi_reconn_set(int argc, char **argv)
@@ -1502,71 +1339,61 @@ static void cmd_wifi_reconn_set(int argc, char **argv)
                     rcp_wifi_set_reconnection_opts(&opts));
 }
 
-static void cmd_wifi_connect_opts(int argc, char **argv)
+static void cmd_wifi_connect(int argc, char **argv)
 {
-  rcp_wifi_connect_opts_t opts = {0};
+  struct rcp_wifi_conn_req req = {0};
   uint8_t mac[6];
 
   if (argc < 2) {
-    printf("Usage: RCP_WIFI_CONNECT_OPTS <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]\n");
+    printf("Usage: wifi_connect <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]\n");
     return;
   }
 
-  strncpy((char *)opts.SSID, argv[1], sizeof(opts.SSID) - 1U);
+  req.pmf = RCP_WIFI_MFP_OPTIONAL;
+  req.dhcp = true;
+  strncpy((char *)req.ssid, argv[1], sizeof(req.ssid) - 1U);
+  req.ssid[sizeof(req.ssid) - 1U] = '\0';
+  req.ssid_len = (uint8_t)strlen((char *)req.ssid);
   if (argc >= 3) {
-    strncpy((char *)opts.Password, argv[2], sizeof(opts.Password) - 1U);
+    strncpy((char *)req.psk, argv[2], sizeof(req.psk) - 1U);
+    req.psk[sizeof(req.psk) - 1U] = '\0';
+    req.psk_len = (uint8_t)strlen((char *)req.psk);
+    req.sec_type = RCP_WIFI_SEC_TYPE_PSK;
+  } else {
+    req.sec_type = RCP_WIFI_SEC_TYPE_NONE;
   }
   if (argc >= 4) {
-    opts.PMF = arg_u32(argv, 3);
+    req.pmf = (enum rcp_wifi_mfp_options)arg_u32(argv, 3);
   }
   if (argc >= 5) {
-    opts.WEP = arg_u32(argv, 4);
+    req.wep = arg_u32(argv, 4);
   }
   if (argc >= 6) {
-    opts.WPS = arg_u32(argv, 5);
+    req.wps = arg_u32(argv, 5);
   }
   if (argc >= 7) {
-    opts.Reconnection_interval = (uint16_t)arg_u32(argv, 6);
+    req.reconnection_interval = (uint16_t)arg_u32(argv, 6);
   }
   if (argc >= 8) {
-    opts.Reconnection_nb_attempts = (uint16_t)arg_u32(argv, 7);
+    req.reconnection_nb_attempts = (uint16_t)arg_u32(argv, 7);
   }
   if (argc >= 9) {
     if (!parse_mac(argv[8], mac)) {
-      printf("Usage: RCP_WIFI_CONNECT_OPTS <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]\n");
+      printf("Usage: wifi_connect <ssid> [psk] [pmf] [wep] [wps] [interval_s] [attempts] [bssid]\n");
       return;
     }
-    memcpy(opts.MAC, mac, sizeof(opts.MAC));
+    memcpy(req.bssid, mac, sizeof(req.bssid));
+    req.bssid_len = sizeof(req.bssid);
   }
 
-  print_wifi_status("rcp_wifi_connect_opts", rcp_wifi_connect_opts(&opts));
+  (void)rcp_wifi_station_start();
+  print_wifi_status("rcp_wifi_connect", rcp_wifi_connect(&req));
 }
 
-static void cmd_wifi_disconnect_restore(int argc, char **argv)
+static void cmd_wifi_disconnect(int argc, char **argv)
 {
-  if (argc < 2) {
-    printf("Usage: RCP_WIFI_DISCONN_RESTORE <0|1>\n");
-    return;
-  }
-  print_wifi_status("rcp_wifi_disconnect_restore",
-                    rcp_wifi_disconnect_restore(arg_u32(argv, 1)));
-}
-
-static void cmd_wifi_connect_info(int argc, char **argv)
-{
-  int32_t rssi = 0;
-  rcp_wifi_security_type_t security = RCP_WIFI_SECURITY_UNKNOWN;
-  rcp_wifi_protocol_t protocol = RCP_WIFI_PROTOCOL_UNKNOWN;
-  enum rcp_wifi_status status;
-
-  (void)argc;
-  (void)argv;
-  status = rcp_wifi_get_connect_info(&rssi, &security, &protocol);
-  if (status == RCP_WIFI_OK) {
-    printf("rssi=%ld security=%d protocol=%d\n", (long)rssi, security, protocol);
-  } else {
-    print_wifi_status("rcp_wifi_get_connect_info", status);
-  }
+  print_wifi_status("rcp_wifi_disconnect",
+                    rcp_wifi_disconnect(0));
 }
 
 static void cmd_wifi_sta_mac(int argc, char **argv)
@@ -1649,7 +1476,7 @@ static void cmd_wifi_dual_mode(int argc, char **argv)
 
   if (rcp_lwip_dhcpd_start() != ERR_OK) {
     printf("rcp_lwip_dhcpd_start fail\r\n");
-    return RCP_WIFI_ERR;
+  	return RCP_WIFI_ERR;
   }
 
   print_wifi_status("rcp_wifi_set_dual_mode", rcp_wifi_set_dual_mode());
@@ -1776,30 +1603,28 @@ static void cmd_wifi_ap_mac(int argc, char **argv)
   }
 }
 
-static void cmd_wifi_l2_ifaces(int argc, char **argv)
-{
-  enum rcp_netif_type type = RCP_NET_IF_TYPE_UNKNOWN;
-  uint32_t index = 0U;
-
-  if (argc >= 2) {
-    type = (enum rcp_netif_type)arg_u32(argv, 1);
-  }
-  if (argc >= 3) {
-    index = arg_u32(argv, 2);
-  }
-
-  (void)rcp_wifi_register_callback(rcp_unit_test_wifi_event_cb);
-  print_wifi_status("rcp_wifi_get_l2_interfaces",
-                    rcp_wifi_get_l2_interfaces(type, index));
-}
-
 static void cmd_wifi_iface_status(int argc, char **argv)
 {
   uint32_t index = (argc >= 2) ? arg_u32(argv, 1) : 1U;
+  struct rcp_wifi_evt_iface_status resp = {0};
+  enum rcp_wifi_status status;
 
-  (void)rcp_wifi_register_callback(rcp_unit_test_wifi_event_cb);
-  print_wifi_status("rcp_wifi_get_iface_status",
-                    rcp_wifi_get_iface_status(index));
+  status = rcp_wifi_get_iface_status(index, &resp);
+  if (status == RCP_WIFI_OK) {
+    printf("iface index=%lu state=%d mode=%d link=%d channel=%lu rssi=%ld "
+           "security=%d pmf=%d ssid_len=%u ssid=",
+           (unsigned long)resp.iface_index, resp.status.state,
+           resp.status.iface_mode, resp.status.link_mode,
+           (unsigned long)resp.status.channel, (long)resp.status.rssi,
+           resp.status.security, resp.status.mfp, resp.status.ssid_len);
+    for (uint32_t i = 0U; i < resp.status.ssid_len; i++) {
+      putchar(resp.status.ssid[i]);
+    }
+    printf(" bssid=");
+    print_mac(resp.status.bssid);
+    printf("\n");
+  }
+  print_wifi_status("rcp_wifi_get_iface_status", status);
 }
 
 static void cmd_wifi_pwr(int argc, char **argv)
@@ -2151,5 +1976,108 @@ static void cmd_wifi_ant_used(int argc, char **argv)
     printf("antenna_used=%lu\n", (unsigned long)antenna_id);
   } else {
     print_wifi_status("rcp_wifi_get_antenna_used", status);
+  }
+}
+
+static void cmd_wifi_csi_start(int argc, char **argv)
+{
+  RCP_WiFi_CSI_Start_Params_t params = {0};
+  RCP_WiFi_Monitor_Params_t mon = {0};
+  RCP_Object_t *Obj = RCP_ObjGet();
+  RCP_Status_t ret;
+
+  if (argc < 3) {
+    printf("Usage: WIFI_CSI_START <mac> <channel> [buf] [mode] [ts] [interval_ms] [ready]\n");
+    return;
+  }
+
+  if (!parse_mac(argv[1], params.MAC)) {
+    printf("Invalid MAC: %s\n", argv[1]);
+    return;
+  }
+
+  /* channel must be the AP's actual channel: monitor switches the NIC to it so
+     CSI can be captured. A wrong channel yields zero CSI reports. */
+  mon.channel = (uint8_t)arg_u32(argv, 2);
+  if (mon.channel == 0U) {
+    printf("Invalid channel: %s\n", argv[2]);
+    return;
+  }
+
+  params.buf = 0U;
+  params.mode = RCP_WIFI_CSI_MODE_LEGACY_LTF;
+  params.ts_mode = RCP_WIFI_CSI_TS_PERIODIC;
+  params.interval_ms = 0U;
+  params.ready_after_isr = 1U;
+  mon.min_pkg_len = 0U;
+  mon.max_pkg_len = 0U;
+  mon.output = 0U; /* suppress raw +CWMONITOR hex, keep only +CSIDMA: reports */
+
+  if (argc >= 4) {
+    params.buf = (uint8_t)arg_u32(argv, 3);
+  }
+  if (argc >= 5) {
+    params.mode = (RCP_WiFi_CSI_Mode_e)arg_u32(argv, 4);
+  }
+  if (argc >= 6) {
+    params.ts_mode = (RCP_WiFi_CSI_TsMode_e)arg_u32(argv, 5);
+  }
+  if (argc >= 7) {
+    params.interval_ms = arg_u32(argv, 6);
+  }
+  if (argc >= 8) {
+    params.ready_after_isr = (uint8_t)arg_u32(argv, 7);
+  }
+
+  csi_report_count = 0U;
+  csi_report_bytes = 0U;
+
+  /* Start CSI DMA capture first, then enable monitor mode. */
+  ret = RCP_WiFi_CSI_Start(Obj, &params, csi_report_cb);
+  if (ret != RCP_STATUS_OK) {
+    printf("RCP_WiFi_CSI_Start failed: %d\n", ret);
+    return;
+  }
+
+  printf("RCP_WiFi_CSI_Start OK mac=");
+  print_mac(params.MAC);
+  printf(" buf=%u mode=%d ts=%d interval_ms=%lu ready=%u\n",
+         params.buf, params.mode, params.ts_mode,
+         (unsigned long)params.interval_ms, params.ready_after_isr);
+
+  ret = RCP_WiFi_Monitor_Start(Obj, &mon);
+  if (ret == RCP_STATUS_OK) {
+    printf("RCP_WiFi_Monitor_Start OK channel=%u\n", mon.channel);
+  } else {
+    printf("RCP_WiFi_Monitor_Start failed: %d\n", ret);
+    (void)RCP_WiFi_CSI_Stop(Obj, RCP_WIFI_CSI_STOP_ALL);
+  }
+}
+
+static void cmd_wifi_csi_stop(int argc, char **argv)
+{
+  RCP_Object_t *Obj = RCP_ObjGet();
+  RCP_Status_t ret;
+
+  /* Stop monitor mode first, then CSI DMA capture (reverse of start). */
+  ret = RCP_WiFi_Monitor_Stop(Obj);
+  if (ret == RCP_STATUS_OK) {
+    printf("RCP_WiFi_Monitor_Stop OK\n");
+  } else {
+    printf("RCP_WiFi_Monitor_Stop failed: %d\n", ret);
+  }
+
+  if ((argc < 2) || (strcmp(argv[1], "all") == 0)) {
+    ret = RCP_WiFi_CSI_Stop(Obj, RCP_WIFI_CSI_STOP_ALL);
+  } else {
+    ret = RCP_WiFi_CSI_Stop(Obj, (int32_t)arg_u32(argv, 1));
+  }
+
+  if (ret == RCP_STATUS_OK) {
+    printf("RCP_WiFi_CSI_Stop OK reports=%lu bytes=%lu\n",
+           (unsigned long)csi_report_count,
+           (unsigned long)csi_report_bytes);
+  } else {
+    printf("RCP_WiFi_CSI_Stop failed: %d\n", ret);
   }
 }

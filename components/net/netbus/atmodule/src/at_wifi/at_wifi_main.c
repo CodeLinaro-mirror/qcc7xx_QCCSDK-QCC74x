@@ -33,6 +33,7 @@
 #include <wifi_mgmr_cli.h>
 #include "fhost.h"
 
+#include "mem.h"
 #include "at_main.h"
 #include "at_core.h"
 #include "at_port.h"
@@ -1110,11 +1111,11 @@ int at_wifi_hostname_set(char *hostname)
     return 0;
 }
 
-int at_wifi_hostname_get(void)
+const char *at_wifi_hostname_get(void)
 {
     struct netif *netif = (struct netif *)net_if_find_from_name("wl1");
     if (!netif) {
-        return -1;
+        return NULL;
     }
 
 #if LWIP_NETIF_HOSTNAME

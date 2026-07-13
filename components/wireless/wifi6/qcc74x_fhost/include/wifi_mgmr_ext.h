@@ -195,6 +195,10 @@ typedef struct wifi_mgmr_adhoc_start_params {
 } wifi_mgmr_adhoc_start_params_t;
 
 /// ap start params
+/// NOTE: Always zero-initialize this structure (e.g. memset to 0 or "= {0}")
+/// before filling it in. The 'flag_set' bitmask must read as 0 for any field
+/// not explicitly configured; an uninitialized flag_set would make optional
+/// fields (mfp, sae_pwe, ...) be wrongly treated as user-configured.
 typedef struct wifi_mgmr_ap_params {
     /// must be setted
     char *ssid;
@@ -242,7 +246,18 @@ typedef struct wifi_mgmr_ap_params {
     int bcn_timer;
     /// Disable advertising WME/WMM Information Element in Beacon/ProbeResponse frames
     bool disable_wmm;
+    /// Bitmask of explicitly configured fields, see WIFI_MGMR_AP_FLAG_*.
+    uint32_t flag_set;
+    /// Management Frame Protection (0: disable, 1: optional, 2: required)
+    uint8_t mfp;
+    /// SAE PWE derivation mode (0: HnP only, 1: H2E only, 2: both)
+    uint8_t sae_pwe;
+    /// Transition Disable bitmap (0:disabled, bit0:disable WPA3-Personal/PSK)
+    int transition_disable;
 } wifi_mgmr_ap_params_t;
+
+#define WIFI_MGMR_AP_FLAG_MFP      (1U << 0)
+#define WIFI_MGMR_AP_FLAG_SAE_PWE  (1U << 1)
 
 /**
  * Fully hosted frame information
@@ -461,6 +476,12 @@ int wifi_sta_disconnect(void);
 
 /**
  * Set IPv4 address of STA interface
+ *
+ * param:
+ *  ip   : IPv4 address in network byte order
+ *  mask : IPv4 subnet mask in network byte order
+ *  gw   : IPv4 gateway address in network byte order
+ *  dns  : IPv4 DNS server address in network byte order
  *
  * return 0 on success or -1 on error
  */
@@ -701,6 +722,22 @@ int wifi_mgmr_ap_start(const wifi_mgmr_ap_params_t *config);
  *  Others is Failed
  */
 int wifi_mgmr_ap_stop(void);
+
+/**
+ * Set IPv4 address of AP interface
+ *
+ * This API can be used to update the AP static IPv4 configuration after AP mode
+ * has been started.
+ *
+ * param:
+ *  ip   : IPv4 address in network byte order
+ *  mask : IPv4 subnet mask in network byte order
+ *  gw   : IPv4 gateway address in network byte order
+ *  dns  : IPv4 DNS server address in network byte order
+ *
+ * return 0 on success or -1 on error
+ */
+int wifi_mgmr_ap_ip_set(uint32_t ip, uint32_t mask, uint32_t gw, uint32_t dns);
 
 /**
  * wifi_mgmr_ap_acl_enable

@@ -169,22 +169,6 @@ RCP_Status_t RCP_Common_Query_Parse(RCP_Object_t *Obj, char *p_cmd,
                                     uint32_t timeout_ms);
 
 /**
- * @brief  Send the command for Set and Execute mode and send OTA data
- * @param  Obj: pointer to module handle
- * @param  p_cmd: pointer to pass command string
- * @param  pdata: pointer to data to send
- * @param  len: binary data length
- * @param  timeout_ms: timeout
- * @param  check_resp: if true, check the response status
- * @return Operation status
- */
-
-RCP_Status_t RCP_Common_RequestSendOtaData(RCP_Object_t *Obj, uint8_t *p_cmd,
-                                           uint8_t *pdata, uint32_t len,
-                                           uint32_t timeout_ms,
-                                           bool check_resp);
-
-/**
  * @brief  Send the command for Set and Execute mode and send data
  * @param  Obj: pointer to module handle
  * @param  p_cmd: pointer to pass command string

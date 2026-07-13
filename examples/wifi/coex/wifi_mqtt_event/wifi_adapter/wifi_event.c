@@ -6,6 +6,7 @@
 #include <sys/types.h>
 #include <lwip/errno.h>
 #include <netdb.h>
+#include "mem.h"
 
 #include "utils_getopt.h"
 

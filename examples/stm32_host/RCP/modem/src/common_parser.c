@@ -19,6 +19,7 @@
 /* Includes ------------------------------------------------------------------*/
 #include <string.h>
 #include <ctype.h>
+#include <stdint.h>
 #include <stdio.h>
 #include "common_parser.h"
 
@@ -42,8 +43,13 @@ int32_t Parser_StrToHex(char *ptr, uint8_t *cnt)
   /* Loop on pointer content while it is a hexadecimal character */
   while (isxdigit((int32_t)(*ptr)) > 0)
   {
+    uint32_t digit = Parser_Hex2Num(*ptr);
+    if (sum > (((uint32_t)INT32_MAX - digit) >> 4U))
+    {
+      return -1;
+    }
     sum <<= 4U;
-    sum += Parser_Hex2Num(*ptr);
+    sum += digit;
     ptr++;
     i++;
   }
@@ -94,7 +100,12 @@ int32_t Parser_StrToInt(char *ptr, uint8_t *cnt, int32_t *value)
   /* Loop on pointer content while it is a numeric character */
   while (isdigit((int32_t)(*ptr)) > 0)
   {
-    sum = (10 * sum) + ((*ptr) - '0');
+    int32_t digit = (*ptr) - '0';
+    if (sum > ((INT32_MAX - digit) / 10))
+    {
+      return 0;
+    }
+    sum = (10 * sum) + digit;
     ptr++;
     i++;
   }

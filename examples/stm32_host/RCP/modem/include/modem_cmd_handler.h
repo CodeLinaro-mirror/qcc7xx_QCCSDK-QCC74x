@@ -169,6 +169,10 @@ struct modem_cmd_handler_data {
   rcp_mutex_t sem_parse_lock;
   /** User data */
   void *user_data;
+  /** Direct handler used to continue consuming an already matched long line */
+  const struct modem_cmd *direct_continue_cmd;
+  /** The active direct handler needs another RX buffer chunk */
+  bool direct_continue_pending;
 };
 
 /**

@@ -12,6 +12,8 @@
 
 #define UDP_ECHO_SERVER_PORT    (7777)
 
+static struct udp_pcb *g_udp_echo_pcb = NULL;
+
 static inline void udp_log(const char *fmt, ...)
 {
     va_list va;
@@ -50,26 +52,40 @@ static void udpecho_raw_recv(void *arg, struct udp_pcb *pcb, struct pbuf *p,
     pbuf_free(p);
 }
 
+static void udp_echo_server_stop_internal(void *arg)
+{
+    LWIP_UNUSED_ARG(arg);
+    if (g_udp_echo_pcb != NULL) {
+        udp_recv(g_udp_echo_pcb, NULL, NULL);
+        udp_remove(g_udp_echo_pcb);
+        g_udp_echo_pcb = NULL;
+    }
+}
+
 static void udp_echo_server_start(void *arg)
 {
     err_t ret;
-	struct udp_pcb *pcb;
+    struct udp_pcb *pcb;
 
-	LWIP_UNUSED_ARG(arg);
-	printf("starting %s() ..........\n", __func__);
+    LWIP_UNUSED_ARG(arg);
+    printf("starting %s() ..........\n", __func__);
 
-	pcb = udp_new();
+    /* release previous instance if any */
+    udp_echo_server_stop_internal(NULL);
+
+    pcb = udp_new();
     if (NULL == pcb) {
         return;
     }
-	ret = udp_bind(pcb, IP_ADDR_ANY, UDP_ECHO_SERVER_PORT);
+    ret = udp_bind(pcb, IP_ADDR_ANY, UDP_ECHO_SERVER_PORT);
     if (ERR_OK != ret) {
         printf("bind socket error. Maybe %d already binded?", UDP_ECHO_SERVER_PORT);
         udp_remove(pcb);
         return;
     }
-	/* no need to loop forever */
-	udp_recv(pcb, (udp_recv_fn)udpecho_raw_recv, pcb);
+    /* no need to loop forever */
+    udp_recv(pcb, (udp_recv_fn)udpecho_raw_recv, pcb);
+    g_udp_echo_pcb = pcb;
 }
 
 int cmd_udp_echo_server(int argc, char **argv)
@@ -81,4 +97,15 @@ int cmd_udp_echo_server(int argc, char **argv)
 
     return 0;
 }
+
+int cmd_udp_echo_server_stop(int argc, char **argv)
+{
+    int ret;
+
+    ret = tcpip_callback((tcpip_callback_fn)udp_echo_server_stop_internal, NULL);
+    udp_log("udp_echo_server_stop with ret %d", ret);
+
+    return 0;
+}
 SHELL_CMD_EXPORT_ALIAS(cmd_udp_echo_server, udps, create a udp echo server with raw api.);
+SHELL_CMD_EXPORT_ALIAS(cmd_udp_echo_server_stop, udps_stop, stop the udp echo server.);

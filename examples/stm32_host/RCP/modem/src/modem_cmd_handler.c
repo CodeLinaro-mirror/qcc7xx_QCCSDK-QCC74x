@@ -277,6 +277,10 @@ static int32_t parse_params(struct modem_cmd_handler_data *data,
   end = cmd->cmd_len;
   delim_len = strlen(cmd->delim);
   while (end < match_len) {
+    if (end >= data->match_buf_len) {
+      return -EINVAL;
+    }
+
     /* Don't look for delimiters in the middle of a quoted parameter */
     if (data->match_buf[end] == '"') {
       quoted = !quoted;
@@ -288,6 +292,9 @@ static int32_t parse_params(struct modem_cmd_handler_data *data,
     /* Look for delimiter characters */
     for (i = 0; i < delim_len; i++) {
       if (data->match_buf[end] == cmd->delim[i]) {
+        if (*argc == argv_len) {
+          return -EINVAL;
+        }
         /* Mark a parameter beginning */
         argv[*argc] = (uint8_t *)&data->match_buf[begin];
         /* End parameter with NUL char */
@@ -313,6 +320,9 @@ static int32_t parse_params(struct modem_cmd_handler_data *data,
 
   /* Consider the ending portion a param if end > begin */
   if (end > begin) {
+    if (end >= data->match_buf_len || *argc == argv_len) {
+      return -EINVAL;
+    }
     /* Mark a parameter beginning */
     argv[*argc] = (uint8_t *)&data->match_buf[begin];
     /* End parameter with NUL char
@@ -476,6 +486,22 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data) {
   }
 
   while (data->rx_buf_len) {
+    /* Direct continuation */
+    cmd = data->direct_continue_cmd;
+    if (cmd && cmd->func) {
+      ret = cmd->func(data, cmd->cmd_len, NULL, 0);
+      if (ret == -EAGAIN) {
+        break;
+      } else if (ret > 0) {
+        if (!data->direct_continue_pending) {
+          data->direct_continue_cmd = NULL;
+        }
+        LOG_DBG("match direct cmd [%s] (ret:%" PRIi32 ")\n", cmd->cmd, ret);
+        linear_buf_skip(data->rx_buf, &data->rx_buf_len, ret);
+      }
+      continue;
+    }
+
     skipcrlf(data);
     if (!data->rx_buf_len) {
       break;
@@ -484,10 +510,16 @@ static void cmd_handler_process_rx_buf(struct modem_cmd_handler_data *data) {
     /* Direct match */
     cmd = find_cmd_direct_match(data);
     if (cmd && cmd->func) {
+      data->direct_continue_pending = false;
       ret = cmd->func(data, cmd->cmd_len, NULL, 0);
       if (ret == -EAGAIN) {
         break;
       } else if (ret > 0) {
+        if (data->direct_continue_pending) {
+          data->direct_continue_cmd = cmd;
+        } else {
+          data->direct_continue_cmd = NULL;
+        }
         LOG_DBG("match direct cmd [%s] (ret:%" PRIi32 ")\n", cmd->cmd, ret);
         linear_buf_skip(data->rx_buf, &data->rx_buf_len, ret);
       }
@@ -821,6 +853,8 @@ int32_t modem_cmd_handler_init(struct modem_cmd_handler *handler,
   /* Initialize command handler data members */
   memset(&data->sem_tx_lock, 0, sizeof(data->sem_tx_lock));
   memset(&data->sem_parse_lock, 0, sizeof(data->sem_parse_lock));
+  data->direct_continue_cmd = NULL;
+  data->direct_continue_pending = false;
 
   if (!rcp_os_mutex_init(&data->sem_tx_lock)) {
     return -1;

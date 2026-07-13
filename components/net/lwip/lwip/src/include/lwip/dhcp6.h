@@ -83,6 +83,10 @@ err_t dhcp6_enable_stateless(struct netif *netif);
 void dhcp6_disable(struct netif *netif);
 
 void dhcp6_tmr(void);
+void dhcp6_tmr_tick(u16_t ticks);
+#if IPV6_TIMER_PRECISE_NEEDED
+u32_t dhcp6_tmr_sleeptime(void);
+#endif
 
 void dhcp6_nd6_ra_trigger(struct netif *netif, u8_t managed_addr_config, u8_t other_config);
 

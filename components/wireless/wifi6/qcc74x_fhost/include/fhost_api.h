@@ -589,6 +589,17 @@ struct fhost_vif_ap_cfg
      */
     int mfp;
     /**
+     * SAE PWE derivation mode (passed as 'SET sae_pwe' to wpa_supplicant).
+     * 0 = hunting-and-pecking only, 1 = hash-to-element only, 2 = both.
+     */
+    uint8_t sae_pwe;
+    /**
+     * Transition Disable bitmap for WPA3 transition mode.
+     * Bit 0 = disable WPA3-Personal (PSK), bit 1 = SAE-PK, etc.
+     * A non-zero value is passed to wpa_supplicant.
+     */
+    int transition_disable;
+    /**
      * This fhost_vif_ap_cfg structure is transformed into wpa_supplicant configuration.
      * For clarity, not all configuration options provided by wpa_supplicant are exposed
      * and this field allow to overcome this limitation by and directly passing

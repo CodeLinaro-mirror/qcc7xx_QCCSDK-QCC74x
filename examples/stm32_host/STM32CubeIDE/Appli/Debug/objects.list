@@ -1,6 +1,7 @@
 "./Application/Startup/startup_stm32h7s3l8hx.o"
 "./Application/User/freertos.o"
 "./Application/User/main.o"
+"./Application/User/ping.o"
 "./Application/User/rcp_unit_test.o"
 "./Application/User/shell_commands.o"
 "./Application/User/stm32h7rsxx_hal_msp.o"

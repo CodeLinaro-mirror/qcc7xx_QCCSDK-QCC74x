@@ -18,7 +18,7 @@ extern "C" {
 
 #define AT_CMD_MAX_NUM 12
 #define AT_CMD_MAX_LEN 256
-#define AT_CMD_MAX_PARA 16
+#define AT_CMD_MAX_PARA 17
 #define AT_CMD_MAX_FUNC 8
 
 typedef struct {
@@ -149,4 +149,3 @@ static inline int at_module_schedule_work(void)
 #endif
 
 #endif/* AT_MAIN_H */
-

@@ -1897,7 +1897,6 @@ int net_iperf_tcp_server_run(struct fhost_iperf_stream* stream)
     if (pcb == NULL)
     {
         fhost_print(stream->iperf_handle, "IPERF: Server pcb is NULLs\n");
-        tcp_close(pcb);
         UNLOCK_TCPIP_CORE();
         return -1;
     }

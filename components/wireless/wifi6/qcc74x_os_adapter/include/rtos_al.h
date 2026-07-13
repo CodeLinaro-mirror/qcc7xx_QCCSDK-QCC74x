@@ -106,6 +106,17 @@ void *rtos_malloc(uint32_t size);
 
 /**
  ****************************************************************************************
+ * @brief Try to allocate memory without blocking forever on failure.
+ *
+ * @param[in] size Size, in bytes, to allocate.
+ *
+ * @return Address of allocated memory on success and NULL if error occurred.
+ ****************************************************************************************
+ */
+void *rtos_try_malloc(uint32_t size);
+
+/**
+ ****************************************************************************************
  * @brief Allocate memory and initialize it to 0.
  *
  * @param[in] nb_elt  Number of element to allocate.

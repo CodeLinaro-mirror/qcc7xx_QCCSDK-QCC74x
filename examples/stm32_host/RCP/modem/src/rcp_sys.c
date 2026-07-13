@@ -15,6 +15,7 @@
 #include "rcp_common.h"
 #include "rcp_internal.h"
 #include <inttypes.h>
+#include <limits.h>
 #include <stdio.h>
 
 #if (SYS_DBG_ENABLE_TA4 >= 1)
@@ -345,15 +346,6 @@ RCP_Status_t RCP_Init(RCP_Object_t *Obj) {
 
 __error:
   return ret;
-}
-
-RCP_Status_t RCP_DeInit(RCP_Object_t *Obj) {
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-  /* Deinitialize the Modem handler
-     Shutdown the RCP module
-     Stop the SPI driver */
-  RCP_ModemDeInit(Obj);
-  return RCP_STATUS_OK;
 }
 
 RCP_Status_t RCP_WaitForReady(RCP_Object_t *Obj, uint32_t time_ms) {
@@ -1526,120 +1518,8 @@ RCP_Status_t RCP_FWU_Send(RCP_Object_t *Obj, uint8_t *buff, uint32_t len) {
      - <len>: The length of data to send
      The data to send is sent in the next request part */
   snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+OTASEND=%" PRIu32 "\r\n", len);
-  return RCP_Common_RequestSendOtaData(Obj, (uint8_t *)cmd, buff, len,
+  return RCP_Common_RequestSendData(Obj, (uint8_t *)cmd, buff, len,
                                        RCP_SYS_TIMEOUT, true);
-}
-
-RCP_Status_t RCP_LowPowerConfig(RCP_Object_t *Obj, uint32_t WakeUpPinIn,
-                                uint32_t ps_mode) {
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-
-  /* In Hibernate Mode, only WakeUpPin 16 can be used */
-  if ((ps_mode == 1U) && (WakeUpPinIn != 16U)) {
-    return RCP_STATUS_ERROR;
-  }
-
-  Obj->LowPowerCfg.WakeUpPinIn = WakeUpPinIn;
-  Obj->LowPowerCfg.PSMode = ps_mode;
-  Obj->LowPowerCfg.WiFi_DTIM_Factor = 0U;
-  Obj->LowPowerCfg.WiFi_DTIM_Interval = 0U;
-
-  return RCP_STATUS_OK;
-}
-
-RCP_Status_t RCP_SetPowerMode(RCP_Object_t *Obj, uint32_t ps_mode,
-                              uint32_t hbn_level) {
-  RCP_Status_t ret;
-  char cmd[RCP_CMDRSP_STRING_SIZE];
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-
-  if (ps_mode == 1U) {
-    snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+PWR=%" PRIu32 ",%" PRIu32 "\r\n",
-             ps_mode, hbn_level);
-    /* Hibernate mode does not return a response. */
-    ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, 0U);
-  } else {
-    snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+PWR=%" PRIu32 "\r\n", ps_mode);
-    ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
-  }
-
-  if (ret == RCP_STATUS_OK) {
-    Obj->LowPowerCfg.PSMode = ps_mode;
-  }
-
-  return ret;
-}
-
-RCP_Status_t RCP_GetPowerMode(RCP_Object_t *Obj, uint32_t *ps_mode) {
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-  RCP_NULL_ASSERT(ps_mode);
-
-  *ps_mode = Obj->LowPowerCfg.PSMode;
-  return RCP_STATUS_OK;
-}
-
-RCP_Status_t RCP_SetWakeUpPin(RCP_Object_t *Obj, uint32_t wakeup_pin) {
-  char cmd[RCP_CMDRSP_STRING_SIZE];
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-
-  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+SLWKIO=%" PRIu32 ",1\r\n",
-           wakeup_pin);
-  return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
-}
-
-RCP_Status_t RCP_SetClockSource(RCP_Object_t *Obj, uint32_t source) {
-  RCP_Status_t ret = RCP_STATUS_ERROR;
-  uint32_t current_source;
-  char cmd[RCP_CMDRSP_STRING_SIZE];
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-
-  if ((source == 0U) || (source > 3U)) {
-    return RCP_STATUS_ERROR;
-  }
-
-  ret = RCP_GetClockSource(Obj, &current_source);
-  if (ret != RCP_STATUS_OK) {
-    return ret;
-  }
-
-  if (current_source == source) {
-    return RCP_STATUS_OK;
-  }
-
-  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+SET_CLOCK=%" PRIu32 "\r\n", source);
-  ret = RCP_Common_SetExecute(Obj, (uint8_t *)cmd, 0U);
-  if (ret != RCP_STATUS_OK) {
-    SYS_LOG_ERROR("Failed to set clock source");
-    return ret;
-  }
-
-  ret = RCP_WaitForReady(Obj, RCP_READY_DEFAULT_TIMEOUT_MS);
-  if (ret != RCP_STATUS_OK) {
-    SYS_LOG_ERROR("sem_if_ready not received\n");
-  }
-  return ret;
-}
-
-RCP_Status_t RCP_GetClockSource(RCP_Object_t *Obj, uint32_t *source) {
-  char *argv[CONFIG_MODEM_CMD_HANDLER_MAX_PARAM_COUNT];
-  char cmd[RCP_CMD_MATCH_BUFF_SIZE];
-  uint16_t argc = 0;
-  RCP_Status_t ret;
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-  RCP_NULL_ASSERT(source);
-
-  strncpy(cmd, "AT+GET_CLOCK\r\n", sizeof(cmd));
-  ret = RCP_Common_Query_Parse(Obj, cmd, "+GET_CLOCK:", &argc, argv,
-                               RCP_NCP_TIMEOUT);
-  if (ret != RCP_STATUS_OK) {
-    return ret;
-  }
-  if (argc < 1U) {
-    return RCP_STATUS_ERROR;
-  }
-
-  *source = (uint32_t)atoi(argv[0]);
-  return ret;
 }
 
 RCP_Status_t RCP_ExeCommand(RCP_Object_t *Obj, char *at_cmd) {
@@ -1751,6 +1631,9 @@ static int gmac_parse_mac(const char *str, uint8_t *mac) {
     return -1;
   }
   for (int i = 0; i < 6; i++) {
+    if (b[i] > UINT8_MAX) {
+      return -1;
+    }
     mac[i] = (uint8_t)b[i];
   }
   return 0;
@@ -1793,6 +1676,7 @@ MODEM_CMD_DIRECT_DEFINE(on_cmd_read_efuse) {
   uint32_t offset;
   uint8_t *endptr;
   uint16_t rx_data_len;
+  long parsed_len;
 
   if (data->rx_buf == NULL) {
     return -EINVAL;
@@ -1800,11 +1684,13 @@ MODEM_CMD_DIRECT_DEFINE(on_cmd_read_efuse) {
   ptr = data->rx_buf + len;
   data->rx_buf[data->rx_buf_len] = 0;
 
-  rx_data_len = strtol((char *)ptr, (char **)&endptr, 10);
-  if ((endptr == ptr) || (*endptr != ',')) {
+  parsed_len = strtol((char *)ptr, (char **)&endptr, 10);
+  if ((endptr == ptr) || (*endptr != ',') ||
+      parsed_len < 0 || parsed_len > UINT16_MAX) {
     SYS_LOG_ERROR("Invalid EFUSE read response format");
     return -EINVAL;
   }
+  rx_data_len = (uint16_t)parsed_len;
   offset = endptr - data->rx_buf + 1;
 
   if (data->rx_buf_len >= offset + rx_data_len) {
@@ -1906,7 +1792,10 @@ MODEM_CMD_DIRECT_DEFINE(on_cmd_minidump_line) {
     int8_t nibble = rcp_hex_nibble(data->rx_buf[consumed]);
 
     if (nibble < 0) {
-      break;
+      if ((data->rx_buf[consumed] == '\r') || (data->rx_buf[consumed] == '\n')) {
+        break;
+      }
+      return -EINVAL;
     }
 
     consumed++;

@@ -692,6 +692,30 @@ void wifi_sta_static_ipv4(int argc, char **argv)
 
 }
 
+#ifdef CFG_IPV6
+void cmd_wifi_sta_ipv6_enable(int argc, char **argv)
+{
+    int ret;
+
+    (void)argc;
+    (void)argv;
+
+    ret = wifi_sta_ipv6_enable(1);
+    printf("wifi_sta_ipv6_enable ret %d\r\n", ret);
+}
+
+void cmd_wifi_sta_ipv6_disable(int argc, char **argv)
+{
+    int ret;
+
+    (void)argc;
+    (void)argv;
+
+    ret = wifi_sta_ipv6_enable(0);
+    printf("wifi_sta_ipv6_disable ret %d\r\n", ret);
+}
+#endif
+
 static void _print_sta_pwr(uint8_t numb, int8_t *power_table)
 {
     uint8_t i;
@@ -772,10 +796,27 @@ void wifi_sta_info_cmd(int argc, char **argv)
     fhost_print(RTOS_TASK_NULL, "================================================================\r\n");
 }
 
+void wifi_mgmr_ap_ip_set_cmd(int argc, char **argv)
+{
+    char *addr, *mask, *gw, *dns;
+
+    if (argc < 2) {
+        printf("[USAGE]: %s <ip> [mask] [gw] [dns]\r\n", argv[0]);
+        return;
+    }
+
+    addr = argv[1];
+    mask = (argc > 2) ? argv[2] : "255.255.255.0";
+    gw = (argc > 3) ? argv[3] : "0.0.0.0";
+    dns = (argc > 4) ? argv[4] : "0.0.0.0";
+
+    wifi_mgmr_ap_ip_set(inet_addr(addr), inet_addr(mask), inet_addr(gw), inet_addr(dns));
+}
+
 void wifi_mgmr_ap_start_cmd(int argc, char **argv)
 {
     getopt_env_t getopt_env;
-    int opt;
+    int opt, val;
     wifi_mgmr_ap_params_t config;
 
     if (argc < 2) {
@@ -786,7 +827,7 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
     config.use_dhcpd = true;
 
     utils_al_getopt_init(&getopt_env, 0);
-    while ((opt = utils_al_getopt(&getopt_env, argc, argv, "b:s:k:c:a:d:t:h:i:I:S:L:n:w:")) != -1) {
+    while ((opt = utils_al_getopt(&getopt_env, argc, argv, "b:s:k:c:a:d:t:h:i:I:S:L:n:w:m:p:T:")) != -1) {
         switch (opt) {
 	case 'b':
 	    config.type = (uint8_t)atoi(getopt_env.optarg);
@@ -847,6 +888,30 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
         config.disable_wmm = (uint32_t)atoi(getopt_env.optarg);
         break;
 
+    case 'm':
+        val = atoi(getopt_env.optarg);
+        if (val < 0 || val > 2) {
+            printf("invalid mfp: %d \r\n", val);
+            goto _ERROUT;
+        }
+        config.mfp = (uint8_t)val;
+        config.flag_set |= WIFI_MGMR_AP_FLAG_MFP;
+        break;
+
+    case 'p':
+        val = atoi(getopt_env.optarg);
+        if (val < 0 || val > 2) {
+            printf("invalid sae_pwe: %d \r\n", val);
+            goto _ERROUT;
+        }
+        config.sae_pwe = (uint8_t)val;
+        config.flag_set |= WIFI_MGMR_AP_FLAG_SAE_PWE;
+        break;
+
+    case 'T':
+        config.transition_disable = atoi(getopt_env.optarg);
+        break;
+
 	case '?':
 	    printf("unknow option: %c \r\n", getopt_env.optopt);
 	    goto _ERROUT;
@@ -863,7 +928,7 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
     return;
 
  _ERROUT:
-    printf("[USAGE]: %s -s <ssid> [-k <key>] [-c <channel>] [-a <akm>] [-d 0/1 <start dhcp server>] [-I <ipv4_addr>] [-S <dhcpd_start>] [-L <dhcpd_limit>] [-n <bcn_interval>] [-w 1/0 <disable_wmm, 1:disable 0:enable>] [-i 1/0 <isolation, 1:enable 0:disable>]\r\n", argv[0]);
+    printf("[USAGE]: %s -s <ssid> [-k <key>] [-c <channel>] [-a <akm>] [-d 0/1 <start dhcp server>] [-I <ipv4_addr>] [-S <dhcpd_start>] [-L <dhcpd_limit>] [-n <bcn_interval>] [-w 1/0 <disable_wmm, 1:disable 0:enable>] [-i 1/0 <isolation, 1:enable 0:disable>] [-m 0/1/2 <mfp, 0:disable 1:optional 2:required>] [-p 0/1/2 <sae_pwe, 0:HnP 1:H2E 2:both>] [-T <transition_disable>]\r\n", argv[0]);
     return;
 }
 
@@ -1063,6 +1128,10 @@ SHELL_CMD_EXPORT_ALIAS(wifi_disable_autoreconnect_cmd, wifi_sta_autoconnect_disa
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_on_cmd, wifi_sta_ps_on, wifi sta powersave mode on);
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_off_cmd, wifi_sta_ps_off, wifi sta powersave mode off);
 SHELL_CMD_EXPORT_ALIAS(wifi_sta_ps_set_cmd, wifi_sta_ps_set, wifi sta powersave mode set parameters);
+#ifdef CFG_IPV6
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_sta_ipv6_enable, wifi_sta_ipv6_enable, enable STA IPv6);
+SHELL_CMD_EXPORT_ALIAS(cmd_wifi_sta_ipv6_disable, wifi_sta_ipv6_disable, disable STA IPv6);
+#endif
 #if NX_COEX_POWERSAVE
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_enable, wifi_coex_enable, Enable WiFi/BLE coexistence mode);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_coex_disable, wifi_coex_disable, Disable WiFi/BLE coexistence mode);
@@ -1073,6 +1142,7 @@ SHELL_CMD_EXPORT_ALIAS(wifi_sta_info_cmd, wifi_sta_info, wifi sta info);
 SHELL_CMD_EXPORT_ALIAS(wifi_ap_sta_list_get_cmd, wifi_sta_list, get sta list in AP mode);
 SHELL_CMD_EXPORT_ALIAS(wifi_ap_sta_delete_cmd, wifi_sta_del, delete one sta in AP mode);
 SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_start_cmd, wifi_ap_start, start AP mode);
+SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_ip_set_cmd, wifi_ap_set_ip, set AP static IP);
 SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_stop_cmd, wifi_ap_stop, stop AP mode);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ap_mac_get, wifi_ap_mac_get, get wifi ap mac);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ap_conf_max_sta, wifi_ap_conf_max_sta, config AP mac sta);

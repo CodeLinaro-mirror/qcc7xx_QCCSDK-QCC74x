@@ -578,26 +578,13 @@ static void net_al_create_ip6_linklocal_address(int ipv6_enable)
         netif_set_flags(n, NETIF_FLAG_MLD6);
 #endif
         netif_create_ip6_linklocal_address(n, 1);
+#if LWIP_IPV6_AUTOCONFIG
         netif_set_ip6_autoconfig_enabled(n, true);
-        ipv6_timer_switch(1);
+#endif
         UNLOCK_TCPIP_CORE();
     } else {
         LOCK_TCPIP_CORE();
-        ipv6_timer_switch(0);
-
-#if LWIP_IPV6_DHCP6
-        dhcp6_disable(n);
-#endif
-        netif_set_ip6_autoconfig_enabled(n, false);
-
-        for (int i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
-            netif_ip6_addr_set_state(n, i, IP6_ADDR_INVALID);
-        }
-
-#if LWIP_IPV6_MLD
-        netif_clear_flags(n, NETIF_FLAG_MLD6);
-#endif
-        nd6_cleanup_netif(n);
+        netif_ip6_disable(n);
         UNLOCK_TCPIP_CORE();
     }
 }

@@ -89,6 +89,9 @@
 #if LWIP_IPV6_MLD
 #include "lwip/mld6.h"
 #endif /* LWIP_IPV6_MLD */
+#if LWIP_IPV6_REASS
+#include "lwip/ip6_frag.h"
+#endif /* LWIP_IPV6_REASS */
 #if LWIP_IPV6
 #include "lwip/nd6.h"
 #endif
@@ -127,6 +130,7 @@ static void netif_issue_reports(struct netif *netif, u8_t report_type);
 
 #if LWIP_IPV6
 static err_t netif_null_output_ip6(struct netif *netif, struct pbuf *p, const ip6_addr_t *ipaddr);
+static int netif_has_valid_ip6_addr(void);
 #endif /* LWIP_IPV6 */
 #if LWIP_IPV4
 static err_t netif_null_output_ip4(struct netif *netif, struct pbuf *p, const ip4_addr_t *ipaddr);
@@ -793,6 +797,9 @@ netif_remove(struct netif *netif)
 #endif /* LWIP_IPV4*/
 
 #if LWIP_IPV6
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+  nd6_lp_refresh_netif_disable(netif);
+#endif
   for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
     if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i))) {
       netif_do_ip_addr_changed(netif_ip_addr6(netif, i), NULL);
@@ -976,6 +983,7 @@ netif_set_down(struct netif *netif)
 
 #if LWIP_IPV6
     nd6_cleanup_netif(netif);
+    nd6_netif_state_changed(netif);
 #endif /* LWIP_IPV6 */
 
     NETIF_STATUS_CALLBACK(netif);
@@ -1065,6 +1073,9 @@ netif_set_link_down(struct netif *netif)
 
   if (netif->flags & NETIF_FLAG_LINK_UP) {
     netif_clear_flags(netif, NETIF_FLAG_LINK_UP);
+#if LWIP_IPV6
+    nd6_netif_state_changed(netif);
+#endif
 
 #if LWIP_AUTOIP
     autoip_network_changed_link_down(netif);
@@ -1498,10 +1509,67 @@ netif_ip6_addr_set_state(struct netif *netif, s8_t addr_idx, u8_t state)
       netif_invoke_ext_callback(netif, LWIP_NSC_IPV6_ADDR_STATE_CHANGED, &args);
     }
 #endif
+
+    nd6_netif_state_changed(netif);
   }
   LWIP_DEBUGF(NETIF_DEBUG | LWIP_DBG_TRACE | LWIP_DBG_STATE, ("netif: IPv6 address %d of interface %c%c set to %s/0x%"X8_F"\n",
               addr_idx, netif->name[0], netif->name[1], ip6addr_ntoa(netif_ip6_addr(netif, addr_idx)),
               netif_ip6_addr_state(netif, addr_idx)));
+}
+
+static int
+netif_has_valid_ip6_addr(void)
+{
+  struct netif *netif;
+  s8_t i;
+
+  NETIF_FOREACH(netif) {
+    for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+      if (!ip6_addr_isinvalid(netif_ip6_addr_state(netif, i))) {
+        return 1;
+      }
+    }
+  }
+
+  return 0;
+}
+
+void
+netif_ip6_disable(struct netif *netif)
+{
+  s8_t i;
+
+  LWIP_ASSERT_CORE_LOCKED();
+  LWIP_ERROR("netif_ip6_disable: invalid netif", netif != NULL, return);
+
+#if LWIP_IPV6_LP_REACHABILITY_REFRESH
+  nd6_lp_refresh_netif_disable(netif);
+#endif
+
+#if LWIP_IPV6_DHCP6
+  dhcp6_disable(netif);
+#endif
+
+#if LWIP_IPV6_AUTOCONFIG
+  netif_set_ip6_autoconfig_enabled(netif, 0);
+#endif /* LWIP_IPV6_AUTOCONFIG */
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    netif_ip6_addr_set_state(netif, i, IP6_ADDR_INVALID);
+  }
+
+#if LWIP_IPV6_MLD
+  mld6_stop(netif);
+  netif_clear_flags(netif, NETIF_FLAG_MLD6);
+#endif /* LWIP_IPV6_MLD */
+
+  nd6_cleanup_netif(netif);
+
+#if LWIP_IPV6_REASS
+  if (!netif_has_valid_ip6_addr()) {
+    ip6_reass_cleanup();
+  }
+#endif /* LWIP_IPV6_REASS */
 }
 
 /**

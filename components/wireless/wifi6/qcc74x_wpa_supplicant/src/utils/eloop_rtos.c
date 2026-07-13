@@ -20,6 +20,7 @@
 #include "eloop.h"
 #include "eloop_rtos.h"
 #include "rtos_def.h"
+#include "rtos_al.h"
 
 #define ELOOP_MSGQ_SIZE_MAX (16)
 #define printf(...)
@@ -87,8 +88,14 @@ static struct eloop_data eloop;
 struct eloop_msg {
     /* actor dispatches msg with event type */
     int type;
-    /* supplied by requestor, read-only for actor */
-    char inbuf[ELOOP_MSG_INBUF_LEN];
+    /*
+     * Supplied by requestor, read-only for actor. Dynamically allocated to the
+     * exact message length (no fixed-size limit), so large frames such as WPS
+     * M2/M8 are not dropped. Ownership is transferred to the event loop, which
+     * frees it after dispatch (or the requestor frees it if it never made it
+     * into the queue).
+     */
+    char *inbuf;
     int inlen;
     /* sync is true if completion notification is needed */
     int sync;
@@ -103,14 +110,29 @@ struct eloop_msg {
 int eloop_msg_init(struct eloop_msg *msg, int type, int sync,
         const char *inbuf, int len)
 {
-    if (len > sizeof(msg->inbuf)) {
-        wpa_printf(MSG_ERROR,
-                   "msg input buffer is too short, input len %d\r\n", len);
+    msg->inbuf = NULL;
+    msg->inlen = 0;
+    if (len < 0)
         return -1;
+    if (len > 0) {
+        if (!inbuf)
+            return -1;
+        /*
+         * Size the buffer to the exact message length (no fixed cap).
+         * rtos_try_malloc is used instead of os_malloc because os_malloc
+         * dead-loops on failure, which must never happen on the RX path - drop
+         * the message gracefully instead.
+         */
+        msg->inbuf = rtos_try_malloc(len);
+        if (!msg->inbuf) {
+            wpa_printf(MSG_ERROR,
+                       "no mem for msg->inbuf, input len %d\r\n", len);
+            return -1;
+        }
+        os_memcpy(msg->inbuf, inbuf, len);
     }
-    os_memcpy(msg->inbuf, inbuf, len);
-    msg->sync = sync;
     msg->inlen = len;
+    msg->sync = sync;
     msg->type = type;
     msg->outlen = NULL;
     msg->outbuf = NULL;
@@ -120,7 +142,7 @@ int eloop_msg_init(struct eloop_msg *msg, int type, int sync,
     msg->outlen = os_malloc(sizeof(int));
     if (!msg->outlen) {
         wpa_printf(MSG_ERROR, "no mem for msg->outlen\r\n");
-        return -1;
+        goto err_inbuf;
     }
     *msg->outlen = ELOOP_MSG_OUTBUF_LEN;
     msg->outbuf = os_calloc(1, *msg->outlen);
@@ -140,6 +162,9 @@ err_sem:
 err_resp_buf:
     os_free(msg->outlen);
     msg->outlen = NULL;
+err_inbuf:
+    os_free(msg->inbuf);
+    msg->inbuf = NULL;
     return -1;
 }
 
@@ -178,11 +203,15 @@ int eloop_event_commit_sync(int type, const char *inbuf, int inlen,
     }
     if (rtos_queue_write(eloop.msgq, (void *)&msg, -1, false) == 1) {
         wpa_printf(MSG_ERROR, "eloop failed to write msgq\r\n");
+        /* Never enqueued: the actor will not free inbuf, so do it here. */
+        os_free(msg.inbuf);
+        msg.inbuf = NULL;
         goto err_out;
     }
 
     if (rtos_semaphore_wait(msg.done, -1) == 1) {
         wpa_printf(MSG_ERROR, "eloop failed to wait semaphore\r\n");
+        /* Enqueued: inbuf ownership belongs to the actor, leave it. */
         goto err_out;
     }
     /* copy result to response */
@@ -204,24 +233,21 @@ err_out:
 
 int eloop_event_commit(int type, const char *inbuf, int inlen)
 {
-    int err = -1;
     struct eloop_msg msg;
 
-    err = eloop_msg_init(&msg, type, 0, inbuf, inlen);
-    if (err < 0) {
+    if (eloop_msg_init(&msg, type, 0, inbuf, inlen) < 0) {
         wpa_printf(MSG_ERROR, "failed to init eloop msg\r\n");
         return -1;
     }
     /* XXX wait for sending forever? */
     if (rtos_queue_write(eloop.msgq, (void *)&msg, -1, false) == 1) {
         wpa_printf(MSG_ERROR, "eloop failed to write msgq\r\n");
-        goto err_out;
+        /* Never enqueued: the actor will not free inbuf, so do it here. */
+        os_free(msg.inbuf);
+        return -1;
     }
-    err = 0;
-
-err_out:
-    eloop_msg_deinit(&msg);
-    return err;
+    /* Enqueued: inbuf ownership transferred to the actor (freed after dispatch). */
+    return 0;
 }
 
 
@@ -919,7 +945,8 @@ int eloop_rtos_sock_do_recv(int ev_type, void *buf, int len, int flags)
         return -1;
     }
     int copylen = (msg->inlen > len ? len : msg->inlen);
-    os_memcpy(buf, msg->inbuf, copylen);
+    if (copylen > 0 && msg->inbuf)
+        os_memcpy(buf, msg->inbuf, copylen);
     return copylen;
 }
 
@@ -930,6 +957,39 @@ int eloop_rtos_sock_recv(int ev_type, void *buf, int len, int flags)
 
     rtos_mutex_lock(eloop.mtx);
     err = eloop_rtos_sock_do_recv(ev_type, buf, len, flags);
+    rtos_mutex_unlock(eloop.mtx);
+    return err;
+}
+
+
+static int eloop_rtos_sock_do_get_buf(int ev_type, void **buf, int *len)
+{
+    struct eloop_event *event;
+
+    event = eloop_event_lookup(ev_type);
+    if (!event) {
+        wpa_printf(MSG_WARNING, "recved unknown event 0x%x\r\n", ev_type);
+        return -1;
+    }
+
+    struct eloop_msg *msg = event->msg;
+    if (!msg) {
+        wpa_printf(MSG_ERROR, "event %d has no eloop_msg attached\r\n",
+                   ev_type);
+        return -1;
+    }
+    *buf = msg->inbuf;
+    *len = msg->inlen;
+    return msg->inlen;
+}
+
+
+int eloop_rtos_sock_get_buf(int ev_type, void **buf, int *len)
+{
+    int err;
+
+    rtos_mutex_lock(eloop.mtx);
+    err = eloop_rtos_sock_do_get_buf(ev_type, buf, len);
     rtos_mutex_unlock(eloop.mtx);
     return err;
 }
@@ -1032,6 +1092,12 @@ void eloop_run(void)
 
         /* we got something, try to demux the msg */
         eloop_event_dispatch(&msg);
+
+        /* inbuf ownership was transferred to the actor; free it now. */
+        if (msg.inbuf) {
+            os_free(msg.inbuf);
+            msg.inbuf = NULL;
+        }
     }
     eloop.terminate = 0;
     rtos_mutex_unlock(eloop.mtx);

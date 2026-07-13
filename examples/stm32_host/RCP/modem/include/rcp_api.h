@@ -119,6 +119,10 @@ typedef enum {
 
 #define RCP_WIFI_MAX_TWT_FLOWS 8 /*!< Maximum number of TWT flows */
 
+#define RCP_WIFI_CSI_MAX_BUFFERS 6 /*!< Maximum number of CSI buffers */
+
+#define RCP_WIFI_CSI_STOP_ALL (-1) /*!< Stop all CSI buffers */
+
 #define RCP_CMD_MATCH_BUFF_SIZE                                                \
   256 /*!< Maximum size for modem cmd handler match_buf */
 
@@ -234,6 +238,25 @@ typedef enum {
   RCP_WIFI_ANTENNA_DYNAMIC,  /*!< Dynamic antenna selection */
   RCP_WIFI_ANTENNA_UNKNOWN,  /*!< Unknown antenna selection */
 } RCP_WiFi_AntennaMode_e;
+
+/**
+ * @brief  Wi-Fi CSI capture mode
+ */
+typedef enum {
+  RCP_WIFI_CSI_MODE_LEGACY_LTF = 0, /*!< Legacy LTF only */
+  RCP_WIFI_CSI_MODE_HT_LTF = 1,     /*!< HT LTF only */
+  RCP_WIFI_CSI_MODE_AUTO = 2,       /*!< Automatic CSI mode */
+} RCP_WiFi_CSI_Mode_e;
+
+/**
+ * @brief  Wi-Fi CSI timestamp mode
+ */
+typedef enum {
+  RCP_WIFI_CSI_TS_OFF = 0,      /*!< Timestamp disabled */
+  RCP_WIFI_CSI_TS_ONESHOT = 1,  /*!< One-shot timestamp mode */
+  RCP_WIFI_CSI_TS_PERIODIC = 2, /*!< Periodic timestamp mode */
+  RCP_WIFI_CSI_TS_FTM = 3,      /*!< FTM timestamp mode */
+} RCP_WiFi_CSI_TsMode_e;
 
 /** @} */
 
@@ -682,6 +705,15 @@ typedef void (*RCP_WiFi_Scan_Result_cb_t)(int32_t status,
                                           RCP_WiFi_Scan_Result_t *Scan_results);
 
 /**
+ * @brief  Wi-Fi CSI report callback
+ * @param  report: pointer to a CSI CSV payload fragment
+ * @param  len: payload fragment length, excluding CR/LF
+ * @param  last: true when this is the final fragment of one report
+ */
+typedef void (*RCP_WiFi_CSI_Report_cb_t)(const uint8_t *report,
+                                            uint16_t len, bool last);
+
+/**
  * @brief  Wi-Fi connection options
  */
 typedef struct {
@@ -815,6 +847,32 @@ typedef struct {
   /** TWT flow ID */
   uint8_t id;
 } RCP_WiFi_TWT_Teardown_Params_t;
+
+/**
+ * @brief  Wi-Fi CSI start parameters
+ */
+typedef struct {
+  uint8_t MAC[6]; /*!< Target peer MAC address */
+  uint8_t buf;    /*!< Buffer index, range [0, RCP_WIFI_CSI_MAX_BUFFERS-1] */
+  RCP_WiFi_CSI_Mode_e mode;      /*!< CSI capture mode */
+  RCP_WiFi_CSI_TsMode_e ts_mode; /*!< Timestamp mode */
+  uint32_t interval_ms;            /*!< Trigger interval in milliseconds */
+  uint8_t ready_after_isr;         /*!< Keep buffer ready after ISR */
+} RCP_WiFi_CSI_Start_Params_t;
+
+/** Monitor output unspecified: let the device use its default (report on) */
+#define RCP_WIFI_MONITOR_OUTPUT_DEFAULT 0xFFU
+
+/**
+ * @brief  Wi-Fi monitor (sniffer) start parameters
+ */
+typedef struct {
+  uint8_t channel;      /*!< Capture channel (mandatory, >=1) */
+  uint16_t min_pkg_len; /*!< Minimum packet length filter, 0 to omit (no filter) */
+  uint16_t max_pkg_len; /*!< Maximum packet length filter, 0 to omit (no filter) */
+  uint8_t output;       /*!< 0: drop, 1: report,
+                             RCP_WIFI_MONITOR_OUTPUT_DEFAULT: omit (device default) */
+} RCP_WiFi_Monitor_Params_t;
 
 /** @} */
 
@@ -1223,6 +1281,8 @@ typedef struct {
   RCP_Event_cb_t Net_event_data_cb; /*!< Net event data callback function */
   RCP_Event_cb_t
       WiFi_event_scan_cb; /*!< Wi-Fi event scan data callback function */
+  RCP_WiFi_CSI_Report_cb_t
+      WiFi_csi_report_cb; /*!< Wi-Fi CSI report callback function */
 } RCP_Callback_t;
 
 /**
@@ -1499,13 +1559,6 @@ RCP_Status_t RCP_RegisterULcb(RCP_Object_t *Obj,
 RCP_Status_t RCP_Init(RCP_Object_t *Obj);
 
 /**
- * @brief  Initialize WIFI module
- * @param  Obj: pointer to module handle
- * @return Operation status
- */
-RCP_Status_t RCP_DeInit(RCP_Object_t *Obj);
-
-/**
  * @brief  Wait for the WIFI module interface to be ready
  * @param  Obj: pointer to module handle
  * @param  time_ms: timeout in milliseconds
@@ -1595,13 +1648,6 @@ RCP_Status_t RCP_ReadEFuse(RCP_Object_t *Obj, uint32_t addr, uint32_t nbytes,
  */
 RCP_Status_t RCP_EFuseRead(RCP_Object_t *Obj, uint32_t nbytes, const char *addr,
                            uint32_t reload, uint8_t *data);
-
-/**
- * @brief  Reset the module
- * @param  Obj: pointer to module handle
- * @return Operation status
- */
-RCP_Status_t RCP_ResetModule(RCP_Object_t *Obj);
 
 /**
  * @brief  Get module information and fill Obj->ModuleInfo
@@ -1971,50 +2017,6 @@ RCP_Status_t RCP_FWU_Send(RCP_Object_t *Obj, uint8_t *buff, uint32_t len);
  * @param  ps_mode: power save mode (0: normal, 1: hibernate, 2: standby)
  * @return Operation status
  */
-RCP_Status_t RCP_LowPowerConfig(RCP_Object_t *Obj, uint32_t WakeUpPinIn,
-                                uint32_t ps_mode);
-
-/**
- * @brief  Configure power mode
- * @param  Obj: pointer to module handle
- * @param  ps_mode: power save mode (0: normal, 1: hibernate, 2: standby)
- * @param  hbn_level: hibernate wakeup source selection
- * @return Operation status
- */
-RCP_Status_t RCP_SetPowerMode(RCP_Object_t *Obj, uint32_t ps_mode,
-                              uint32_t hbn_level);
-
-/**
- * @brief  Get cached power mode
- * @param  Obj: pointer to module handle
- * @param  ps_mode: output buffer for cached power mode
- * @return Operation status
- */
-RCP_Status_t RCP_GetPowerMode(RCP_Object_t *Obj, uint32_t *ps_mode);
-
-/**
- * @brief  Set NCP wake-up pin
- * @param  Obj: pointer to module handle
- * @param  wakeup_pin: pin number of the wake up input
- * @return Operation status
- */
-RCP_Status_t RCP_SetWakeUpPin(RCP_Object_t *Obj, uint32_t wakeup_pin);
-
-/**
- * @brief  Set module clock source
- * @param  Obj: pointer to module handle
- * @param  source: clock source (1: internal RC, 2: external XTAL, 3: external clock input)
- * @return Operation status
- */
-RCP_Status_t RCP_SetClockSource(RCP_Object_t *Obj, uint32_t source);
-
-/**
- * @brief  Get module clock source
- * @param  Obj: pointer to module handle
- * @param  source: output buffer for clock source
- * @return Operation status
- */
-RCP_Status_t RCP_GetClockSource(RCP_Object_t *Obj, uint32_t *source);
 
 /**
  * @brief  Execute command
@@ -2478,6 +2480,42 @@ RCP_Status_t RCP_WiFi_GetAntennaEnable(RCP_Object_t *Obj,
  * @return Operation status
  */
 RCP_Status_t RCP_WiFi_GetAntennaUsed(RCP_Object_t *Obj, uint32_t *antenna_id);
+
+/**
+ * @brief  Start CSI capture
+ * @param  Obj: pointer to module handle
+ * @param  params: pointer to CSI start parameters
+ * @param  cb: callback called for each CSI report, or NULL to ignore
+ * @return Operation status
+ */
+RCP_Status_t
+RCP_WiFi_CSI_Start(RCP_Object_t *Obj,
+                   const RCP_WiFi_CSI_Start_Params_t *params,
+                   RCP_WiFi_CSI_Report_cb_t cb);
+
+/**
+ * @brief  Stop CSI capture
+ * @param  Obj: pointer to module handle
+ * @param  buf: buffer index, or RCP_WIFI_CSI_STOP_ALL to stop all buffers
+ * @return Operation status
+ */
+RCP_Status_t RCP_WiFi_CSI_Stop(RCP_Object_t *Obj, int32_t buf_idx);
+
+/**
+ * @brief  Start Wi-Fi monitor (sniffer) mode
+ * @param  Obj: pointer to module handle
+ * @param  params: pointer to monitor start parameters
+ * @return Operation status
+ */
+RCP_Status_t RCP_WiFi_Monitor_Start(RCP_Object_t *Obj,
+                                    const RCP_WiFi_Monitor_Params_t *params);
+
+/**
+ * @brief  Stop Wi-Fi monitor (sniffer) mode
+ * @param  Obj: pointer to module handle
+ * @return Operation status
+ */
+RCP_Status_t RCP_WiFi_Monitor_Stop(RCP_Object_t *Obj);
 
 /** @} */
 

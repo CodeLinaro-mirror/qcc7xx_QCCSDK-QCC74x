@@ -49,6 +49,7 @@
 #include "lwip/pbuf.h"
 #include "lwip/memp.h"
 #include "lwip/stats.h"
+#include "lwip/timeouts.h"
 
 #include <string.h>
 
@@ -112,7 +113,17 @@ static void ip6_reass_remove_oldest_datagram(struct ip6_reassdata *ipr, int pbuf
 void
 ip6_reass_tmr(void)
 {
+  ip6_reass_tmr_tick(1);
+}
+
+void
+ip6_reass_tmr_tick(u16_t ticks)
+{
   struct ip6_reassdata *r, *tmp;
+
+  if (ticks == 0) {
+    return;
+  }
 
 #if !IPV6_FRAG_COPYHEADER
   LWIP_ASSERT("sizeof(struct ip6_reass_helper) <= IP6_FRAG_HLEN, set IPV6_FRAG_COPYHEADER to 1",
@@ -123,8 +134,8 @@ ip6_reass_tmr(void)
   while (r != NULL) {
     /* Decrement the timer. Once it reaches 0,
      * clean up the incomplete fragment assembly */
-    if (r->timer > 0) {
-      r->timer--;
+    if (r->timer >= ticks) {
+      r->timer = (u8_t)(r->timer - ticks);
       r = r->next;
     } else {
       /* reassembly timed out */
@@ -133,9 +144,60 @@ ip6_reass_tmr(void)
       r = r->next;
       /* free the helper struct and all enqueued pbufs */
       ip6_reass_free_complete_datagram(tmp);
-     }
-   }
+    }
+  }
 }
+
+void
+ip6_reass_cleanup(void)
+{
+  struct ip6_reassdata *ipr = reassdatagrams;
+
+  while (ipr != NULL) {
+    struct ip6_reassdata *next = ipr->next;
+    struct pbuf *p = ipr->p;
+
+    while (p != NULL) {
+      struct ip6_reass_helper *iprh = (struct ip6_reass_helper *)p->payload;
+      struct pbuf *pcur = p;
+
+      p = iprh->next_pbuf;
+      pbuf_free(pcur);
+    }
+
+    memp_free(MEMP_IP6_REASSDATA, ipr);
+    ipr = next;
+  }
+
+  reassdatagrams = NULL;
+  ip6_reass_pbufcount = 0;
+#if LWIP_TIMERS && IPV6_TIMER_PRECISE_NEEDED
+  ipv6_timer_needed(ip6_reass_tmr);
+#endif
+}
+
+#if IPV6_TIMER_PRECISE_NEEDED
+u32_t
+ip6_reass_tmr_sleeptime(void)
+{
+  struct ip6_reassdata *r;
+  u16_t min_ticks = 0xffff;
+
+  for (r = reassdatagrams; r != NULL; r = r->next) {
+    u16_t ticks = (u16_t)LWIP_MAX(r->timer, 1);
+
+    if (ticks < min_ticks) {
+      min_ticks = ticks;
+    }
+  }
+
+  if (min_ticks == 0xffff) {
+    return SYS_TIMEOUTS_SLEEPTIME_INFINITE;
+  }
+
+  return (u32_t)min_ticks * IP6_REASS_TMR_INTERVAL;
+}
+#endif
 
 /**
  * Free a datagram (struct ip6_reassdata) and all its pbufs.
@@ -221,6 +283,9 @@ ip6_reass_free_complete_datagram(struct ip6_reassdata *ipr)
   /* Finally, update number of pbufs in reassembly queue */
   LWIP_ASSERT("ip_reass_pbufcount >= clen", ip6_reass_pbufcount >= pbufs_freed);
   ip6_reass_pbufcount = (u16_t)(ip6_reass_pbufcount - pbufs_freed);
+#if LWIP_TIMERS && IPV6_TIMER_PRECISE_NEEDED
+  ipv6_timer_needed(ip6_reass_tmr);
+#endif
 }
 
 #if IP_REASS_FREE_OLDEST
@@ -357,6 +422,9 @@ ip6_reass(struct pbuf *p)
     /* enqueue the new structure to the front of the list */
     ipr->next = reassdatagrams;
     reassdatagrams = ipr;
+#if LWIP_TIMERS && IPV6_TIMER_PRECISE_NEEDED
+    ipv6_timer_needed(ip6_reass_tmr);
+#endif
 
     /* Use the current IPv6 header for src/dest address reference.
      * Eventually, we will replace it when we get the first fragment
@@ -649,6 +717,9 @@ ip6_reass(struct pbuf *p)
     clen = pbuf_clen(p);
     LWIP_ASSERT("ip6_reass_pbufcount >= clen", ip6_reass_pbufcount >= clen);
     ip6_reass_pbufcount = (u16_t)(ip6_reass_pbufcount - clen);
+#if LWIP_TIMERS && IPV6_TIMER_PRECISE_NEEDED
+    ipv6_timer_needed(ip6_reass_tmr);
+#endif
 
     /* Move pbuf back to IPv6 header. This should never fail. */
     if (pbuf_header_force(p, (s16_t)((u8_t*)p->payload - (u8_t*)iphdr_ptr))) {

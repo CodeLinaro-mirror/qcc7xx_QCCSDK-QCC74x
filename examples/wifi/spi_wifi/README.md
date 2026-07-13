@@ -48,6 +48,7 @@ Return: NULL - Failure; Non-NULL - Virtual NIC Operation Object
 
 virt_net_t virt_net_spi_create(void);
 ```
+
 ```bash
 Brief: Device initialization.
 
@@ -55,6 +56,7 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_initial(virt_net_t obj);
 ```
+
 ```bash
 Brief: Device Enables DHCP.
 
@@ -62,6 +64,7 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_dhcp_start(virt_net_t obj, uint32_t timeout);
 ```
+
 ```bash
 Brief: DHCP Completed.
 
@@ -70,6 +73,7 @@ Return: 0 - Success, Non-Zero - Failure
 int virt_net_dhcp_done(virt_net_t obj);
 
 ```
+
 ```bash
 Brief: Get  Virtual Network Interface IP Information.
 
@@ -77,6 +81,7 @@ Return: 0 - Success, Non-Zero - Failure
 
 int virt_net_get_sta_ip(virt_net_t obj, uint32_t *ip, uint32_t *mask, uint32_t *gw);
 ```
+
 ```bash
 Brief: Get Device Current Operation Mode: 0-Lwip On Host Mode, 1-NCP Mode
 
@@ -141,12 +146,12 @@ netif_set_status_callback(&obj->netif, netif_status_callback);
 Enter the build command under the `spiwifi`​ example directory:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n
+make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0
 ```
 BLE Lwip On Host only compiles with Wi-Fi Lwip On Host:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n CONFIG_BLUETOOTH_APP=n CONFIG_HCI_ENABLE=y
+make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0 CONFIG_BLUETOOTH_APP=0 CONFIG_HCI_ENABLE=1
 ```
 
 ### Flashing
@@ -165,10 +170,12 @@ DHCP is enabled by default on the host side in Lwip On Host mode, and an IP addr
 AT+CWMODE=1
 OK
 ```
+
 ```bash
 AT+CWJAP="ssid","pwd"
 OK
 ```
+
 ```bash
 +CW:CONNECTED
 
@@ -184,6 +191,7 @@ The DHCP service is not enabled by default and will only start after manually ac
 AT+CWMODE=2
 OK
 ```
+
 ```bash
 AT+CWSAP="Qcc74x","12345678",6,0,3,0
 OK
@@ -208,8 +216,8 @@ Use a smartphone or other STA device to connect to the AP named "QCC74x". After 
 Thread RCP only compiles with Wi-Fi RCP and lower power feature disabled.
 > Note, currently none of coexistence supported with Wi-Fi and BLE.
 
-```raw
-make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_USE_LPAPP=n CONFIG_OT_RCP=y
+```
+make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_USE_LPAPP=0 CONFIG_OT_RCP=y
 ```
 
 ### Flashing
@@ -226,26 +234,33 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
 
 - reset command, `HOSTCMD ot_reset`
 
+  ```shell
   executing command ot_reset
   spawn 0
   reset, and reason: power on
+  ```
 
 - get version, `HOSTCMD ot_rcp_ver`
 
+  ```
   executing command ot_rcp_ver
   spawn 0
   rcp version: OpenThread/7e32165be; NONE; May 26 2025 13:45:24
+  ```
 
 - send one packet with length 127, `HOSTCMD ot_txpkt 127`
 
+  ```shell
   executing command ot_txpkt
   spawn 0
   phy is enabled
   sent: 2a acked
   phy is disabled
+  ```
 
 - continuous send packets with 2 seconds period,`HOSTCMD ot_sends 2`
 
+  ```
   executing command ot_sends
   spawn 0
   phy is enabled
@@ -256,9 +271,11 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
   sent: 29 acked
   packet tx test done, tx 200 packets, acked 199 packets
   phy is disabled
+  ```
 
 - receive packets with 5 seconds period,`HOSTCMD ot_recv 5`
 
+  ```
   executing command ot_recv
   spawn 0
   phy is enabled
@@ -273,6 +290,7 @@ Host commands listed below demonstrate Thread RCP works over SPI protocol.
   received 127 bytes, seq 41. rx 199 packets in total 200 packets within 1 seconds
   raw stream is disabled
   phy is disabled
+  ```
 
 ## Low Power Mode Configuration and Usage
 
@@ -386,16 +404,21 @@ Ensure that the PC and qcc74x are connected to the same router.
 
    Execute commands in the directory examples/wifi/spi_wifi:
 
+   ```bash
    ncat -klp 3365 < build/build_out/spi_wifi_qcc743.bin.ota
+   ```
 
 ### HOST UART Command
 
 2. Query OTA partition status
 
+   ```bash
    AT+PART？
+   ```
 
    Responds:
 
+   ```bash
    +PART=0,0,"   Boot2",0x00000000,0x00000000,57344,0
    +PART=0,0,"      FW",0x00010000,0x00210000,2097152,1474560
    +PART=0,0,"     mfg",0x00210000,0x00000000,1474560,0
@@ -406,15 +429,19 @@ Ensure that the PC and qcc74x are connected to the same router.
    +PART=0,0," factory",0x003f8000,0x00000000,32768,0
 
    OK
+   ```
 
 3. Start OTA.
 
     The default port is 3365.
 
+   ```bash
     HOSTCMD ota_start 192.168.31.112
+   ```
 
 4. Waiting for transmission to complete.
 
+   ```bash
     OTA start file_size:1444288
     OTA trans size:2920
 
@@ -431,14 +458,18 @@ Ensure that the PC and qcc74x are connected to the same router.
     lramsync_reset
 
     ready
+   ```
 
 
 5. Recheck the OTA partition status.
 
+    ```bash
     AT+PART？
+    ```
 
     Responds:
 
+    ```bash
     +PART=0,0,"   Boot2",0x00000000,0x00000000,57344,0
     +PART=1,1,"      FW",0x00010000,0x00210000,2097152,1474560
     +PART=0,0,"     mfg",0x00210000,0x00000000,1474560,0
@@ -449,6 +480,7 @@ Ensure that the PC and qcc74x are connected to the same router.
     +PART=0,0," factory",0x003f8000,0x00000000,32768,0
 
     OK
+    ```
 
     OTA transfer times are as follows:
 
@@ -465,41 +497,57 @@ Ensure that the PC and qcc74x are connected to the same router.
 
 1. PC Command
 
+   ```bash
     iperf -s -i 1
+   ```
 
 2. HOST Command
 
+   ```bash
     HOSTCMD ipc <remote_ip>
+   ```
 
 #### UDP TX
 
 1. PC Command
 
+   ```bash
     iperf -u -s -i 1
+   ```
 
 2. HOST Command
 
+   ```bash
     HOSTCMD ipu <remote_ip>
+   ```
 
 #### TCP RX
 
 1. HOST Command
 
+   ```bash
     HOSTCMD ips <remote_ip>
+   ```
 
 2. PC Command
 
+   ```bash
     iperf -c <remote_ip> -i 1 -t 10
+   ```
 
 #### UDP RX
 
 1. HOST Command
 
+   ```bash
     HOSTCMD ipus <remote_ip>
+   ```
 
 2. PC Command
 
+   ```bash
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
+   ```
 
 ### NCP Lwip On Host
 
@@ -507,41 +555,57 @@ Ensure that the PC and qcc74x are connected to the same router.
 
 1. PC Command
 
+   ```bash
     iperf -s -i 1
+   ```
 
 2. HOST Command
 
+   ```bash
     HOSTCMD iperf_c <remote_ip>
+   ```
 
 #### UDP TX
 
 1. PC Command
 
+   ```bash
     iperf -u -s -i 1
+   ```
 
 2. HOST Command
 
+   ```bash
     HOSTCMD iperf_u_c <remote_ip>
+   ```
 
 #### TCP RX
 
 2. HOST Command
 
+   ```bash
     HOSTCMD iperf_s <remote_ip>
+   ```
 
 1. PC Command
 
+   ```bash
     iperf -c <remote_ip> -i 1 -t 10
+   ```
 
 #### UDP RX
 
 2. HOST Command
 
+   ```bash
     HOSTCMD iperf_u_s <remote_ip>
+   ```
 
 1. PC Command
 
+   ```bash
     iperf -u -c <remote_ip> -i 1 -b 20M -t 10
+   ```
 
 ## Memory Consumption
 
@@ -1026,10 +1090,14 @@ This chapter provides a comprehensive guide for configuring and testing the Targ
    - Establish a connection to a TWT-compatible router (e.g., ROG AX11000).
 4. **Setup TWT on QCC743:**
    - Execute the following command:
+     ```shell
      wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
+     ```
 5. **Activate TWT:**
    - Enter the command:
+     ```shell
      twt
+     ```
 6. **Measure Power Consumption:**
    - Record power usage using specialized equipment in a shielded environment.
 
@@ -1050,11 +1118,13 @@ wifi_mgmr_sta_twt_setup -s 1 -t 1 -e <WakeIntervalExponent> -n <WakeDuration> -m
 
 ### Example Commands(hostless):
 1. **SP = 32.768 ms, Wake Interval = 8.192 seconds:**
+   ```shell
    wifi_mgmr_sta_twt_setup -s 1 -t 1 -e 13 -n 128 -m 1000
+   ```
 
 ### Host-Side Command:
 The following host-side command corresponds to the TWT setup:
-```txt
+```plaintext
 AT+TWT_PARAM=1,1,13,128,1000
 AT+TWT_SLEEP
 ```

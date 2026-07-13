@@ -42,15 +42,30 @@ static int tty_atcmd_dnld_output(mr_tty_priv_t *priv, mr_tty_msg_t *tty_msg_pkt)
 
 int tty_atcmd_upld_send(uint8_t *data_buff, uint32_t data_size)
 {
+    uint32_t offset = 0;
+
     if (data_size == 0) {
         return NETHUB_OK;
     }
 
-    if (g_tty_atcmd_priv == NULL || data_buff == NULL || data_size > UINT16_MAX) {
+    if (g_tty_atcmd_priv == NULL || data_buff == NULL) {
         return NETHUB_ERR_INVALID_PARAM;
     }
 
-    return mr_tty_upld_data_send(g_tty_atcmd_priv, data_buff, (uint16_t)data_size);
+    while (offset < data_size) {
+        uint32_t remain = data_size - offset;
+        uint16_t chunk_len = (remain > TTY_ATCMD_PAYLOAD_SIZE) ?
+            TTY_ATCMD_PAYLOAD_SIZE : (uint16_t)remain;
+        int ret = mr_tty_upld_data_send(g_tty_atcmd_priv, data_buff + offset, chunk_len);
+
+        if (ret < 0) {
+            return ret;
+        }
+
+        offset += chunk_len;
+    }
+
+    return NETHUB_OK;
 }
 
 int tty_atcmd_dnld_register(nethub_ctrl_rx_cb_t dnld_cb, void *cbpri_arg)

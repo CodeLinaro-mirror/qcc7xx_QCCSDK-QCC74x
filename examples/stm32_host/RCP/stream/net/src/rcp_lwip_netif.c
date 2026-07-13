@@ -334,7 +334,7 @@ static void rcp_lwip_dhcp_timeout(void *arg)
 	(void)arg;
 	g_rcp_lwip.dhcp_waiting = false;
 	LOG_WRN("DHCP timed out, disconnecting WiFi");
-	(void)rcp_wifi_disconnect();
+	(void)rcp_wifi_disconnect(0U);
 }
 
 err_t rcp_lwip_dhcp_start(uint32_t timeout_ms)
@@ -427,8 +427,8 @@ err_t rcp_lwip_init(void)
 	const rcp_stream_config_t conf = {
 		.tx_cnt = RCP_ETH_NUM_BUFFERS,
 		.rx_wnd = RCP_ETH_RX_WND + 2,
-		.rx_threshold = 6,
-		.tx_threshold = 6,
+		.rx_threshold = RCP_CREDIT_ETH_THRESHOLD,
+		.tx_threshold = RCP_CREDIT_ETH_THRESHOLD,
 	};
 
 	if (link_register_rx_handler(RCP_MSG_TYPE_WIFI_STA, handle_rcp_msg) != RCP_LNK_SUCCESS) {

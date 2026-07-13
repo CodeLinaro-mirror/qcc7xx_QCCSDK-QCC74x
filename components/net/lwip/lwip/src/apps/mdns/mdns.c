@@ -2266,6 +2266,22 @@ mdns_define_probe_rrs_to_send(struct netif *netif, struct mdns_outmsg *outmsg)
   }
 }
 
+#if LWIP_IPV6
+static int
+mdns_netif_has_valid_ipv6_addr(struct netif *netif)
+{
+  int i;
+
+  for (i = 0; i < LWIP_IPV6_NUM_ADDRESSES; i++) {
+    if (ip6_addr_isvalid(netif_ip6_addr_state(netif, i))) {
+      return 1;
+    }
+  }
+
+  return 0;
+}
+#endif
+
 static err_t
 mdns_send_probe(struct netif* netif, const ip_addr_t *destination)
 {
@@ -2301,7 +2317,8 @@ mdns_probe_and_announce(void* arg)
 #endif
       {
 #if LWIP_IPV6
-        if (mdns_send_probe(netif, &v6group) == ERR_OK)
+        if (!mdns_netif_has_valid_ipv6_addr(netif) ||
+            mdns_send_probe(netif, &v6group) == ERR_OK)
 #endif
         {
           mdns->state = MDNS_STATE_PROBING;
@@ -2734,8 +2751,10 @@ mdns_resp_announce(struct netif *netif)
   if (mdns->state >= MDNS_STATE_ANNOUNCING) {
     /* Announce on IPv6 and IPv4 */
 #if LWIP_IPV6
-    mdns_announce(netif, &v6group);
-    mdns_start_multicast_timeouts_ipv6(netif);
+    if (mdns_netif_has_valid_ipv6_addr(netif)) {
+      mdns_announce(netif, &v6group);
+      mdns_start_multicast_timeouts_ipv6(netif);
+    }
 #endif
 #if LWIP_IPV4
     if (!ip4_addr_isany_val(*netif_ip4_addr(netif))) {

@@ -29,7 +29,7 @@ void *_malloc_r(struct _reent *reent, size_t size)
 {
     void *mem;
 
-    mem = qcc74x_malloc(PMEM_HEAP, size);
+    mem = kmalloc(size, MM_FLAG_HEAP_ANY);
 
     if (mem == NULL) {
         reent->_errno = ENOMEM;
@@ -51,7 +51,11 @@ void *_realloc_r(struct _reent *reent, void *old, size_t newlen)
 {
     void *mem;
 
-    mem = qcc74x_realloc(PMEM_HEAP, old, newlen);
+    if (old == NULL) {
+        mem = kmalloc(newlen, MM_FLAG_HEAP_ANY);
+    } else {
+        mem = krealloc(old, newlen);
+    }
 
     if (mem == NULL) {
         reent->_errno = ENOMEM;
@@ -73,7 +77,11 @@ void *_calloc_r(struct _reent *reent, size_t nmenb, size_t size)
 {
     void *mem;
 
-    mem = qcc74x_calloc(PMEM_HEAP, nmenb, size);
+    if (nmenb != 0U && size > SIZE_MAX / nmenb) {
+        mem = NULL;
+    } else {
+        mem = kmalloc(nmenb * size, MM_FLAG_HEAP_ANY | MM_FLAG_PROP_ZERO);
+    }
 
     if (mem == NULL) {
         reent->_errno = ENOMEM;
@@ -95,7 +103,7 @@ void *_memalign_r(struct _reent *reent, size_t align, size_t size)
 {
     void *mem;
 
-    mem = qcc74x_malloc_align(PMEM_HEAP, align, size);
+    mem = kmemalign(size, align);
 
     if (mem == NULL) {
         reent->_errno = ENOMEM;
@@ -118,5 +126,5 @@ void _free_r(struct _reent *reent, void *addr)
         return;
     }
 
-    qcc74x_free(PMEM_HEAP, addr);
+    kfree(addr);
 }

@@ -180,6 +180,10 @@ bool rcp_os_queue_init(rcp_queue_t *queue, uint32_t item_size, uint32_t max_item
 
 void rcp_os_queue_deinit(rcp_queue_t *queue)
 {
+	if (queue == NULL) {
+		return;
+	}
+
 	if (queue->_queue) {
 		vQueueDelete(queue->_queue);
 		queue->_queue = NULL;

@@ -112,9 +112,9 @@ static void *rx_thread_handle(void *arg)
 		}
 
 		if (fds.revents & POLLIN) {
-			reading = true;
 			int nbytes = 0;
 			if (ioctl(socket_fd, FIONREAD, &nbytes) == 0) {
+				reading = true;
 				to_read = nbytes;
 				/* TODO: Block further writes? */
 				__rcp_bus_set_flags(inst, RCP_BUS_FLAG_RX_DATA, 0);
