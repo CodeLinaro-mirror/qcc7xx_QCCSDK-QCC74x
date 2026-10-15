@@ -150,12 +150,17 @@ bool qcc74x_sdio_detect(struct qcc74x_sdio *hd)
 
 bool qcc74x_sdio_alive(struct qcc74x_sdio *hd)
 {
-	if (hd == NULL || hd->sdio.rca == 0U) {
-		return false;
-	}
+    uint8_t cccr_revision;
 
-	return (SDMMC_CmdSelDesel(hd->sdio.sdio.Instance,
-			(uint32_t)(((uint32_t)hd->sdio.rca) << 16U)) == HAL_SDIO_ERROR_NONE);
+    if (hd == NULL || hd->sdio.rca == 0U) {
+        return false;
+    }
+
+    return sdio_cmd52(&hd->sdio,
+                      SDIO_CCCR_FUNCTION_0,
+                      SDIO_CCCR_REVISION_REG,
+                      SDIO_READ,
+                      &cccr_revision);
 }
 
 bool qcc74x_sdio_register_irq_cb(struct qcc74x_sdio *hd, qcc74x_sdio_irq_cb cb)

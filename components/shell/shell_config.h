@@ -18,11 +18,11 @@
 #endif
 
 #ifndef SHELL_CMD_SIZE
-#define SHELL_CMD_SIZE 120
+#define SHELL_CMD_SIZE 256
 #endif
 
 #ifndef SHELL_ARG_NUM
-#define SHELL_ARG_NUM 20
+#define SHELL_ARG_NUM 40
 #endif
 
 //#define SHELL_USING_FS

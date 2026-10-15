@@ -26,7 +26,7 @@
 #define DEFAULT_HTTPS_PORT (443)
 
 struct http_client {
-    int                     socket;
+    intptr_t                socket;
     char                   *host;               /*!< Domain or IP as string */
     char                   *scheme;
     int                    port;                /*!< Port to connect, default depend on http_client_transport_t (80 or 443) */
@@ -36,7 +36,7 @@ struct http_client {
     char                   *query;
 };
 
-static int connect_https(struct http_client *client,
+static intptr_t connect_https(struct http_client *client,
 		                 const char *ca_pem, size_t ca_len,
 						 const char *client_cert_pem, size_t client_cert_len,
 						 const char *client_key_pem, size_t client_key_len)
@@ -56,10 +56,10 @@ static int connect_https(struct http_client *client,
     	ssl_param.private_cert = client_key_pem;
     	ssl_param.private_cert_len = client_key_len;
         /* for mbedtls3 set hostname */
-        ssl_param.sni = "localhost_1";
+        ssl_param.sni = client->host;
     	https = https_wrapper_connect(client->host, client->port, &ssl_param);
     }
-    return (int)https;
+    return (intptr_t)https;
 }
 
 static void http_client_clean(struct http_client *client)
@@ -198,6 +198,9 @@ static int http_client_set_url(struct http_client *client, const char *url)
         client->path[purl.field_data[UF_PATH].len] = '\0';
     } else {
         client->path = strdup("/");
+        if (!client->path) {
+        goto __fail4;
+        }
     }
     LOG_DBG("path:%s", client->path);
 
@@ -239,6 +242,9 @@ int https_client_request(const struct https_client_request *request, uint32_t ti
 {
     int ret;
     int buffer_size;
+    size_t path_len;
+    size_t query_len;
+    char *request_uri = NULL;
     struct http_request req = {0};
     struct http_client client = {0};
 
@@ -250,16 +256,6 @@ int https_client_request(const struct https_client_request *request, uint32_t ti
     ret = http_client_set_url(&client, request->url);
     if (ret < 0) {
         LOG_ERR("Failed to set URL: %d\r\n", ret);
-        goto __end;
-    }
-
-    client.socket = connect_https(&client,
-    		                      request->ca_pem, request->ca_len,
-    		                      request->client_cert_pem, request->client_cert_len,
-								  request->client_key_pem, request->client_key_len);
-    if (!client.socket) {
-    	ret = -ECONNREFUSED;
-    	LOG_ERR("https connect failed\r\n");
         goto __end;
     }
 
@@ -275,7 +271,20 @@ int https_client_request(const struct https_client_request *request, uint32_t ti
 	req.method = request->method;
 	req.response = request->response;
     req.http_cb = request->http_cb;
-	req.url = client.path;
+	path_len = client.path ? strlen(client.path) : 1;
+    query_len = client.query ? strlen(client.query) : 0;
+    if (query_len > 0) {
+        request_uri = malloc(path_len + 1 + query_len + 1);
+        if (!request_uri) {
+            ret = -ENOMEM;
+            goto __end;
+        }
+        snprintf(request_uri, path_len + 1 + query_len + 1,
+                "%s?%s", client.path ? client.path : "/", client.query);
+        req.url = request_uri;
+    } else {
+        req.url = client.path ? client.path : "/";
+    }
 	req.protocol = request->protocol;
     req.header_fields = request->header_fields;
     req.content_type_value = request->content_type_value;
@@ -286,14 +295,26 @@ int https_client_request(const struct https_client_request *request, uint32_t ti
 	req.optional_headers_cb = request->optional_headers_cb;
 	req.optional_headers = request->optional_headers;
 
+    client.socket = connect_https(&client,
+                                  request->ca_pem, request->ca_len,
+                                  request->client_cert_pem, request->client_cert_len,
+                                  request->client_key_pem, request->client_key_len);
+    if (!client.socket) {
+        ret = -ECONNREFUSED;
+        LOG_ERR("https connect failed\r\n");
+        goto __end;
+    }
+
 	ret = http_client_req(client.socket, &req, timeout, user_data);
     if (ret < 0) {
         LOG_ERR("http_client_req fail ret:%d\r\n", ret);
     }
 
-    https_wrapper_destroy((https_wrapper_handle_t)client.socket);
-
 __end:
+    free(request_uri);
+    if (client.socket) {
+        https_wrapper_destroy((https_wrapper_handle_t)client.socket);
+    }
 	if (req.recv_buf) {
 		free(req.recv_buf);
 	}
@@ -301,4 +322,3 @@ __end:
 
     return ret;
 }
-

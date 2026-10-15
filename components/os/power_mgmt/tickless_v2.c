@@ -1,5 +1,6 @@
 #include "FreeRTOS.h"
 #include "task.h"
+#include <stdbool.h>
 #include <stdint.h>
 #include <inttypes.h>
 #include <stdio.h>
@@ -60,7 +61,7 @@
 #define tickless_fatal(...)
 #endif
 
-#define WAKEUP_AHEAD_US   5000 
+#define WAKEUP_AHEAD_US   5000
 
 #define FIRST_RTC_EPILOGUE_TIME    180
 
@@ -71,7 +72,15 @@ volatile int _ffag = 0;
 volatile uint32_t * const pulTimeHigh = ( volatile uint32_t * const ) ( ( configMTIME_BASE_ADDRESS ) + 4UL ); /* 8-byte typer so high 32-bit word is 4 bytes up. */
 volatile uint32_t * const pulTimeLow = ( volatile uint32_t * const ) ( configMTIME_BASE_ADDRESS );
 extern const size_t uxTimerIncrementsForOneTick;
-extern char __lp_mon_start[], __lp_mon_end[];
+
+struct lp_interval {
+  uint64_t arm_mtime;
+};
+
+static struct {
+  struct lp_interval wifi_ps;
+  struct lp_interval ble_recovery;
+} lp_monitor;
 
 static uint64_t get_mtime(void) {
   uint32_t ulCurrentTimeHigh, ulCurrentTimeLow;
@@ -89,21 +98,31 @@ static uint64_t get_mtime(void) {
   return current_mtime;
 }
 
-#define INTERVAL(ms,p) ({ \
-  static uint64_t __attribute__((section(".lp_mon_ctx"))) __last_time = 0; \
-  uint64_t __current_time; \
-  int ret = 0;\
-  uint64_t *q = p;\
-  if(q) *q = &__last_time; \
-  __current_time = get_mtime(); \
-  if (__last_time == 0) {       \
-    __last_time = __current_time; \
-  } else if (__current_time > (__last_time + uxTimerIncrementsForOneTick * (ms))) { \
-    __last_time = __current_time; \
-    ret = 1;  \
-  }\
-  ret;  \
-})
+static inline int lp_interval_check(struct lp_interval *interval, uint32_t ms)
+{
+  uint64_t current_time = get_mtime();
+  uint64_t old_time = interval->arm_mtime;
+
+  if (old_time == 0) {
+    interval->arm_mtime = current_time;
+  } else if (current_time > (old_time + uxTimerIncrementsForOneTick * ms)) {
+    interval->arm_mtime = current_time;
+    return 1;
+  }
+
+  return 0;
+}
+
+static inline void lp_interval_reset(struct lp_interval *interval)
+{
+  interval->arm_mtime = 0;
+}
+
+static inline void lp_monitor_reset_all(void)
+{
+  lp_interval_reset(&lp_monitor.wifi_ps);
+  lp_interval_reset(&lp_monitor.ble_recovery);
+}
 
 #if 0
 #define ___WFI() do { \
@@ -121,6 +140,33 @@ static uint64_t get_mtime(void) {
 #endif
 
 #define PDS_MIN_SLEEP_TIME 1500
+
+#define TICKLESS_HBN_RTC_COUNTER_BITS 40ULL
+#define TICKLESS_HBN_RTC_COUNTER_MASK ((1ULL << TICKLESS_HBN_RTC_COUNTER_BITS) - 1ULL)
+#define TICKLESS_HBN_RTC_COUNTER_HALF (1ULL << (TICKLESS_HBN_RTC_COUNTER_BITS - 1ULL))
+
+/* Signed modulo delta is unambiguous for RTC intervals shorter than half range. */
+static inline uint64_t tickless_rtc_cnt_normalize(uint64_t rtc_cnt)
+{
+  return rtc_cnt & TICKLESS_HBN_RTC_COUNTER_MASK;
+}
+
+static inline int64_t tickless_rtc_cnt_diff(uint64_t lhs, uint64_t rhs)
+{
+  uint64_t diff = (tickless_rtc_cnt_normalize(lhs) - tickless_rtc_cnt_normalize(rhs)) &
+                  TICKLESS_HBN_RTC_COUNTER_MASK;
+
+  if (diff & TICKLESS_HBN_RTC_COUNTER_HALF) {
+    return -(int64_t)(((~diff) & TICKLESS_HBN_RTC_COUNTER_MASK) + 1ULL);
+  }
+
+  return (int64_t)diff;
+}
+
+static inline bool tickless_rtc_cnt_before(uint64_t lhs, uint64_t rhs)
+{
+  return tickless_rtc_cnt_diff(lhs, rhs) < 0;
+}
 
 int enable_tickless = 0;
 int g_tpre = 0;
@@ -165,6 +211,7 @@ int tickless_enter(void)
 int tickless_exit(void)
 {
     enable_tickless = 0;
+    lp_interval_reset(&lp_monitor.wifi_ps);
 
     return 0;
 }
@@ -257,21 +304,24 @@ void lp_hook_pre_sys(void *env) {
 }
 
 void lp_hook_pre_sleep(iot2lp_para_t *param) {
-  uint64_t delta;
+  int64_t delta;
+  uint64_t min_wakeup_cnt;
 
   //TS_RECORD(TS_ALLOW_SLEEP_PDS);
   HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_before_sleep, (uint32_t *)&rtc_before_sleep + 1);
+  rtc_before_sleep = tickless_rtc_cnt_normalize(rtc_before_sleep);
 
   /* measura prologue time spend  */
-  delta = rtc_before_sleep - rtc_enter_tickless;
-  tickless_debug("rtc_prologue_time_max: %" __PRI64(u), delta);
+  delta = tickless_rtc_cnt_diff(rtc_before_sleep, rtc_enter_tickless);
+  tickless_debug("rtc_prologue_time_max: %" __PRI64(d), delta);
   /* update pds prologue max time */
-  if (delta > rtc_prologue_time_max) {
-    rtc_prologue_time_max = delta;
+  if (delta > 0 && (uint64_t)delta > rtc_prologue_time_max) {
+    rtc_prologue_time_max = (uint64_t)delta;
     tickless_info("rtc_prologue_time_max: %" __PRI64(u), rtc_prologue_time_max);
   }
 
-  if (unlikely(lpfw_cfg.rtc_wakeup_cmp_cnt < (QCC74x_US_TO_PDS_CNT(PDS_MIN_SLEEP_TIME) + rtc_before_sleep))) {
+  min_wakeup_cnt = tickless_rtc_cnt_normalize(rtc_before_sleep + QCC74x_US_TO_PDS_CNT(PDS_MIN_SLEEP_TIME));
+  if (unlikely(tickless_rtc_cnt_before(lpfw_cfg.rtc_wakeup_cmp_cnt, min_wakeup_cnt))) {
     param->wakeup_flag = 1;
     /* set wakeup reason to RTC */
     param->wakeup_reason = LPFW_WAKEUP_TIME_OUT;
@@ -279,8 +329,8 @@ void lp_hook_pre_sleep(iot2lp_para_t *param) {
     return;
   }
 
-  /* clear lp monitor context */
-  memset(__lp_mon_start, 0, __lp_mon_end - __lp_mon_start);
+  /* Clear interval state before the mtime/PDS epoch changes. */
+  lp_monitor_reset_all();
 
   tickless_info("Next wake: %s, next tick:%" __PRI64(u) ", current tick:%" __PRI64(u),
                   wake_task_name, (uint64_t)wake_next_tick, (uint64_t)xTaskGetTickCount());
@@ -301,6 +351,8 @@ volatile int _flag = 1;
 
 /* wakeup schdule */
 void lp_hook_post_sys(iot2lp_para_t *param) {
+  int64_t sleep_delta;
+  uint64_t sleep_delta_cnt;
 
   //TS_RECORD(TS_WAKEUP_RESTORE);
 
@@ -337,10 +389,13 @@ void lp_hook_post_sys(iot2lp_para_t *param) {
   qcc74x_lp_call_sys_after_exit();
 
   HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_after_sleep, (uint32_t *)&rtc_after_sleep + 1);
+  rtc_after_sleep = tickless_rtc_cnt_normalize(rtc_after_sleep);
+  sleep_delta = tickless_rtc_cnt_diff(rtc_after_sleep, rtc_enter_tickless);
+  sleep_delta_cnt = sleep_delta > 0 ? (uint64_t)sleep_delta : 0;
 
   /* Compensation Tick */
-  tickless_info("early compensate tick: %" __PRI64(u), (uint64_t)pdMS_TO_TICKS(QCC74x_PDS_CNT_TO_MS(rtc_after_sleep - rtc_enter_tickless)));
-  vTaskStepTick(pdMS_TO_TICKS(QCC74x_PDS_CNT_TO_MS(rtc_after_sleep - rtc_enter_tickless)));
+  tickless_info("early compensate tick: %" __PRI64(u), (uint64_t)pdMS_TO_TICKS(QCC74x_PDS_CNT_TO_MS(sleep_delta_cnt)));
+  vTaskStepTick(pdMS_TO_TICKS(QCC74x_PDS_CNT_TO_MS(sleep_delta_cnt)));
 
   /* Init mtimer handler */
   vPortSetupTimerInterrupt();
@@ -381,7 +436,7 @@ int __attribute__((weak)) qcc74x_pm_app_check(void)
 void vApplicationSleep(TickType_t xExpectedIdleTime) {
   eSleepModeStatus eSleepStatus;
   int32_t ble_sleep_rtc = 0;
-  uint64_t delta;
+  int64_t signed_delta;
   uint32_t wake_reason;
   int connected;
 
@@ -395,6 +450,7 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
 
   /* Record current time */
   HBN_Get_RTC_Timer_Val((uint32_t *)&rtc_enter_tickless, (uint32_t *)&rtc_enter_tickless + 1);
+  rtc_enter_tickless = tickless_rtc_cnt_normalize(rtc_enter_tickless);
 
   /* 1 Tick must equal to 1 ms */
   rtc_sleep_remain = QCC74x_MS_TO_PDS_CNT(xExpectedIdleTime);
@@ -411,8 +467,7 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
   if (likely(rw_main_task_hdl != 0)) {
     /* Get BLE sleep time */
     ble_sleep_rtc = btble_controller_sleep(0);
-    int64_t *p = NULL;
-    int status = INTERVAL(500,&p);
+    int status = lp_interval_check(&lp_monitor.ble_recovery, 500);
     if (ble_sleep_rtc < 0) {
       if (status) {
         recovery_ble();
@@ -420,10 +475,8 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
       portENABLE_INTERRUPTS();
       ___WFI();
       return;
-    }
-    else{
-      configASSERT(p!=NULL);
-      *p = 0;
+    } else {
+      lp_interval_reset(&lp_monitor.ble_recovery);
     }
 
     tickless_info("ble sleep duration: %d", ble_sleep_rtc);
@@ -469,9 +522,18 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
 
   /* wifi connected */
   if (likely(connected)) {
+    bool ps_requested = rwnxl_wifi_ps_is_requested();
+
+    if (!ps_requested) {
+      lp_interval_reset(&lp_monitor.wifi_ps);
+      portENABLE_INTERRUPTS();
+      ___WFI();
+      return;
+    }
+
     /* check wifi PS state */
     if (rwnxl_ps_sleep_check() != 0) {
-      if (INTERVAL(5000,NULL)) {
+      if (lp_interval_check(&lp_monitor.wifi_ps, 5000)) {
         tickless_error("!!! WiFi stuck again, Reset System !!!");
         /* TODO Reboot */
         configASSERT(0);
@@ -533,15 +595,15 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
 #endif
 
   uint64_t should_wakeup = rtc_sleep_remain;
-  should_wakeup += rtc_enter_tickless; 
+  should_wakeup += rtc_enter_tickless;
 
   /* How much time do we have to sleep? */
   rtc_sleep_remain -= ahead_wakeup_cost;
   tickless_info("rtc_sleep_remain: %" __PRI64(d), rtc_sleep_remain);
-  configASSERT((signed)rtc_sleep_remain > 0);
+  configASSERT(rtc_sleep_remain > 0);
 
   /* Convert to absolute time */
-  lpfw_cfg.rtc_wakeup_cmp_cnt = rtc_enter_tickless + rtc_sleep_remain;
+  lpfw_cfg.rtc_wakeup_cmp_cnt = tickless_rtc_cnt_normalize(rtc_enter_tickless + rtc_sleep_remain);
   lpfw_cfg.mtimer_timeout_mini_us = 4500;
   lpfw_cfg.mtimer_timeout_max_us = 12000;
   lpfw_cfg.dtim_num = lpfw_cfg.dtim_origin;
@@ -558,12 +620,12 @@ void vApplicationSleep(TickType_t xExpectedIdleTime) {
   tickless_info("resume wifi");
   /* } */
 
-  delta = rtc_after_sleep - lpfw_cfg.rtc_wakeup_cmp_cnt;
-  
+  signed_delta = tickless_rtc_cnt_diff(rtc_after_sleep, lpfw_cfg.rtc_wakeup_cmp_cnt);
+
   /* update pds prologue max time */
   /* N.B. delta may be negative when "rtc_sleep_remain too small, dont enter pds" */
-  if ((signed)delta > (signed)rtc_epilogue_time_max && (signed)delta < 300) {
-    rtc_epilogue_time_max = delta;
+  if (signed_delta > (int64_t)rtc_epilogue_time_max && signed_delta < 300) {
+    rtc_epilogue_time_max = (uint64_t)signed_delta;
     tickless_info("rtc_epilogue_time_max: %" __PRI64(u), rtc_epilogue_time_max);
   }
 

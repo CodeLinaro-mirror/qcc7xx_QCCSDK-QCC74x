@@ -58,6 +58,7 @@ static void cmd_send_RCP_VBAT(int argc, char **argv);
 static void cmd_send_RCP_SYSMSG(int argc, char **argv);
 static void cmd_send_RCP_SYSLOG(int argc, char **argv);
 static void cmd_send_RCP_TEMP(int argc, char **argv);
+static void cmd_send_RCP_TXMAXPWR(int argc, char **argv);
 static void cmd_send_RCP_EFUSE_CFM(int argc, char **argv);
 static void cmd_send_RCP_FLASH_E(int argc, char **argv);
 static void cmd_send_RCP_IOPUPD(int argc, char **argv);
@@ -73,7 +74,6 @@ static void cmd_send_RCP_FLASH_R(int argc, char **argv);
 static void cmd_send_RCP_FLASH_R_HEX(int argc, char **argv);
 static void cmd_send_RCP_PART(int argc, char **argv);
 static void cmd_send_RCP_MINIDUMP(int argc, char **argv);
-static void cmd_send_RCP_PWR(int argc, char **argv);
 static void cmd_ota_start(int argc, char **argv);
 static int ota_recv_exact(int sock, uint8_t *buf, uint32_t len);
 static int ota_parse_header(const ota_header_t *ota_header, uint32_t *body_len,
@@ -155,11 +155,12 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_ANY, "RCP_SYSMSG", cmd_send_RCP_SYSMSG, "query/set system message: RCP_SYSMSG [state]"},
     {RCP_MCU_CAP_ANY, "RCP_SYSLOG", cmd_send_RCP_SYSLOG, "query/set error code output: RCP_SYSLOG [0|1]"},
     {RCP_MCU_CAP_ANY, "RCP_TEMP", cmd_send_RCP_TEMP, "read chip temperature: RCP_TEMP"},
+    {RCP_MCU_CAP_WIFI, "RCP_TXMAXPWR", cmd_send_RCP_TXMAXPWR, "query/set max TX power: RCP_TXMAXPWR [<0|1> <max_dbm>]"},
     {RCP_MCU_CAP_ANY, "RCP_EFUSE-CFM", cmd_send_RCP_EFUSE_CFM, "confirm eFuse write: RCP_EFUSE-CFM"},
     {RCP_MCU_CAP_ANY, "RCP_FLASH-E", cmd_send_RCP_FLASH_E, "erase flash: RCP_FLASH-E <nbytes> <addr>"},
-    {RCP_MCU_CAP_ANY, "RCP_IOPUPD", cmd_send_RCP_IOPUPD, "GPIO pull config: RCP_IOPUPD <pin> <0|1|2>"},
+    {RCP_MCU_CAP_ANY, "RCP_IOPUPD", cmd_send_RCP_IOPUPD, "GPIO config: RCP_IOPUPD <pin> <0|1> <0|1|2> | RCP_IOPUPD <pin> ?"},
     {RCP_MCU_CAP_ANY, "RCP_IOOUT", cmd_send_RCP_IOOUT, "GPIO output level: RCP_IOOUT <pin> <0|1>"},
-    {RCP_MCU_CAP_ANY, "RCP_IOIN", cmd_send_RCP_IOIN, "GPIO input: RCP_IOIN <pin> [pull]|?"},
+    {RCP_MCU_CAP_ANY, "RCP_IOIN", cmd_send_RCP_IOIN, "GPIO input level: RCP_IOIN <pin> ?"},
     {RCP_MCU_CAP_ANY, "RCP_SYSSTORE_SET", cmd_send_RCP_SYSSTORE_SET, "set store mode: RCP_SYSSTORE_SET <0|1>"},
     {RCP_MCU_CAP_ANY, "RCP_EFUSE_W", cmd_send_RCP_EFUSE_W, "write eFuse raw: RCP_EFUSE_W <nbytes> <addr> <hex>"},
     {RCP_MCU_CAP_ANY, "RCP_EFUSE_W_HEX", cmd_send_RCP_EFUSE_W_HEX, "write eFuse hex: RCP_EFUSE_W_HEX <nbytes> <addr> <hex>"},
@@ -171,7 +172,6 @@ const shell_cmd_t rcp_unit_test_commands[] = {
     {RCP_MCU_CAP_ANY, "RCP_FLASH_R_HEX", cmd_send_RCP_FLASH_R_HEX, "read flash hex: RCP_FLASH_R_HEX <nbytes> <addr>"},
     {RCP_MCU_CAP_ANY, "RCP_PART", cmd_send_RCP_PART, "query partition table: RCP_PART"},
     {RCP_MCU_CAP_ANY, "RCP_MINIDUMP", cmd_send_RCP_MINIDUMP, "RCP_MINIDUMP"},
-    {RCP_MCU_CAP_ANY, "RCP_PWR", cmd_send_RCP_PWR, "RCP_PWR <ps_mode> [hbn_level]"},
     {RCP_MCU_CAP_ANY, "ota_start", cmd_ota_start, "ota_start <server_ip> [port], default port is 3365"},
     {RCP_MCU_CAP_WIFI, "WIFI_STA_START", cmd_wifi_sta_start, "rcp_wifi_station_start"},
     {RCP_MCU_CAP_WIFI, "WIFI_AUTO_SET", cmd_wifi_auto_conn_set, "RCP_WIFI_AUTO_SET <0|1>"},
@@ -710,6 +710,37 @@ static void cmd_send_RCP_TEMP(int argc, char **argv)
   }
 }
 
+static void cmd_send_RCP_TXMAXPWR(int argc, char **argv)
+{
+  enum rcp_wifi_status status;
+
+  if (argc == 1) {
+    uint32_t enable = 0;
+    int32_t max_dbm = 0;
+
+    status = rcp_wifi_get_tx_max_power(&enable, &max_dbm);
+    if (status == RCP_WIFI_OK) {
+      printf("+TXMAXPWR:%lu,%ld\n", (unsigned long)enable, (long)max_dbm);
+    } else {
+      printf("RCP_TXMAXPWR query failed\n");
+    }
+    return;
+  }
+
+  if (argc != 3) {
+    printf("Usage: RCP_TXMAXPWR [<0|1> <max_dbm>]\n");
+    return;
+  }
+
+  status = rcp_wifi_set_tx_max_power(arg_u32(argv, 1),
+                                     (int32_t)strtol(argv[2], NULL, 0));
+  if (status == RCP_WIFI_OK) {
+    printf("OK\n");
+  } else {
+    printf("RCP_TXMAXPWR set failed\n");
+  }
+}
+
 static void cmd_send_RCP_EFUSE_CFM(int argc, char **argv)
 {
   (void)argc;
@@ -741,14 +772,30 @@ static void cmd_send_RCP_FLASH_E(int argc, char **argv)
 
 static void cmd_send_RCP_IOPUPD(int argc, char **argv)
 {
-  if (argc < 3) {
-    printf("Usage: RCP_IOPUPD <pin> <0|1|2>\n");
+  if (argc == 3 && (strcmp(argv[2], "?") == 0)) {
+    uint32_t pin = arg_u32(argv, 1);
+    uint32_t mode = 0;
+    uint32_t pull = 0;
+    RCP_Object_t *Obj = RCP_ObjGet();
+    int ret = RCP_GPIOPullUpDnQuery(Obj, pin, &mode, &pull);
+    if (ret == RCP_STATUS_OK) {
+      printf("+IOPUPD=%lu,%lu,%lu\n", (unsigned long)pin, (unsigned long)mode,
+             (unsigned long)pull);
+    } else {
+      printf("RCP_IOPUPD query failed\n");
+    }
+    return;
+  }
+  if (argc < 4) {
+    printf("Usage: RCP_IOPUPD <pin> <0|1> <0|1|2>\n");
+    printf("       RCP_IOPUPD <pin> ?\n");
     return;
   }
   uint32_t pin = arg_u32(argv, 1);
-  uint32_t state = arg_u32(argv, 2);
+  uint32_t mode = arg_u32(argv, 2);
+  uint32_t pull = arg_u32(argv, 3);
   RCP_Object_t *Obj = RCP_ObjGet();
-  int ret = RCP_GPIOPullUpDn(Obj, pin, state);
+  int ret = RCP_GPIOPullUpDn(Obj, pin, mode, pull);
   if (ret == RCP_STATUS_OK) {
     printf("OK\n");
   } else {
@@ -775,31 +822,19 @@ static void cmd_send_RCP_IOOUT(int argc, char **argv)
 
 static void cmd_send_RCP_IOIN(int argc, char **argv)
 {
-  if (argc < 2) {
-    printf("Usage: RCP_IOIN <pin> [pull_state] | RCP_IOIN <pin> ?\n");
+  if (argc != 3 || (strcmp(argv[2], "?") != 0)) {
+    printf("Usage: RCP_IOIN <pin> ?\n");
     return;
   }
   uint32_t pin = arg_u32(argv, 1);
   RCP_Object_t *Obj = RCP_ObjGet();
 
-  if ((argc >= 3) && (strcmp(argv[2], "?") == 0)) {
-    uint32_t state = 0;
-    int ret = RCP_GPIOInputRead(Obj, pin, &state);
-    if (ret == RCP_STATUS_OK) {
-      printf("+IOIN=%lu:%lu\n", (unsigned long)pin, (unsigned long)state);
-    } else {
-      printf("RCP_IOIN query failed\n");
-    }
-  } else if (argc >= 3) {
-    uint32_t pull_state = arg_u32(argv, 2);
-    int ret = RCP_GPIOInputConfig(Obj, pin, pull_state);
-    if (ret == RCP_STATUS_OK) {
-      printf("OK\n");
-    } else {
-      printf("RCP_IOIN config failed\n");
-    }
+  uint32_t state = 0;
+  int ret = RCP_GPIOInputRead(Obj, pin, &state);
+  if (ret == RCP_STATUS_OK) {
+    printf("+IOIN=%lu:%lu\n", (unsigned long)pin, (unsigned long)state);
   } else {
-    printf("Usage: RCP_IOIN <pin> [pull_state] | RCP_IOIN <pin> ?\n");
+    printf("RCP_IOIN query failed\n");
   }
 }
 
@@ -1027,29 +1062,6 @@ static void cmd_send_RCP_MINIDUMP(int argc, char **argv)
   }
   vPortFree(dump_data);
   printf("--- End of Minidump ---\n");
-}
-
-static void cmd_send_RCP_PWR(int argc, char **argv)
-{
-  uint32_t ps_mode = 0, hbn_level = 0;
-  int ret;
-  RCP_Object_t *Obj = RCP_ObjGet();
-
-  if (argc < 2) {
-    printf("Usage: RCP_PWR <ps_mode> [hbn_level]\n");
-    return;
-  }
-
-  ps_mode = arg_u32(argv, 1);
-  if (argc >= 3) {
-    hbn_level = arg_u32(argv, 2);
-  }
-  ret = RCP_WiFi_SetPowerMode(Obj, ps_mode, hbn_level);
-  if (ret != RCP_STATUS_OK) {
-    printf("RCP_PWR failed\n");
-    return;
-  }
-  printf("\nOK\n");
 }
 
 static int ota_recv_exact(int sock, uint8_t *buf, uint32_t len)
@@ -1541,6 +1553,7 @@ static void cmd_wifi_ap_list_sta(int argc, char **argv)
 
   printf("sta_count=%lu\n", (unsigned long)stations.Count);
   for (uint32_t i = 0U; i < stations.Count; i++) {
+    (void)dhcpd_get_client_ip(rcp_netif_ap_get(), stations.STA[i].MAC, stations.STA[i].IP);
     printf("STA[%lu]: mac=", (unsigned long)i);
     print_mac(stations.STA[i].MAC);
     printf(" ip=%u.%u.%u.%u\n", stations.STA[i].IP[0], stations.STA[i].IP[1],

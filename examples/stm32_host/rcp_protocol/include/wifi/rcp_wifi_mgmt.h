@@ -445,6 +445,36 @@ static inline enum rcp_wifi_status rcp_wifi_set_country_code(uint32_t *policy,
 		RCP_WiFi_SetCountryCode(RCP_ObjGet(), policy, country_string));
 }
 
+/* Query the WiFi maximum transmit power limit.
+ *
+ * enable  - output pointer receiving whether the limit is enabled
+ * max_dbm - output pointer receiving the configured maximum transmit power in
+ * dBm
+ *
+ * Returns RCP WiFi status code.
+ */
+static inline enum rcp_wifi_status rcp_wifi_get_tx_max_power(uint32_t *enable,
+                                                             int32_t *max_dbm)
+{
+	return rcp_wifi_status_from_rcp_status(
+		RCP_WiFi_GetTxMaxPower(RCP_ObjGet(), enable, max_dbm));
+}
+
+/* Configure the WiFi maximum transmit power limit.
+ *
+ * enable  - 0 disables the limit, 1 enables it
+ * max_dbm - maximum transmit power in dBm; valid range is -12 to 20 when
+ * enable is 1; ignored when enable is 0
+ *
+ * Returns RCP WiFi status code.
+ */
+static inline enum rcp_wifi_status rcp_wifi_set_tx_max_power(uint32_t enable,
+                                                             int32_t max_dbm)
+{
+	return rcp_wifi_status_from_rcp_status(
+		RCP_WiFi_SetTxMaxPower(RCP_ObjGet(), enable, max_dbm));
+}
+
 /* Enable station plus Soft-AP dual mode.
  *
  * Returns RCP WiFi status code.

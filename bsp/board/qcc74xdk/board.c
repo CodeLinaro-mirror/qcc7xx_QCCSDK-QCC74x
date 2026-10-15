@@ -3,7 +3,9 @@
 /* Use board_overlay.c instead of this file */
 #else
 
-#ifdef CONFIG_CONSOLE_WO
+#ifdef CONFIG_BSP_CONSOLE_USB_CDC
+#include "usb_console.h"
+#elif defined(CONFIG_CONSOLE_WO)
 #include "qcc74x_wo.h"
 #else
 #include "qcc74x_uart.h"
@@ -39,12 +41,6 @@ extern uint32_t __psram_data_start__;
 extern uint32_t __psram_data_end__;
 extern uint32_t __psram_noinit_data_start__;
 extern uint32_t __psram_noinit_data_end__;
-
-#ifdef CONFIG_CONSOLE_WO
-static struct qcc74x_device_s *wo;
-#else
-static struct qcc74x_device_s *uart0;
-#endif
 
 #if (defined(CONFIG_LUA) || defined(CONFIG_QCC74xLOG) || defined(CONFIG_FATFS))
 static struct qcc74x_device_s *rtc;
@@ -214,7 +210,7 @@ static void peripheral_clock_init_lp(void)
     GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_EXT_SDH);
 #endif
 
-#ifdef CONFIG_BSP_USB
+#if defined(CONFIG_BSP_USB) || defined(CONFIG_BSP_CONSOLE_USB_CDC)
     PERIPHERAL_CLOCK_USB_ENABLE();
     GLB_Set_USB_CLK_From_WIFIPLL(1);
 #endif
@@ -313,20 +309,26 @@ void qcc74x_show_chipinfo(void)
     printf("version          A%d\r\n", device_info.version);
 }
 
-#ifdef CONFIG_CONSOLE_WO
+#if defined(CONFIG_BSP_CONSOLE_USB_CDC)
+/* USB console is initialized after interrupts are restored. */
+#elif defined(CONFIG_CONSOLE_WO)
 extern void qcc74x_wo_set_console(struct qcc74x_device_s *dev);
-#else
-extern void qcc74x_uart_set_console(struct qcc74x_device_s *dev);
-#endif
 
 static void console_init()
 {
-#ifdef CONFIG_CONSOLE_WO
+    struct qcc74x_device_s *wo;
+
     wo = qcc74x_device_get_by_name("wo");
     qcc74x_wo_uart_init(wo, 2000000, GPIO_PIN_21);
     qcc74x_wo_set_console(wo);
+}
 #else
+extern void qcc74x_uart_set_console(struct qcc74x_device_s *dev);
+
+static void console_init()
+{
     struct qcc74x_device_s *gpio;
+    struct qcc74x_device_s *uart0;
 
     gpio = qcc74x_device_get_by_name("gpio");
     qcc74x_gpio_uart_init(gpio, GPIO_PIN_21, GPIO_UART_FUNC_UART0_TX);
@@ -346,15 +348,17 @@ static void console_init()
 
     qcc74x_uart_init(uart0, &cfg);
     qcc74x_uart_set_console(uart0);
-#endif
 }
+#endif
 
 #ifdef LP_APP
 void board_recovery(void)
 {
     system_clock_init();
     peripheral_clock_init_lp();
+#ifndef CONFIG_BSP_CONSOLE_USB_CDC
     console_init();
+#endif
 #ifdef CONFIG_ANTENNA_CONTROL
     board_antenna_init(board_antenna_ops.dynamic_div_enabled, 
                        board_antenna_ops.static_div_enabled, 
@@ -424,7 +428,9 @@ void board_init(void)
     qcc74x_irq_enable(WIFI_IRQn);
 #endif
 
+#ifndef CONFIG_BSP_CONSOLE_USB_CDC
     console_init();
+#endif
 
     ram_heap_init();
 
@@ -460,6 +466,10 @@ void board_init(void)
     qcc74x_sec_mutex_init();
 #endif
     qcc74x_irq_restore(flag);
+
+#ifdef CONFIG_BSP_CONSOLE_USB_CDC
+    usb_console_init();
+#endif
 
     printf("board init done\r\n");
     printf("===========================\r\n");
@@ -516,6 +526,21 @@ __attribute__((weak)) uint32_t get_fattime(void)
 }
 #endif
 
+#define MFG_CONFIG_REG (0x2000F100)
+#define MFG_CONFIG_VAL ("0mfg")
+
+void mfg_config(void)
+{
+    union _reg_t {
+        uint8_t byte[4];
+        uint32_t word;
+    } mfg = {
+        .byte = MFG_CONFIG_VAL,
+    };
+
+    *(volatile uint32_t *)(MFG_CONFIG_REG) = mfg.word;
+}
+
 #ifdef CONFIG_SHELL
 #include "shell.h"
 
@@ -532,21 +557,6 @@ static void reboot_cmd(int argc, char **argv)
     qcc74x_sys_reset_por();
 }
 SHELL_CMD_EXPORT_ALIAS(reboot_cmd, reboot, reboot);
-
-#define MFG_CONFIG_REG (0x2000F100)
-#define MFG_CONFIG_VAL ("0mfg")
-
-void mfg_config(void)
-{
-    union _reg_t {
-        uint8_t byte[4];
-        uint32_t word;
-    } mfg = {
-        .byte = MFG_CONFIG_VAL,
-    };
-
-    *(volatile uint32_t *)(MFG_CONFIG_REG) = mfg.word;
-}
 
 static void mfg_cmd(int argc, char **argv)
 {

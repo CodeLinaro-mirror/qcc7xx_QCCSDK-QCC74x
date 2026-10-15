@@ -250,8 +250,8 @@ int lp_set_wakeup_by_io(uint8_t io, uint8_t mode)
 
 int lp_delete_wakeup_by_io(uint8_t io)
 {
-    if (io != 16 && io != 28) {
-        printf("[PM] Error: only support gpio 16, 28 and mode 0/1\r\n");
+    if (io != 10 && io != 28) {
+        printf("[PM] Error: only support gpio 10, 28 and mode 0/1\r\n");
         return -1;
     }
 

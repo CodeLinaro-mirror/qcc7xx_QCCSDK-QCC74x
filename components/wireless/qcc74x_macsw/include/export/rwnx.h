@@ -127,6 +127,15 @@ int rwnxl_ps_sleep_common_check(void);
 
 /**
  ****************************************************************************************
+ * @brief Return whether UMAC currently requests Wi-Fi power-save mode.
+ *
+ * @return true if PS is requested, false otherwise.
+ ****************************************************************************************
+ */
+bool rwnxl_wifi_ps_is_requested(void);
+
+/**
+ ****************************************************************************************
  * @brief This function performs check ps sleep allowed.
  *
  ****************************************************************************************

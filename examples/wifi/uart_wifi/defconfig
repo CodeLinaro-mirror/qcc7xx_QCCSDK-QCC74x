@@ -77,3 +77,6 @@ ifeq ($(CONFIG_BLUETOOTH_APP),y)
     CONFIG_BT_IAS_SERVER =y
     CONFIG_BT_DIS_SERVER =y
 endif
+
+#set local 4M.toml
+CONFIG_OVERRIDE_PTFILE =4M.toml

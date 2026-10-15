@@ -1186,6 +1186,38 @@ struct wpa_ssid {
 	 * 2 = both hunting-and-pecking loop and hash-to-element enabled
 	 */
 	int sae_pwe;
+#ifdef CONFIG_MBO
+	/**
+	 * mbo_enabled - Enable MBO-OCE IE in AP mode
+	 *
+	 * 0 = disabled (default), 1 = enabled
+	 */
+	int mbo_enabled;
+#endif /* CONFIG_MBO */
+#ifdef CONFIG_WNM_AP
+	/**
+	 * bss_transition - Enable BSS Transition Management capability
+	 *
+	 * 0 = disabled (default), 1 = enabled (Extended Capabilities bit 19)
+	 */
+	int bss_transition;
+#endif /* CONFIG_WNM_AP */
+#ifdef CONFIG_INTERWORKING
+	/**
+	 * interworking - Enable Interworking (IEEE 802.11u) capability
+	 *
+	 * 0 = disabled (default), 1 = enabled
+	 */
+	int interworking;
+#endif /* CONFIG_INTERWORKING */
+#ifdef CONFIG_RRM
+	/**
+	 * rrm_neighbor_report - Enable RRM Neighbor Report capability
+	 *
+	 * 0 = disabled (default), 1 = enabled
+	 */
+	int rrm_neighbor_report;
+#endif /* CONFIG_RRM */
 #ifdef CONFIG_QCC74x_EXTRA_WPA_SSID_FLAG
     /**
      * Extra flags passed by fhost.

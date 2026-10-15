@@ -993,7 +993,8 @@ bool bt_gatt_is_subscribed(struct bt_conn *conn,
 u16_t bt_gatt_get_mtu(struct bt_conn *conn);
 
 #if defined(QCC74x_BLE_SET_LOCAL_ATT_MTU_SIZE)
-void bt_gatt_set_mtu(u16_t size);
+int bt_gatt_set_mtu(u16_t size);
+u16_t bt_gatt_get_local_mtu(void);
 #endif
 
 /** @} */

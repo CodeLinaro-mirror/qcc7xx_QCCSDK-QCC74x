@@ -321,24 +321,22 @@ static int at_setup_cmd_cwjap(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_OP_ERROR);
     }
 
-    memset(&at_wifi_config->sta_info, 0, sizeof(at_wifi_config->sta_info));
-    strlcpy(at_wifi_config->sta_info.ssid, ssid, sizeof(at_wifi_config->sta_info.ssid));
-
     if (strlen(password) > 0) {
         int free_slot;
         if (find_credential_slot(ssid, &free_slot) == -1 && free_slot == -1) {
-            memset(password, 0, sizeof(password));
             return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
         }
+    }
+
+    memset(&at_wifi_config->sta_info, 0, sizeof(at_wifi_config->sta_info));
+    strlcpy(at_wifi_config->sta_info.ssid, ssid, sizeof(at_wifi_config->sta_info.ssid));
+    if (strlen(password) > 0) {
         crypto_get_random_iv(at_wifi_config->sta_info.iv);
         crypto_aes_cbc_encrypt(at_wifi_config->sta_info.iv,
                                64,
                                (const uint8_t *)password,
                                at_wifi_config->sta_info.pwd_encrypted);
     }
-
-    memset(password, 0, sizeof(password));
-
     if (bssid_valid) {
         memcpy(at_wifi_config->sta_info.bssid, bssid, sizeof(at_wifi_config->sta_info.bssid));
     } else {
@@ -1739,6 +1737,52 @@ static int at_query_cmd_cwnetmode(int argc, const char **argv)
     return AT_RESULT_CODE_OK;
 }
 
+#define AT_WIFI_TXMAXPWR_MIN_DBM (-12)
+#define AT_WIFI_TXMAXPWR_MAX_DBM (20)
+static int at_test_cmd_txmaxpwr(int argc, const char **argv)
+{
+    at_response_string("+TXMAXPWR:(0-1),(%d-%d)\r\n",
+                       AT_WIFI_TXMAXPWR_MIN_DBM,
+                       AT_WIFI_TXMAXPWR_MAX_DBM);
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_query_cmd_txmaxpwr(int argc, const char **argv)
+{
+    uint8_t enable;
+    int8_t max_dbm;
+
+    if (at_wifi_limit_tx_pwr_get(&enable, &max_dbm) != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+
+    at_response_string("+TXMAXPWR:%d,%d\r\n", enable, max_dbm);
+    return AT_RESULT_CODE_OK;
+}
+
+static int at_setup_cmd_txmaxpwr(int argc, const char **argv)
+{
+    int enable;
+    int max_dbm;
+
+    AT_CMD_PARSE_NUMBER(0, &enable);
+    AT_CMD_PARSE_NUMBER(1, &max_dbm);
+
+    if (enable < 0 || enable > 1) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    if (enable && (max_dbm < AT_WIFI_TXMAXPWR_MIN_DBM || max_dbm > AT_WIFI_TXMAXPWR_MAX_DBM)) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
+    }
+
+    if (at_wifi_limit_tx_pwr_set((uint8_t)enable, (int8_t)max_dbm) != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_EXEC_FAIL);
+    }
+
+    return AT_RESULT_CODE_OK;
+}
+
 static int at_setup_cmd_cwcredadd(int argc, const char **argv)
 {
     char ssid[33];
@@ -1957,6 +2001,7 @@ static const at_cmd_struct at_wifi_cmd[] = {
     {"+CWCOUNTRY",    NULL, at_query_cmd_cwcountry,   at_setup_cmd_cwcountry,    NULL,                    2, 2},
     {"+CWEVT",        NULL, at_query_cmd_cwevt,       at_setup_cmd_cwevt,        NULL,                    1, 1},
     {"+CWNETMODE",    NULL, at_query_cmd_cwnetmode,   NULL,                      NULL,                    1, 1},
+    {"+TXMAXPWR",     at_test_cmd_txmaxpwr, at_query_cmd_txmaxpwr, at_setup_cmd_txmaxpwr, NULL,            2, 2},
 #ifdef CONFIG_ANTENNA_CONTROL
     {"+CWANTENABLE",  NULL, at_query_cmd_cwantenable, at_setup_cmd_cwantenable,  NULL,                    2, 3},
     {"+CWANTNUM",     NULL, at_query_cmd_cwantnum,    NULL,                      NULL,                    0, 0},

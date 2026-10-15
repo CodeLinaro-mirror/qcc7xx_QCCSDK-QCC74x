@@ -1,28 +1,16 @@
-#ifdef CONFIG_CONSOLE_WO
-#include "qcc74x_wo.h"
-#else
-#include "qcc74x_uart.h"
-#endif
+#include <stdio.h>
+#include <string.h>
+
 #include "stdarg.h"
+#include "console_output.h"
+
 #if CONFIG_ATMOUDLE 
 #include "FreeRTOS.h"
 #endif
 
-struct qcc74x_device_s *console = NULL;
-
 int putchar(int c)
 {
-    if (console == NULL) {
-        return EOF;
-    }
-
-#ifdef CONFIG_CONSOLE_WO
-    qcc74x_wo_uart_putchar(console, (uint8_t)c);
-#else
-    qcc74x_uart_putchar(console, (uint8_t)c);
-#endif
-
-    return c;
+    return qcc74x_console_write(&c, 1) == 1 ? c : EOF;
 }
 
 int puts(const char *c)
@@ -35,17 +23,7 @@ int puts(const char *c)
 
     len = strlen(c);
 
-    if (console == NULL) {
-        return 0;
-    }
-
-#ifdef CONFIG_CONSOLE_WO
-    qcc74x_wo_uart_put(console, (uint8_t *)c, len);
-#else
-    qcc74x_uart_put(console, (uint8_t *)c, len);
-#endif
-
-    return len;
+    return (int)qcc74x_console_write(c, (size_t)len);
 }
 
 int putstring(const char *c)
@@ -58,17 +36,7 @@ int putstring(const char *c)
 
     len = strlen(c);
 
-    if (console == NULL) {
-        return 0;
-    }
-
-#ifdef CONFIG_CONSOLE_WO
-    qcc74x_wo_uart_put(console, (uint8_t *)c, len);
-#else
-    qcc74x_uart_put(console, (uint8_t *)c, len);
-#endif
-
-    return len;
+    return (int)qcc74x_console_write(c, (size_t)len);
 }
 
 #ifdef CONFIG_VSNPRINTF_NANO
@@ -77,10 +45,6 @@ int printf(const char *fmt, ...)
     char print_buf[512];
     int len;
     va_list ap;
-
-    if (console == NULL) {
-        return 0;
-    }
 
     va_start(ap, fmt);
     len = vsnprintf(print_buf, sizeof(print_buf), fmt, ap);
@@ -94,11 +58,7 @@ int printf(const char *fmt, ...)
     }
 #endif 
 
-#ifdef CONFIG_CONSOLE_WO
-    qcc74x_wo_uart_put(console, (uint8_t *)print_buf, len);
-#else
-    qcc74x_uart_put(console, (uint8_t *)print_buf, len);
-#endif
+    (void)qcc74x_console_write(print_buf, (size_t)len);
 
     return len;
 }
@@ -108,10 +68,6 @@ int printf(const char *fmt, ...)
 {
     int len;
     va_list ap;
-
-    if (console == NULL) {
-        return 0;
-    }
 
     va_start(ap, fmt);
     
@@ -173,13 +129,4 @@ void qcc74x_dump(uint8_t *data, uint32_t len)
 void qcc74x_regdump(uint32_t addr)
 {
     printf("%08lx[31:0]=%08lx\r\n", addr, *(volatile uint32_t *)(addr));
-}
-
-#ifdef CONFIG_CONSOLE_WO
-void qcc74x_wo_set_console(struct qcc74x_device_s *dev)
-#else
-void qcc74x_uart_set_console(struct qcc74x_device_s *dev)
-#endif
-{
-    console = dev;
 }

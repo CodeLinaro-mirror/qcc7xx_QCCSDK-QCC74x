@@ -5,6 +5,4 @@ sdk_add_include_directories(.)
 
 sdk_set_main_file(main.c)
 
-sdk_set_linker_script(qcc743_btblecontroller_flash.ld)
-
 project(btblecontroller_test)

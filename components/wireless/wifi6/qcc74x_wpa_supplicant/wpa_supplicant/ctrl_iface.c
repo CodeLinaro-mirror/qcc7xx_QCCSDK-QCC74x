@@ -65,6 +65,9 @@
 #include <net/ethernet.h>
 #endif
 
+/* CONFIG_WFA_BTM_REQ is derived from CONFIG_WFA + CONFIG_WNM_AP; it reaches
+ * this file through the "ap.h" include above. */
+
 static int wpa_supplicant_global_iface_list(struct wpa_global *global,
 					    char *buf, int len);
 static int wpa_supplicant_global_iface_interfaces(struct wpa_global *global,
@@ -12681,6 +12684,19 @@ char * wpa_supplicant_ctrl_iface_process(struct wpa_supplicant *wpa_s,
          }
      } else if (os_strncmp(buf, "ENABLE_ACL ", 11) == 0) {
              ap_ctrl_iface_acl_enable(wpa_s, buf + 11);
+	} else if (os_strncmp(buf, "CHAN_SWITCH ", 12) == 0) {
+		if (ap_ctrl_iface_chanswitch(wpa_s, buf + 12))
+			reply_len = -1;
+#ifdef CONFIG_WFA_BTM_REQ
+     } else if (os_strncmp(buf, "BSS_TM_REQ ", 11) == 0) {
+             if (ap_ctrl_iface_bss_tm_req(wpa_s, buf + 11))
+                 reply_len = -1;
+#endif /* CONFIG_WFA_BTM_REQ */
+#ifdef CONFIG_MBO
+     } else if (os_strncmp(buf, "SET_MBO_ASSOC_DISALLOW ", 23) == 0) {
+             if (ap_ctrl_iface_set_mbo_assoc_disallow(wpa_s, buf + 23))
+                 reply_len = -1;
+#endif /* CONFIG_MBO */
 #endif /* CONFIG_AP */
 	} else if (os_strncmp(buf, "STA_AUTOCONNECT ", 16) == 0) {
 		wpa_s->auto_reconnect_disabled = atoi(buf + 16) == 0;

@@ -117,9 +117,8 @@ void nxspi_hwspi_init(void (*callback)(void *arg), void *arg)
     GLB_Swap_MCU_SPI_0_MOSI_With_MISO(0);
 
     /* reset */
-    qcc74x_dma_channel_stop(spi_dev);
-    qcc74x_dma_channel_stop(spi_dev);
-    GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_DMA);
+    qcc74x_dma_channel_stop(dma0_ch0);
+    qcc74x_dma_channel_stop(dma0_ch1);
     GLB_AHB_MCU_Software_Reset(GLB_AHB_MCU_SW_SPI);
 
     /* spi dma config */

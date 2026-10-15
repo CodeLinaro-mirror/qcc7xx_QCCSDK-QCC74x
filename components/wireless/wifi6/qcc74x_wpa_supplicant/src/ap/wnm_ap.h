@@ -11,6 +11,12 @@
 
 struct sta_info;
 
+/* Canonical derivation of CONFIG_WFA_BTM_REQ for the ap/ module. The .c files
+ * obtain it by including this header rather than re-deriving it locally. */
+#if defined(CONFIG_WFA) && defined(CONFIG_WNM_AP) && !defined(CONFIG_WFA_BTM_REQ)
+#define CONFIG_WFA_BTM_REQ
+#endif
+
 int ieee802_11_rx_wnm_action_ap(struct hostapd_data *hapd,
 				const struct ieee80211_mgmt *mgmt, size_t len);
 int wnm_send_disassoc_imminent(struct hostapd_data *hapd,
@@ -23,6 +29,10 @@ int wnm_send_bss_tm_req(struct hostapd_data *hapd, struct sta_info *sta,
 			const u8 *bss_term_dur, u8 dialog_token,
 			const char *url, const u8 *nei_rep, size_t nei_rep_len,
 			const u8 *mbo_attrs, size_t mbo_len);
+#ifdef CONFIG_WFA_BTM_REQ
+int wnm_send_wfa_bss_tm_req(struct hostapd_data *hapd, const char *cmd,
+			    u8 dialog_token);
+#endif /* CONFIG_WFA_BTM_REQ */
 void ap_sta_reset_steer_flag_timer(void *eloop_ctx, void *timeout_ctx);
 int wnm_send_coloc_intf_req(struct hostapd_data *hapd, struct sta_info *sta,
 			    unsigned int auto_report, unsigned int timeout);

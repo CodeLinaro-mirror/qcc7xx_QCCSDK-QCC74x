@@ -1,0 +1,51 @@
+From 458544ef715e8e6533a2abd557699360ec0a0f6c Mon Sep 17 00:00:00 2001
+From: Surendra Guduri <sguduri@qti.qualcomm.com>
+Date: Mon, 7 Sep 2026 16:40:09 +0800
+Subject: [PATCH 2/2] fix(qcc74x): support SDK 2.0.119 builds
+
+Add console output dependencies and shell linker tables.
+---
+ examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn | 6 ++++++
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni           | 2 ++
+ 2 files changed, 8 insertions(+)
+
+diff --git a/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn b/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
+index d9612605e3..53c06bda5e 100644
+--- a/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
++++ b/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
+@@ -135,6 +135,12 @@ qcc74x_executable("contact_sensor_app") {
+   if (chip_enable_wifi) {
+     ldscript_defines += [ "CONFIG_WIFI6=1" ]
+   }
++  # Shell CLI command tables (FSymTab/VSymTab) are guarded by #ifdef CONFIG_SHELL
++  # in common.ld.in; define it for the linker-script preprocessor when libshell
++  # is on, otherwise __fsymtab_*/__vsymtab_* are undefined at link time.
++  if (chip_build_libshell) {
++    ldscript_defines += [ "CONFIG_SHELL=1" ]
++  }
+ 
+   ldflags = [
+     "--specs=nano.specs",
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index f3be77fdd6..cf98359dd5 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -426,6 +426,7 @@ template("qcc74x_sdk") {
+     include_dirs = [ "${qcc74x_sdk_root}/components/libc" ]
+ 
+     sources = [
++      "${qcc74x_sdk_root}/components/libc/console_output.c",
+       "${qcc74x_sdk_root}/components/libc/newlib/port_init_fini.c",
+       "${qcc74x_sdk_root}/components/libc/newlib/port_memory.c",
+       "${qcc74x_sdk_root}/components/libc/newlib/syscalls_nosys.c",
+@@ -639,6 +640,7 @@ template("qcc74x_sdk") {
+ 
+   config("${sdk_target_name}_config_utils") {
+     include_dirs = [
++      "${qcc74x_sdk_root}/components/libc",
+       "${qcc74x_sdk_root}/components/utils/log",
+       "${qcc74x_sdk_root}/components/utils/qcc74x_mtd/include",
+       "${qcc74x_sdk_root}/components/utils/coredump",
+-- 
+2.34.1
+

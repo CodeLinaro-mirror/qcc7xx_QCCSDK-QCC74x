@@ -12,6 +12,8 @@ extern "C" {
 void dhcpd_start(struct netif *netif, int start, int limit);
 void dhcpd_stop(const char *netif_name);
 void dhcpd_stop_with_netif(const struct netif *netif);
+err_t dhcpd_get_client_ip(const struct netif *netif, const u8_t mac[6],
+                          u8_t ip[4]);
 
 void dhcpd_clear_dns_server(void* netif);
 err_t dhcpd_add_dns_server(void* netif, const ip_addr_t *dnsserver);

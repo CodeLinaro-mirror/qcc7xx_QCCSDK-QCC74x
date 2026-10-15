@@ -354,13 +354,6 @@ SECTIONS
         __HeapLimit = .;
     } > ram_memory
 
-    .lp_mon (NOLOAD)   :
-    {
-        PROVIDE( __lp_mon_start = ADDR(.lp_mon) );
-        PROVIDE( __lp_mon_end = ADDR(.lp_mon) + SIZEOF(.lp_mon) );
-        *(.lp_mon_ctx)
-    } > ram_memory
-
     __HeapLimit = ORIGIN(ram_memory) + LENGTH(ram_memory);
     ASSERT(__HeapLimit - __HeapBase >= HeapMinSize, "heap region overflow")
 

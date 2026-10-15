@@ -1,3 +1,44 @@
+# UART WiFi Configuration and Usage
+
+## UART1 Pin Configuration
+
+The AT command channel uses UART1 at 2000000 baud, 8 data bits, 1 stop bit,
+and no parity. The following tables list the QCC74x pins used by each build
+configuration.
+
+### Default UART1 Pins
+
+If you are using the default QCC743/QCC744 development board configuration,
+UART1 uses the following pins:
+
+|  Signal  | QCC74x |
+|----------|--------|
+| UART1 TX | GPIO27 |
+| UART1 RX | GPIO28 |
+| UART1 CTS | GPIO29 |
+| UART1 RTS | GPIO30 |
+|  Ground  |  GND   |
+
+### GPIO14/15 Overlay Pins
+
+To use GPIO14 and GPIO15 instead, build the firmware with the demo-specific
+GPIO overlay enabled:
+
+```bash
+make CONFIG_UART_WIFI_GPIO_OVERLAY=y
+```
+
+UART1 then uses the following pins:
+
+|  Signal  | QCC74x |
+|----------|--------|
+| UART1 TX | GPIO14 |
+| UART1 RX | GPIO15 |
+|  Ground  |  GND   |
+
+Without `CONFIG_UART_WIFI_GPIO_OVERLAY=y`, the firmware continues to use the
+default GPIO27-GPIO30 UART1 pin configuration.
+
 # Low Power Mode Configuration and Usage
 
 ## Configuration

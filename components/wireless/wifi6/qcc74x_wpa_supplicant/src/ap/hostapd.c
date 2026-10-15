@@ -1621,7 +1621,8 @@ static int setup_interface(struct hostapd_iface *iface)
 		wpa_printf(MSG_DEBUG, "Previous country code %s, new country code %s",
 			   previous_country, country);
 
-		if (os_strncmp(previous_country, country, 2) != 0) {
+		if (os_strncmp(previous_country, country, 2) != 0 &&
+		    hapd->driver && hapd->driver->get_country) {
 			wpa_printf(MSG_DEBUG, "Continue interface setup after channel list update");
 			iface->wait_channel_update = 1;
 			eloop_register_timeout(5, 0,
@@ -3534,8 +3535,11 @@ static int hostapd_fill_csa_settings(struct hostapd_data *hapd,
 	u8 chan, bandwidth;
 
 	os_memset(&old_freq, 0, sizeof(old_freq));
-	if (!iface || !iface->freq || hapd->csa_in_progress)
+	if (!iface || !iface->freq || hapd->csa_in_progress) {
+		wpa_printf(MSG_INFO, "CSA: precheck failed iface=%p freq=%d csa_in_progress=%d",
+			   iface, iface ? iface->freq : 0, hapd->csa_in_progress);
 		return -1;
+	}
 
 	switch (settings->freq_params.bandwidth) {
 #ifndef CONFIG_NO_HIGHER_40M_OR_NON_24G
@@ -3570,12 +3574,21 @@ static int hostapd_fill_csa_settings(struct hostapd_data *hapd,
 	}
 
 	settings->freq_params.channel = chan;
+	wpa_printf(MSG_INFO, "CSA: freq=%d -> chan=%d bandwidth=%d sec=%d ht=%d vht=%d he=%d",
+		   settings->freq_params.freq, chan,
+		   settings->freq_params.bandwidth,
+		   settings->freq_params.sec_channel_offset,
+		   settings->freq_params.ht_enabled,
+		   settings->freq_params.vht_enabled,
+		   settings->freq_params.he_enabled);
 
 	ret = hostapd_change_config_freq(iface->bss[0], iface->conf,
 					 &settings->freq_params,
 					 &old_freq);
-	if (ret)
+	if (ret) {
+		wpa_printf(MSG_INFO, "CSA: change_config_freq failed ret=%d", ret);
 		return ret;
+	}
 
 	ret = hostapd_build_beacon_data(hapd, &settings->beacon_after);
 
@@ -3583,8 +3596,10 @@ static int hostapd_fill_csa_settings(struct hostapd_data *hapd,
 	hostapd_change_config_freq(iface->bss[0], iface->conf,
 				   &old_freq, NULL);
 
-	if (ret)
+	if (ret) {
+		wpa_printf(MSG_INFO, "CSA: build beacon_after failed ret=%d", ret);
 		return ret;
+	}
 
 	/* set channel switch parameters for csa ie */
 	hapd->cs_freq_params = settings->freq_params;
@@ -3655,6 +3670,7 @@ int hostapd_switch_channel(struct hostapd_data *hapd,
 		return ret;
 
 	ret = hostapd_drv_switch_channel(hapd, settings);
+	wpa_printf(MSG_INFO, "CSA: drv_switch_channel ret=%d", ret);
 	free_beacon_data(&settings->beacon_csa);
 	free_beacon_data(&settings->beacon_after);
 

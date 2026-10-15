@@ -30,6 +30,11 @@ endif()
 sdk_add_include_directories(.)
 sdk_add_include_directories(./app/include)
 
+if(CONFIG_UART_WIFI_GPIO_OVERLAY)
+    target_sources(app PRIVATE boards/${CHIP}/board_gpio_overlay.c)
+    sdk_add_include_directories(./boards/${CHIP})
+endif()
+
 sdk_set_main_file(main.c)
 
 project(uart_wifi)

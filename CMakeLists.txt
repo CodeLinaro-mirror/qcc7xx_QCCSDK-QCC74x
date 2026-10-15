@@ -38,6 +38,32 @@ endif()
 sdk_add_compile_definitions(-DCONFIG_PROJECT_PARAM="${CONFIG_PROJECT_PARAM}")
 sdk_add_compile_definitions(-DCONFIG_APP_ANTI_ROLLBACK_VER=${CONFIG_APP_ANTI_ROLLBACK_VER})
 
+if(CONFIG_BSP_CONSOLE_USB_CDC)
+    set(USB_CONSOLE_MISSING_CONFIGS "")
+
+    foreach(required_config
+            CONFIG_FREERTOS
+            CONFIG_SHELL
+            CONFIG_CHERRYUSB
+            CONFIG_CHERRYUSB_DEVICE
+            CONFIG_CHERRYUSB_DEVICE_CDC_ACM)
+        if(NOT DEFINED ${required_config} OR NOT "${${required_config}}" STREQUAL "y")
+            list(APPEND USB_CONSOLE_MISSING_CONFIGS "${required_config}=y")
+        endif()
+    endforeach()
+
+    if(NOT "${CONFIG_CHERRYUSB_OSAL}" STREQUAL "freertos")
+        list(APPEND USB_CONSOLE_MISSING_CONFIGS "CONFIG_CHERRYUSB_OSAL=freertos")
+    endif()
+
+    if(USB_CONSOLE_MISSING_CONFIGS)
+        list(JOIN USB_CONSOLE_MISSING_CONFIGS "\n  " USB_CONSOLE_MISSING_CONFIGS_TEXT)
+        message(FATAL_ERROR
+            "CONFIG_BSP_CONSOLE_USB_CDC=y requires the following defconfig settings:\n"
+            "  ${USB_CONSOLE_MISSING_CONFIGS_TEXT}")
+    endif()
+endif()
+
 add_subdirectory(bsp)
 add_subdirectory(components)
 add_subdirectory(drivers/lhal)

@@ -14,7 +14,6 @@
 #include <nxspi_log.h>
 
 #include <utils_list.h>
-#include <shell.h>
 
 #define DBG_TAG "NXSPI"
 #include <log.h>
@@ -85,6 +84,20 @@ static int _init_queue(void)
     g_nxspi.upfq = xQueueCreate(NXBD_ITEMS + 1, sizeof(trans_desc_t *));
 
     for (int i = 0; i < NXSPI_TYPE_MAX; i++) {
+        bool enabled = (i == NXSPI_TYPE_AT);
+#ifdef NXSPI_NET
+        enabled = enabled || i == NXSPI_TYPE_NET_STA || i == NXSPI_TYPE_NET_AP;
+#endif
+#if NXSPI_HCI
+        enabled = enabled || i == NXSPI_TYPE_HCI;
+#endif
+#if CONFIG_THREAD
+        enabled = enabled || i == NXSPI_TYPE_OT;
+#endif
+        if (!enabled) {
+            g_nxspi.dn[i] = NULL;
+            continue;
+        }
         g_nxspi.dn[i] = xQueueCreate(NXBD_ITEMS + 1, sizeof(trans_desc_t *));
         if (!g_nxspi.dn[i]) {
             return -1;

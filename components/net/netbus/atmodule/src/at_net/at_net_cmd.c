@@ -2257,7 +2257,10 @@ static int at_setup_cmd_iperf(int argc, const char **argv)
     char ipaddr[32] = {0};
     char type[4] = {0};
     char direct[3] = {0};
-    char buffer[128];
+    char duration[12];
+    char port[12];
+    char *iperf_argv[12] = { "iperf" };
+    int iperf_argc = 1;
 
     AT_CMD_PARSE_STRING(0, direct, sizeof(direct));
     AT_CMD_PARSE_STRING(1, type, sizeof(type));
@@ -2297,32 +2300,38 @@ static int at_setup_cmd_iperf(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_PROCESSING);
     }
 
-    snprintf(buffer, sizeof(buffer),
-             "iperf "\
-             "%s "\
-             "%s "\
-             "%s "\
-             "%s "\
-             "-i 1 "\
-             "-t %d "\
-             "-p %d\r\n",
-             is_udp?"-u":"",
-             is_server?"-s":"-c",
-             is_server?"":ipaddr,
-             (is_udp && !is_server)?"-b 200M":"",
-             t,
-             p);
+    snprintf(duration, sizeof(duration), "%d", t);
+    snprintf(port, sizeof(port), "%d", p);
 
-    printf(buffer);
+    if (is_udp) {
+        iperf_argv[iperf_argc++] = "-u";
+    }
+    iperf_argv[iperf_argc++] = is_server ? "-s" : "-c";
+    if (!is_server) {
+        iperf_argv[iperf_argc++] = ipaddr;
+    }
+    if (is_udp && !is_server) {
+        iperf_argv[iperf_argc++] = "-b";
+        iperf_argv[iperf_argc++] = "200M";
+    }
+    iperf_argv[iperf_argc++] = "-i";
+    iperf_argv[iperf_argc++] = "1";
+    iperf_argv[iperf_argc++] = "-t";
+    iperf_argv[iperf_argc++] = duration;
+    iperf_argv[iperf_argc++] = "-p";
+    iperf_argv[iperf_argc++] = port;
+
     at_output_redirect_register(at_iperf_redirect);
-    shell_exe_cmd(buffer, strlen(buffer));
+    cmd_iperf(iperf_argc, iperf_argv);
 
     return AT_RESULT_CODE_OK;
 }
 
 static int at_setup_cmd_iperf_stop(int argc, const char **argv)
 {
-    shell_exe_cmd("iperf stop\r\n", strlen("iperf stop\r\n"));
+    char *iperf_argv[] = { "iperf", "stop" };
+
+    cmd_iperf(2, iperf_argv);
 
     return AT_RESULT_CODE_OK;
 }
@@ -2404,10 +2413,6 @@ static int at_setup_cmd_cipsslcconf(int argc, const char **argv)
         at_net_ssl_path_set(linkid, ca_file, cert_file, key_file);
     }
 
-    strlcpy(at_net_config->sslconf[linkid].ca_file, ca_file, sizeof(at_net_config->sslconf[linkid].ca_file));
-    strlcpy(at_net_config->sslconf[linkid].cert_file, cert_file, sizeof(at_net_config->sslconf[linkid].cert_file));
-    strlcpy(at_net_config->sslconf[linkid].key_file, key_file, sizeof(at_net_config->sslconf[linkid].key_file));
-
     if (at->store) {
         at_net_config_save(AT_CONFIG_KEY_NET_SSLCONF);
     }
@@ -2417,7 +2422,7 @@ static int at_setup_cmd_cipsslcconf(int argc, const char **argv)
 static int at_query_cmd_cipsslcconf(int argc, const char **argv)
 {
     int linkid = 0, auth_mode = 0;
-    char *ca, *cert, *key;
+    const char *ca, *cert, *key;
 
     if (at_net_config->mux_mode == NET_LINK_SINGLE) {
     } else {
@@ -2511,10 +2516,6 @@ static int at_setup_cmd_cipsslsconf(int argc, const char **argv)
         at_net_ssl_server_path_set(linkid, ca_file, cert_file, key_file);
     }
 
-    strlcpy(at_net_config->sslsconf[linkid].ca_file, ca_file, sizeof(at_net_config->sslsconf[linkid].ca_file));
-    strlcpy(at_net_config->sslsconf[linkid].cert_file, cert_file, sizeof(at_net_config->sslsconf[linkid].cert_file));
-    strlcpy(at_net_config->sslsconf[linkid].key_file, key_file, sizeof(at_net_config->sslsconf[linkid].key_file));
-
     if (at->store) {
         at_net_config_save(AT_CONFIG_KEY_NET_SSLSCONF);
     }
@@ -2526,7 +2527,7 @@ static int at_setup_cmd_cipsslsconf(int argc, const char **argv)
 static int at_query_cmd_cipsslsconf(int argc, const char **argv)
 {
     int linkid = 0, auth_mode = 0;
-    char *ca, *cert, *key;
+    const char *ca, *cert, *key;
 
     at_net_ssl_server_path_get(linkid, &ca, &cert, &key);
 

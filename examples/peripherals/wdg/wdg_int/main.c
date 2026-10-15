@@ -18,8 +18,8 @@ int main(void)
 
     struct qcc74x_wdg_config_s wdg_cfg;
     wdg_cfg.clock_source = WDG_CLKSRC_32K;
-    wdg_cfg.clock_div = 0;
-    wdg_cfg.comp_val = 64000;
+    wdg_cfg.clock_div = 31;
+    wdg_cfg.comp_val = 1000 * 5 - 1; /* 5s */
     wdg_cfg.mode = WDG_MODE_INTERRUPT;
 
     wdg = qcc74x_device_get_by_name("watchdog");
@@ -30,24 +30,26 @@ int main(void)
     wdg_int_arrived = 0;
     qcc74x_wdg_start(wdg);
 
-    /* delay 1s and wdg interrupt should not trigger. */
-    qcc74x_mtimer_delay_ms(1000);
+    /* delay 3s and reset counter value. */
+    qcc74x_mtimer_delay_ms(3000);
     qcc74x_wdg_reset_countervalue(wdg);
+    /* delay 3s and wdg interrupt should not trigger. */
+    qcc74x_mtimer_delay_ms(3000);
     if (wdg_int_arrived) {
-        printf("Error! Delay 1s, wdg interrupt should not arrive\r\n");
+        printf("Error! Delay 3s, wdg interrupt should not arrive\r\n");
         qcc74x_wdg_stop(wdg);
     } else {
-        printf("Delay 1s, wdg interrupt not arrive, pass\r\n");
+        printf("Delay 3s, wdg interrupt not arrive, pass\r\n");
     }
 
-    /* delay 2s will trigger wdg interrupt */
-    qcc74x_mtimer_delay_ms(2000);
+    /* delay 3s will trigger wdg interrupt */
+    qcc74x_mtimer_delay_ms(3000);
     qcc74x_wdg_reset_countervalue(wdg);
     if (wdg_int_arrived) {
-        printf("Delay 2s, wdg interrupt arrived, pass\r\n");
+        printf("Delay 3s, wdg interrupt arrived, pass\r\n");
     } else {
-        printf("Error! Delay 2s, wdg interrupt not arrived, count = %d\r\n",
-               qcc74x_wdg_get_countervalue(wdg));
+        printf("Error! Delay 3s, wdg interrupt not arrived, count = %d\r\n",
+        qcc74x_wdg_get_countervalue(wdg));
     }
     qcc74x_wdg_stop(wdg);
 

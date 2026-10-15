@@ -54,6 +54,8 @@ int at_ble_conn(int idx, uint8_t *addr, int addr_type, int timeout);
 
 int at_ble_conn_get_addr(int idx, uint8_t *addr);
 
+int at_ble_conn_get_rssi(int idx, int8_t *rssi);
+
 int at_ble_conn_get_role(int idx);
 
 int at_ble_conn_get_param(int idx, int *min_interval, int *max_interval, int *cur_interval, int *latency, int *timeout);
@@ -90,7 +92,7 @@ int at_ble_gattc_service_discover(int idx, int timeout);
 
 int at_ble_gattc_service_char_discover(int idx, int srv_idx, int timeout);
 
-int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void * buffer, int length);
+int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void *buffer, int length, bool signed_write);
 
 int at_ble_gattc_service_read(int idx, int srv_idx, int char_idx, int timeout);
 

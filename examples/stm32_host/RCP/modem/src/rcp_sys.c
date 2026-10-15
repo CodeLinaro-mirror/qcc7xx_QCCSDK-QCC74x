@@ -592,13 +592,41 @@ RCP_Status_t RCP_FlashErase(RCP_Object_t *Obj, uint32_t nbytes,
   return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
 }
 
-RCP_Status_t RCP_GPIOPullUpDn(RCP_Object_t *Obj, uint32_t pin, uint32_t state) {
+RCP_Status_t RCP_GPIOPullUpDn(RCP_Object_t *Obj, uint32_t pin, uint32_t mode,
+                              uint32_t pull) {
   char cmd[RCP_CMDRSP_STRING_SIZE];
   RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
 
-  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+IOPUPD=%" PRIu32 ",%" PRIu32 "\r\n",
-           pin, state);
+  snprintf(cmd, RCP_CMDRSP_STRING_SIZE,
+           "AT+IOPUPD=%" PRIu32 ",%" PRIu32 ",%" PRIu32 "\r\n", pin,
+           mode, pull);
   return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
+}
+
+RCP_Status_t RCP_GPIOPullUpDnQuery(RCP_Object_t *Obj, uint32_t pin,
+                                   uint32_t *mode, uint32_t *pull) {
+  char *argv[CONFIG_MODEM_CMD_HANDLER_MAX_PARAM_COUNT];
+  char cmd[RCP_CMD_MATCH_BUFF_SIZE];
+  uint16_t argc = 0;
+  RCP_Status_t ret;
+  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
+  RCP_NULL_ASSERT(mode);
+  RCP_NULL_ASSERT(pull);
+
+  snprintf(cmd, sizeof(cmd), "AT+IOPUPD=%" PRIu32 "?\r\n", pin);
+  ret = RCP_Common_Query_Parse(Obj, cmd, "+IOPUPD=", &argc, argv,
+                               RCP_NCP_TIMEOUT);
+  if (ret != RCP_STATUS_OK) {
+    return ret;
+  }
+
+  if (argc < 3) {
+    return RCP_STATUS_ERROR;
+  }
+
+  *mode = (uint32_t)strtoul(argv[1], NULL, 10);
+  *pull = (uint32_t)strtoul(argv[2], NULL, 10);
+  return ret;
 }
 
 RCP_Status_t RCP_GPIOOutput(RCP_Object_t *Obj, uint32_t pin, uint32_t state) {
@@ -608,16 +636,6 @@ RCP_Status_t RCP_GPIOOutput(RCP_Object_t *Obj, uint32_t pin, uint32_t state) {
   snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+IOOUT=%" PRIu32 ",%" PRIu32 "\r\n",
            pin, state);
   return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_NCP_TIMEOUT);
-}
-
-RCP_Status_t RCP_GPIOInputConfig(RCP_Object_t *Obj, uint32_t pin,
-                                 uint32_t pull_state) {
-  char cmd[RCP_CMDRSP_STRING_SIZE];
-  RCP_NULL_ASSERT_STR(Obj, RCP_Obj_Null_str);
-
-  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+IOIN=%" PRIu32 ",%" PRIu32 "\r\n",
-           pin, pull_state);
-  return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_SYS_TIMEOUT);
 }
 
 RCP_Status_t RCP_GPIOInputRead(RCP_Object_t *Obj, uint32_t pin,

@@ -254,7 +254,8 @@ void att_req_sent(struct bt_conn *conn, void *user_data);
 void bt_att_init(void);
 u16_t bt_att_get_mtu(struct bt_conn *conn);
 #if defined(QCC74x_BLE_SET_LOCAL_ATT_MTU_SIZE)
-void bt_att_set_mtu(u16_t mtu);
+int bt_att_set_mtu(u16_t mtu);
+u16_t bt_att_get_local_mtu(void);
 #endif
 
 #if defined(CONFIG_BLE_AT_CMD)

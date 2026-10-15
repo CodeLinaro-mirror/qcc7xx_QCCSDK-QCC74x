@@ -155,15 +155,13 @@
 /// Beaconing support
 #ifdef CFG_BCN
   #define NX_BEACONING 1
-#ifndef CFG_BCN_AC_MAX
-  // XXX:default use VI to send beacon for AP mode
-#ifdef CONFIG_WIFI_GATEWAY
+#if defined(CFG_BCN_AC_MAX) || defined(CONFIG_WIFI_GATEWAY)
   #define NX_BEACON_AC_VI 0
   #define NX_AC_BCN_USED  1
 #else
+  // Compatibility mode: beacon frames share the legacy VI queue.
   #define NX_BEACON_AC_VI 1
   #define NX_AC_BCN_USED  0
-#endif
 #endif
 #else
   #define NX_BEACONING 0

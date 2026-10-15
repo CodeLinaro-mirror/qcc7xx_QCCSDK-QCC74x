@@ -48,7 +48,7 @@ struct https_fota {
     uint8_t auto_finish;
 };
 
-static int payload_cb(int sock, struct http_request *req, void *user_data)
+static int payload_cb(intptr_t sock, struct http_request *req, void *user_data)
 {
 	const char *content[] = {
 		"foobar",
@@ -246,4 +246,3 @@ int https_ota_rollback(void)
     ret = ota_rollback();
     return ret;
 }
-

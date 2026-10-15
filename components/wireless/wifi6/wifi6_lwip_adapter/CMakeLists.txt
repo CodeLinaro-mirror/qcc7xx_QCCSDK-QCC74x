@@ -7,6 +7,7 @@ sdk_library_add_sources(net_al_ext.c)
 sdk_library_add_sources(net_iperf_al.c)
 sdk_library_add_sources(wifi_pkt_hooks.c)
 sdk_library_add_sources(tx_buffer_copy.c)
+sdk_library_add_sources(wifi_mgmr_cli.c)
 
 sdk_library_add_sources_ifdef(CONFIG_WIFI_TG net_tg_al.c net_tg_al_priv.c net_ping_al_priv.c)
 

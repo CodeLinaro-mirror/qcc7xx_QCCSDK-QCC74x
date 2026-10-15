@@ -1,5 +1,8 @@
 sdk_generate_library()
 
+sdk_add_include_directories(.)
+sdk_library_add_sources(console_output.c)
+
 add_subdirectory(newlib)
 
 # use newlib stdlib or nuttx stdlib

@@ -146,12 +146,18 @@ netif_set_status_callback(&obj->netif, netif_status_callback);
 Enter the build command under the `spiwifi`​ example directory:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0
+make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n
 ```
-BLE Lwip On Host only compiles with Wi-Fi Lwip On Host:
+BLE SPI Lwip On Host only compiles with Wi-Fi Lwip On Host:
 
 ```bash
-make CONFIG_LWIP_ONHOST_ENABLE=1 CONFIG_MQTT=0 CONFIG_HTTP=0 CONFIG_NETWORK=0 CONFIG_BLUETOOTH_APP=0 CONFIG_HCI_ENABLE=1
+make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n CONFIG_BLUETOOTH_APP=n CONFIG_HCI_SPI_ENABLE=y
+```
+
+BLE UART Lwip On Host only compiles with Wi-Fi Lwip On Host:
+
+```bash
+ make CONFIG_LWIP_ONHOST_ENABLE=y CONFIG_MQTT=n CONFIG_HTTP=n CONFIG_NETWORK=n CONFIG_BLUETOOTH_APP=n CONFIG_HCI_UART_ENABLE=y
 ```
 
 ### Flashing

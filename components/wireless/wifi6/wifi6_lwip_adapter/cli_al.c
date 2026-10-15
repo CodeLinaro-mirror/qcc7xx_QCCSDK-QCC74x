@@ -303,8 +303,10 @@ void cmd_iperf(int argc, char **argv)
  " Once a stream has been configured, it can be started/stopped\r\n" \
  "   tg config <id> <profile> <direction> <remote_ip> <remote_port> <local_ip> <local_port>\r\n" \
  "             <rate> <pksize> <duration> <tos>\r\n" \
+ "             [<maxcnt>] (AP VIF only; optional)\r\n"  \
  "   tg start  <id1> [<id2> ... <id8>]\r\n" \
- "   tg stop   <id1> [<id2> ... <id8>]\r\n"
+ "   tg stop   <id1> [<id2> ... <id8>]\r\n" \
+ "   tg reset\r\n"
 
 void cmd_tg(int argc, char **argv) {
     char *str = NULL;
@@ -338,7 +340,7 @@ void cmd_tg(int argc, char **argv) {
     if (!strcmp("config", token))
     {
         char *id, *prof, *direction, *remote_ip, *remote_port, *local_ip,
-        *local_port, *rate, *pksize, *duration, *tos;
+        *local_port, *rate, *pksize, *duration, *tos, *maxcnt;
         uint32_t stream_id;
         uint32_t rip, lip;
         char fmt[] = "Configure stream %d for %s\n";
@@ -354,6 +356,7 @@ void cmd_tg(int argc, char **argv) {
         pksize = fhost_ipc_next_token(&next);
         duration = fhost_ipc_next_token(&next);
         tos = fhost_ipc_next_token(&next);
+        maxcnt = fhost_ipc_next_token(&next);
 
         if (!id || !prof || !direction ||
             !remote_ip || fhost_ipc_parse_ip4(remote_ip, &rip, NULL) || !remote_port ||
@@ -369,7 +372,7 @@ void cmd_tg(int argc, char **argv) {
 
         if (fhost_tg_config(stream_id, atoi(prof), atoi(direction), rip, atoi(remote_port),
                             lip, atoi(local_port), atoi(rate), atoi(pksize), atoi(duration),
-                            atoi(tos)))
+                            atoi(tos), maxcnt ? atoi(maxcnt) : 0))
         {
             fhost_print(RTOS_TASK_NULL, "Configuration error\n");
             goto exit; // FHOST_IPC_ERROR;
@@ -469,6 +472,12 @@ void cmd_tg(int argc, char **argv) {
                         stats->unordered,
                         stats->rt_time);
         } while((token = fhost_ipc_next_token(&next)));
+    }
+    else if (!strcmp("reset", token))
+    {
+        uint32_t stopped = fhost_tg_reset();
+
+        fhost_printf("TG reset complete, stopped %u stream(s)\r\n", stopped);
     }
     else
     {
@@ -827,7 +836,7 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
     config.use_dhcpd = true;
 
     utils_al_getopt_init(&getopt_env, 0);
-    while ((opt = utils_al_getopt(&getopt_env, argc, argv, "b:s:k:c:a:d:t:h:i:I:S:L:n:w:m:p:T:")) != -1) {
+    while ((opt = utils_al_getopt(&getopt_env, argc, argv, "b:s:k:c:a:d:t:h:i:I:S:L:n:w:m:p:T:E:B:N:R:")) != -1) {
         switch (opt) {
 	case 'b':
 	    config.type = (uint8_t)atoi(getopt_env.optarg);
@@ -912,6 +921,24 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
         config.transition_disable = atoi(getopt_env.optarg);
         break;
 
+#ifdef CONFIG_WFA
+    case 'E':
+        config.mbo_enabled = !!atoi(getopt_env.optarg);
+        break;
+
+    case 'B':
+        config.bss_transition = !!atoi(getopt_env.optarg);
+        break;
+
+    case 'N':
+        config.interworking = !!atoi(getopt_env.optarg);
+        break;
+
+    case 'R':
+        config.rrm_neighbor_report = !!atoi(getopt_env.optarg);
+        break;
+#endif /* CONFIG_WFA */
+
 	case '?':
 	    printf("unknow option: %c \r\n", getopt_env.optopt);
 	    goto _ERROUT;
@@ -928,13 +955,143 @@ void wifi_mgmr_ap_start_cmd(int argc, char **argv)
     return;
 
  _ERROUT:
-    printf("[USAGE]: %s -s <ssid> [-k <key>] [-c <channel>] [-a <akm>] [-d 0/1 <start dhcp server>] [-I <ipv4_addr>] [-S <dhcpd_start>] [-L <dhcpd_limit>] [-n <bcn_interval>] [-w 1/0 <disable_wmm, 1:disable 0:enable>] [-i 1/0 <isolation, 1:enable 0:disable>] [-m 0/1/2 <mfp, 0:disable 1:optional 2:required>] [-p 0/1/2 <sae_pwe, 0:HnP 1:H2E 2:both>] [-T <transition_disable>]\r\n", argv[0]);
+    printf("[USAGE]: %s -s <ssid> [-k <key>] [-c <channel>] [-a <akm>] [-d 0/1 <start dhcp server>] [-I <ipv4_addr>] [-S <dhcpd_start>] [-L <dhcpd_limit>] [-n <bcn_interval>] [-w 1/0 <disable_wmm, 1:disable 0:enable>] [-i 1/0 <isolation, 1:enable 0:disable>] [-m 0/1/2 <mfp, 0:disable 1:optional 2:required>] [-p 0/1/2 <sae_pwe, 0:HnP 1:H2E 2:both>] [-T <transition_disable>]"
+#ifdef CONFIG_WFA
+           " [-E 0/1 <mbo_enabled>] [-B 0/1 <bss_transition>] [-N 0/1 <interworking>] [-R 0/1 <rrm_neighbor_report>]"
+#endif /* CONFIG_WFA */
+           "\r\n", argv[0]);
     return;
 }
 
 void wifi_mgmr_ap_stop_cmd(int argc, char **argv)
 {
     wifi_mgmr_ap_stop();
+}
+
+void wifi_mgmr_ap_chan_switch_cmd(int argc, char **argv)
+{
+    int channel;
+    uint8_t cs_count = 10;
+
+    if (argc < 2) {
+        printf("Usage: %s <channel> [cs_count]\r\n", argv[0]);
+        return;
+    }
+
+    channel = atoi(argv[1]);
+    if (argc > 2)
+        cs_count = (uint8_t)atoi(argv[2]);
+
+    wifi_mgmr_ap_chan_switch(channel, cs_count);
+}
+
+static void _print_phy_pwr_table(void)
+{
+    rf_pwr_table_t power_table;
+
+    memset(&power_table, 0, sizeof(power_table));
+    wifi_mgmr_tpc_pwr_get(&power_table);
+
+    fhost_printf("PHY (calibration) power table (dbm), unit 0.25dbm raw values above:\r\n");
+    fhost_printf("  11b:          "); _print_sta_pwr(4,  power_table.pwr_11b);
+    fhost_printf("  11g:          "); _print_sta_pwr(8,  power_table.pwr_11g);
+    fhost_printf("  11n(ht20):    "); _print_sta_pwr(8,  power_table.pwr_11n_ht20);
+    fhost_printf("  11n(ht40):    "); _print_sta_pwr(8,  power_table.pwr_11n_ht40);
+    fhost_printf("  11ac(vht20):  "); _print_sta_pwr(10, power_table.pwr_11ac_vht20);
+    fhost_printf("  11ac(vht40):  "); _print_sta_pwr(10, power_table.pwr_11ac_vht40);
+    fhost_printf("  11ax(he20):   "); _print_sta_pwr(12, power_table.pwr_11ax_he20);
+    fhost_printf("  11ax(he40):   "); _print_sta_pwr(12, power_table.pwr_11ax_he40);
+}
+
+/*
+ * cmd_tx_power - test/debug entry point for the per-rate user TX power table
+ * (WL_BB_TPC): wifi_mgmr_sta_ap_tx_power_set/get/clear() have no other caller
+ * in the tree, so this is the only way to exercise them from the console.
+ *
+ *   tx_power set <dbm>         fill the whole table (11b/g/n/ac/ax, all rates)
+ *                              with <dbm> (e.g. "tx_power set 20") and enable
+ *                              the table
+ *   tx_power get               print the round-tripped table (pwr_11b[0], in dBm)
+ *   tx_power clear             revoke the table, TX paths fall back to the
+ *                              regulatory/calibration table again
+ *   tx_power phy               print the PHY/calibration power table
+ *                              (wl_param_pwrtarget_t, via wifi_mgmr_tpc_pwr_get)
+ *                              -- this is what TX paths fall back to whenever
+ *                              the user table above is not active
+ *   tx_power limit set <dbm>   set a hard per-rate upper limit (same table
+ *                              shape/units as "set"). Once active, the final
+ *                              TX power for every rate is clamped to this
+ *                              value, whether it came from the user table
+ *                              above or the PHY/calibration table.
+ *   tx_power limit get         print the round-tripped limit table (pwr_11b[0])
+ *   tx_power limit clear       revoke the limit, TX power is no longer clamped
+ */
+void cmd_tx_power(int argc, char **argv)
+{
+    tx_pwr_table_t pwr_table;
+    int dbm;
+    int8_t half_dbm;
+
+    if (argc < 2) {
+        goto cmd_tx_power_usage;
+    }
+
+    if ((strcmp(argv[1], "limit") == 0)) {
+        if ((argc == 4) && (strcmp(argv[2], "set") == 0)) {
+            dbm = atoi(argv[3]);
+            half_dbm = (int8_t)(dbm * 2); // pwr_11x[] unit is 0.5dBm
+
+            memset(&pwr_table, half_dbm, sizeof(pwr_table));
+            if (wifi_mgmr_sta_ap_tx_power_limit_set(&pwr_table)) {
+                fhost_printf("tx_power limit set failed\r\n");
+                return;
+            }
+            fhost_printf("tx_power limit set to %d dBm (0x%02x) for all rates\r\n", dbm, (uint8_t)half_dbm);
+        } else if ((argc == 3) && (strcmp(argv[2], "get") == 0)) {
+            memset(&pwr_table, 0, sizeof(pwr_table));
+            if (wifi_mgmr_sta_ap_tx_power_limit_get(&pwr_table)) {
+                fhost_printf("tx_power limit get failed\r\n");
+                return;
+            }
+            fhost_printf("tx_power limit (pwr_11b[0]) = %d dBm\r\n", pwr_table.pwr_11b[0] >> 1);
+        } else if ((argc == 3) && (strcmp(argv[2], "clear") == 0)) {
+            if (wifi_mgmr_sta_ap_tx_power_limit_clear()) {
+                fhost_printf("tx_power limit clear failed\r\n");
+                return;
+            }
+            fhost_printf("tx_power limit cleared, TX power is no longer clamped\r\n");
+        } else {
+            goto cmd_tx_power_usage;
+        }
+    } else if ((strcmp(argv[1], "set") == 0) && (argc == 3)) {
+        dbm = atoi(argv[2]);
+        half_dbm = (int8_t)(dbm * 2); // pwr_11x[] unit is 0.5dBm
+
+        memset(&pwr_table, half_dbm, sizeof(pwr_table));
+        if (wifi_mgmr_sta_ap_tx_power_set(&pwr_table)) {
+            fhost_printf("tx_power set failed\r\n");
+            return;
+        }
+        fhost_printf("tx_power set to %d dBm (0x%02x) for all rates\r\n", dbm, (uint8_t)half_dbm);
+    } else if ((strcmp(argv[1], "get") == 0) && (argc == 2)) {
+        dbm = wifi_mgmr_sta_ap_tx_power_get();
+        fhost_printf("tx_power (pwr_11b[0]) = %d dBm\r\n", dbm);
+    } else if ((strcmp(argv[1], "clear") == 0) && (argc == 2)) {
+        if (wifi_mgmr_sta_ap_tx_power_clear()) {
+            fhost_printf("tx_power clear failed\r\n");
+            return;
+        }
+        fhost_printf("tx_power table cleared, falling back to regulatory/calibration table\r\n");
+    } else if ((strcmp(argv[1], "phy") == 0) && (argc == 2)) {
+        _print_phy_pwr_table();
+    } else {
+        goto cmd_tx_power_usage;
+    }
+
+    return;
+
+cmd_tx_power_usage:
+    fhost_printf("tx_power set <dbm> | get | clear | phy | limit set <dbm> | limit get | limit clear\r\n");
 }
 
 #if WIFI_STATISTIC_ENABLE
@@ -1144,10 +1301,16 @@ SHELL_CMD_EXPORT_ALIAS(wifi_ap_sta_delete_cmd, wifi_sta_del, delete one sta in A
 SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_start_cmd, wifi_ap_start, start AP mode);
 SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_ip_set_cmd, wifi_ap_set_ip, set AP static IP);
 SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_stop_cmd, wifi_ap_stop, stop AP mode);
+SHELL_CMD_EXPORT_ALIAS(wifi_mgmr_ap_chan_switch_cmd, wifi_ap_chan_switch, AP channel switch: <channel> [cs_count]);
+SHELL_CMD_EXPORT_ALIAS(cmd_tx_power, tx_power, set/get/clear per-rate user TX power table);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ap_mac_get, wifi_ap_mac_get, get wifi ap mac);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ap_conf_max_sta, wifi_ap_conf_max_sta, config AP mac sta);
 SHELL_CMD_EXPORT_ALIAS(wifi_country_code_get_cmd, wifi_country_code_get, Get current country code);
 SHELL_CMD_EXPORT_ALIAS(wifi_country_code_set_cmd, wifi_country_code_set, Set country code (e.g. CN, US, JP));
+#ifdef CONFIG_WFA
+SHELL_CMD_EXPORT_ALIAS(wifi_ap_mbo_assoc_disallow_cmd, wifi_ap_mbo_assoc_disallow, set MBO assoc disallow 0-5);
+SHELL_CMD_EXPORT_ALIAS(wifi_ap_btm_req_cmd, wifi_ap_btm_req, send BSS transition management request);
+#endif
 #if NX_TG
 SHELL_CMD_EXPORT_ALIAS(cmd_tg, tg, wifi tg);
 #endif

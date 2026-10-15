@@ -118,6 +118,109 @@ int wifi_mgmr_ap_mac_set(uint8_t mac[6])
     memcpy(wifiMgmr.wlan_ap.mac, mac, 6);
     return 0;
 }
+
+#ifdef CONFIG_WIFI_TX_POWER_LIMIT
+static uint8_t wifi_mgmr_pwr_cap_enable;
+static int8_t wifi_mgmr_pwr_cap_dbm;
+static void wifi_mgmr_clamp_tx_power_array(int8_t *power, const int8_t *min_power,
+                                           const int8_t *max_power, size_t count,
+                                           int target_power)
+{
+    size_t i;
+    int bounded_power;
+
+    for (i = 0; i < count; i++) {
+        bounded_power = target_power;
+        if (bounded_power < min_power[i]) {
+            bounded_power = min_power[i];
+        }
+        if (bounded_power > max_power[i]) {
+            bounded_power = max_power[i];
+        }
+        power[i] = (int8_t)bounded_power;
+    }
+}
+
+static void wifi_mgmr_build_tx_power_limit_table(tx_pwr_table_t *power_table, int8_t max_dbm)
+{
+    int target_power = (int)max_dbm * 2;
+
+    wifi_mgmr_clamp_tx_power_array(power_table->pwr_11b,
+                                   tx_power_limit_tables[0].pwr_11b,
+                                   tx_power_limit_tables[1].pwr_11b,
+                                   sizeof(power_table->pwr_11b) / sizeof(power_table->pwr_11b[0]),
+                                   target_power);
+    wifi_mgmr_clamp_tx_power_array(power_table->pwr_11g,
+                                   tx_power_limit_tables[0].pwr_11g,
+                                   tx_power_limit_tables[1].pwr_11g,
+                                   sizeof(power_table->pwr_11g) / sizeof(power_table->pwr_11g[0]),
+                                   target_power);
+    wifi_mgmr_clamp_tx_power_array(power_table->pwr_11n,
+                                   tx_power_limit_tables[0].pwr_11n,
+                                   tx_power_limit_tables[1].pwr_11n,
+                                   sizeof(power_table->pwr_11n) / sizeof(power_table->pwr_11n[0]),
+                                   target_power);
+    wifi_mgmr_clamp_tx_power_array(power_table->pwr_11ac,
+                                   tx_power_limit_tables[0].pwr_11ac,
+                                   tx_power_limit_tables[1].pwr_11ac,
+                                   sizeof(power_table->pwr_11ac) / sizeof(power_table->pwr_11ac[0]),
+                                   target_power);
+    wifi_mgmr_clamp_tx_power_array(power_table->pwr_11ax,
+                                   tx_power_limit_tables[0].pwr_11ax,
+                                   tx_power_limit_tables[1].pwr_11ax,
+                                   sizeof(power_table->pwr_11ax) / sizeof(power_table->pwr_11ax[0]),
+                                   target_power);
+}
+
+int at_wifi_limit_tx_pwr_set(uint8_t enable, int8_t max_dbm)
+{
+    tx_pwr_table_t power_table;
+    int ret;
+
+    if (enable) {
+        wifi_mgmr_build_tx_power_limit_table(&power_table, max_dbm);
+        ret = wifi_mgmr_sta_ap_tx_power_limit_set(&power_table);
+    } else {
+        ret = wifi_mgmr_sta_ap_tx_power_limit_clear();
+    }
+
+    if (ret == 0) {
+        wifi_mgmr_pwr_cap_enable = enable;
+        wifi_mgmr_pwr_cap_dbm = enable ? max_dbm : 0;
+    }
+    return ret;
+}
+
+int at_wifi_limit_tx_pwr_get(uint8_t *enable, int8_t *max_dbm)
+{
+    tx_pwr_table_t power_table;
+
+    if (wifi_mgmr_sta_ap_tx_power_limit_get(&power_table) < 0) {
+        return -1;
+    }
+
+    *enable = wifi_mgmr_pwr_cap_enable;
+    *max_dbm = wifi_mgmr_pwr_cap_dbm;
+    return 0;
+}
+#else
+int at_wifi_limit_tx_pwr_set(uint8_t enable, int8_t max_dbm)
+{
+    return -1;
+}
+
+int at_wifi_limit_tx_pwr_get(uint8_t *enable, int8_t *max_dbm)
+{
+    if (enable) {
+        *enable = 0;
+    }
+    if (max_dbm) {
+        *max_dbm = 0;
+    }
+
+    return -1;
+}
+#endif
 /* todo: */
 
 static void wifi_background_init(uint8_t *ap_mac, uint8_t *sta_mac, uint8_t country_code)

@@ -64,7 +64,7 @@ struct at_https_global_config {
     uint32_t recvbuf_size;
 };
 
-static struct at_http_ctx g_httpc_handle[AT_HTTPC_HANDLE_MAX];
+static struct at_http_ctx *g_httpc_handle;
 
 static struct at_https_global_config g_https_cfg = {0};
 
@@ -75,6 +75,42 @@ static const char *at_resp_string[] = {
     "+HTTPCPOST",
     "+HTTPCPUT",
 };
+
+static int httpc_init(void)
+{
+    int i;
+
+    if (g_httpc_handle) {
+        return 0;
+    }
+
+    g_httpc_handle = at_calloc(AT_HTTPC_HANDLE_MAX, sizeof(*g_httpc_handle));
+    if (!g_httpc_handle) {
+        return -1;
+    }
+
+    for (i = 0; i < AT_HTTPC_HANDLE_MAX; i++) {
+        g_httpc_handle[i].mutex = xSemaphoreCreateMutex();
+        if (!g_httpc_handle[i].mutex) {
+            while (i > 0) {
+                vSemaphoreDelete(g_httpc_handle[--i].mutex);
+            }
+            at_free(g_httpc_handle);
+            g_httpc_handle = NULL;
+            return -1;
+        }
+    }
+
+    return 0;
+}
+
+static struct at_http_ctx *httpc_ctx_get(int linkid)
+{
+    if (httpc_init() != 0) {
+        return NULL;
+    }
+    return &g_httpc_handle[linkid];
+}
 
 static inline void free_ctx(struct at_http_ctx *ctx)
 {
@@ -100,12 +136,12 @@ static int httpc_get_recvsize(int linkid)
         printf("httpc_get_recvsize: invalid linkid %d\r\n", linkid);
         return 0;
     }
-    int size = 0;
-    struct at_http_ctx *ctx = &g_httpc_handle[linkid];
-    if (!ctx) {
-        printf("httpc_get_recvsize: ctx is NULL for linkid %d\r\n", linkid);
+    if (!g_httpc_handle) {
         return 0;
     }
+
+    int size = 0;
+    struct at_http_ctx *ctx = &g_httpc_handle[linkid];
     AT_HTTP_LOCK(ctx->mutex);
     size = ctx->recv_avail;
     if (ctx->lastbuf) {
@@ -521,7 +557,10 @@ static int at_setup_cmd_httpsslcfg(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
     
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     if (ctx->used) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_PROCESSING);
     }
@@ -568,7 +607,10 @@ static int at_query_cmd_httpsslcfg(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
     
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
 
     at_response_string("+HTTPSSLCFG:%d,%d,\"%s\",\"%s\",\"%s\"\r\n",linkid, 
             ctx->https_auth_type, ctx->cert_file, ctx->key_file, ctx->ca_file);
@@ -601,7 +643,11 @@ static int at_setup_cmd_httpclient(int argc, const char **argv)
     if (content_type < CONTENT_TYPE_WWW || content_type > CONTENT_TYPE_TEXT) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
     }
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        at_free(data);
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     //memset(ctx, 0, sizeof(struct at_http_ctx));
 
     if (ctx->used) {
@@ -669,7 +715,10 @@ static int at_setup_cmd_httpgetsize(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
  
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     //memset(ctx, 0, sizeof(struct at_http_ctx));
 
     if (ctx->used) {
@@ -723,7 +772,10 @@ static int at_setup_cmd_httpcget(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
  
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     //memset(ctx, 0, sizeof(struct at_http_ctx));
 
     if (ctx->used) {
@@ -778,7 +830,10 @@ static int at_setup_cmd_httpcpost(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
  
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     //memset(ctx, 0, sizeof(struct at_http_ctx));
 
     if (ctx->used) {
@@ -848,7 +903,10 @@ static int at_setup_cmd_httpcput(int argc, const char **argv)
     if (content_type < CONTENT_TYPE_WWW || content_type > CONTENT_TYPE_TEXT) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
     }
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     if (ctx->used) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_PROCESSING);
     }
@@ -917,7 +975,10 @@ static int at_setup_cmd_httpcurlcfg(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
     
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
     if (ctx->used) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_CMD_PROCESSING);
     }
@@ -963,7 +1024,10 @@ static int at_query_cmd_httpcurlcfg(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
     
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
 
     at_response_string("+HTTPURLCFG:%d,%d,%s\r\n", linkid, ctx->url_size, ctx->url ? ctx->url : "");
     return AT_RESULT_CODE_OK;
@@ -990,6 +1054,10 @@ static int at_setup_cmd_httprecvmode(int argc, const char **argv)
  
     if (g_https_cfg.recv_mode == mode) {
         return AT_RESULT_CODE_OK;
+    }
+
+    if (httpc_init() != 0) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
     }
 
     for (id = 0; id < AT_HTTPC_HANDLE_MAX; id++) {
@@ -1034,7 +1102,10 @@ static int at_setup_cmd_httprecvdata(int argc, const char **argv)
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_HANDLE_INVALID);
     }
 
-    ctx = &g_httpc_handle[linkid];
+    ctx = httpc_ctx_get(linkid);
+    if (!ctx) {
+        return AT_RESULT_WITH_SUB_CODE(AT_SUB_NO_MEMORY);
+    }
 
     if (size <= 0 || size > g_https_cfg.recvbuf_size) {
         return AT_RESULT_WITH_SUB_CODE(AT_SUB_PARA_VALUE_INVALID);
@@ -1124,16 +1195,10 @@ static const at_cmd_struct at_http_cmd[] = {
 
 bool at_http_cmd_regist(void)
 {
-    memset(&g_httpc_handle, 0, sizeof(g_httpc_handle));
-
     g_https_cfg.recvbuf_size = AT_HTTPC_RECVBUF_SIZE_DEFAULT;
-    for (int i = 0; i < AT_HTTPC_HANDLE_MAX; i++) {
-        g_httpc_handle[i].mutex = xSemaphoreCreateMutex();
-    }
 
     if (at_cmd_register(at_http_cmd, sizeof(at_http_cmd) / sizeof(at_http_cmd[0])) == 0)
         return true;
     else
         return false;
 }
-

@@ -10,10 +10,13 @@
 #include <net/buf.h>
 #include <bt_log.h>
 #include "dynamic_gatts.h"
+#include "conn_internal.h"
+#include "l2cap_internal.h"
+#include "att_internal.h"
 #include <byteorder.h>
 
 #define CONTROLLER_INDEX 0
-#define MAX_BUFFER_SIZE 512
+#define MAX_BUFFER_SIZE BT_ATT_MTU
 #define MAX_UUID_LEN 16
 
 /* This masks Permission bits from GATT API */
@@ -135,7 +138,7 @@ static struct bt_gatt_attr *gatt_db_add(const struct bt_gatt_attr *pattern,
 							     sizeof(u->u128);
 
 	/* Return NULL if database is full */
-	if (db_attr == &server_db[SERVER_MAX_ATTRIBUTES - 1]) {
+	if (attr_count >= SERVER_MAX_ATTRIBUTES) {
 		return NULL;
 	}
 
@@ -190,11 +193,13 @@ int ble_dynamic_unregister_service(void)
 
 	if (!err) {
 		attr_count = 0U;
+		svc_attr_count = 0U;
 		svc_count = 0U;
 		memset(&server_svcs[0],0,sizeof(struct bt_gatt_service)*SERVER_MAX_SERVICES);
 		memset(&server_db[0],0,sizeof(struct bt_gatt_attr)*SERVER_MAX_ATTRIBUTES);
 		db_attr = server_db;
-		server_buf_pull(SERVER_BUF_SIZE);
+		net_buf_reset(server_buf);
+		net_buf_reserve(server_buf, SERVER_BUF_SIZE);
 
 	}
 
@@ -261,6 +266,9 @@ int ble_dynamic_gatt_add_service(struct bt_uuid * uuid,unsigned char uuid_type, 
 
 	struct bt_gatt_attr *attr_svc = NULL;
 	size_t uuid_size = 0 ;
+	if (!uuid || svc_count >= SERVER_MAX_SERVICES) {
+		return -EINVAL;
+	}
 
 	if(uuid_type==BT_UUID_TYPE_16)
 	{
@@ -309,11 +317,16 @@ static ssize_t read_value(struct bt_conn *conn, const struct bt_gatt_attr *attr,
 {
 	if(read_callback)
 	{
-		uint16_t  rd_len =0;
-		uint8_t read_data[251]={0};
-		read_callback(conn,attr,read_data,&rd_len);
+		uint16_t rd_len = 0;
+		uint8_t read_data[BT_ATT_MTU] = {0};
+
+		read_callback(conn, attr, read_data, &rd_len);
+		if (rd_len > sizeof(read_data)) {
+			return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+		}
+
 		return bt_gatt_attr_read(conn, attr, buf, len, offset, read_data,
-				 rd_len);
+					 rd_len);
 
 	}
 	return 0;
@@ -329,8 +342,9 @@ static ssize_t write_value(struct bt_conn *conn,
 		return 0;
 	}
 
-	/* Maximum attribute value size is 512 bytes */
-	__ASSERT_NO_MSG(value->len < 512);
+	if (len > BT_ATT_MTU) {
+		return BT_GATT_ERR(BT_ATT_ERR_INVALID_ATTRIBUTE_LEN);
+	}
 
 	if(write_callback!=NULL)
 	{
@@ -523,7 +537,7 @@ int ble_dynamic_gatt_add_included(uint8_t svc_id)
 	struct bt_gatt_attr *svc;
 	uint16_t included_service_id = 0U;
 
-	if (!svc_count || !svc_id) {
+	if (!svc_count || !svc_id || svc_id > attr_count) {
 		return -EINVAL;
 	}
 
@@ -558,7 +572,7 @@ struct bt_gatt_attr* ble_dynamic_gatt_get_attr(struct bt_uuid *uuid)
 
 }
 
-void ble_dynamic_gatt_server_init(void)
+int ble_dynamic_gatt_server_init(void)
 {
 	#if (QCC74x_STATIC_ALLOC_MEM)
 	net_buf_init(GATTSERVER, &dynamic_gatt_pool, 1, SERVER_BUF_SIZE, NULL);
@@ -567,10 +581,14 @@ void ble_dynamic_gatt_server_init(void)
 	#endif /* QCC74x_STATIC_ALLOC_MEM */
 
 	server_buf = net_buf_alloc(&dynamic_gatt_pool, K_NO_WAIT);
+	if (!server_buf) {
+		return -ENOMEM;
+	}
 
 	net_buf_reserve(server_buf, SERVER_BUF_SIZE);
 	db_attr = server_db;
 
+	return 0;
 }
 
 void ble_dynamic_gatt_server_deinit(void)

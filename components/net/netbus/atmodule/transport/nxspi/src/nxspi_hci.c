@@ -8,7 +8,6 @@
 #include "qcc74x_mtimer.h"
 #include <qcc74x_core.h>
 #include "board.h"
-#include <shell.h>
 #include <assert.h>
 #include "utils.h"
 #include <nxspi.h>

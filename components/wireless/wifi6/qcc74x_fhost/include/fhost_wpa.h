@@ -300,7 +300,19 @@ struct fhost_wpa_network_params
     /// Transition Disable bitmap (0 = disabled, bit0 = disable WPA3-Personal).
     /// A non-zero value is passed as SET_NETWORK transition_disable.
     int transition_disable;
-    /// Whether network should be enabled.
+#ifdef CONFIG_WFA
+    /// Enable MBO-OCE IE in AP mode.
+    bool mbo_enabled;
+    /// Enable BSS Transition Management capability.
+    bool bss_transition;
+    /// Enable Interworking / IEEE 802.11u.
+    bool interworking;
+    /// Enable RRM Neighbor Report.
+    bool rrm_neighbor_report;
+#endif /* CONFIG_WFA */
+    /// Country code for Country IE (e.g. "US"). Empty string = not set.
+    char country_code[4];
+    /// Whether network should be enabled (blocking until connection).
     bool enable;
     /// Timeout in ms for enabling the network when enable is true.
     int timeout_ms;

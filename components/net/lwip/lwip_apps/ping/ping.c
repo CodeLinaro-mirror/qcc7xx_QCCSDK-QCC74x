@@ -103,8 +103,25 @@ int lwip_ping_recv(int s, int *ttl)
     struct sockaddr_in from;
     struct ip_hdr *iphdr;
     struct icmp_echo_hdr *iecho;
+    uint32_t deadline = sys_now() + (PING_RCV_TIMEO / portTICK_PERIOD_MS);
 
-    while ((len = lwip_recvfrom(s, buf, sizeof(buf), 0, (struct sockaddr *)&from, (socklen_t *)&fromlen)) > 0) {
+    while (1) {
+        int32_t remaining = (int32_t)(deadline - sys_now());
+        if (remaining <= 0) {
+            return -1;
+        }
+
+        /* re-arm the per-call timeout to whatever time is left overall,
+           so unrelated ICMP packets on other netifs can't keep resetting
+           it to a fresh PING_RCV_TIMEO and stall this function forever */
+        struct timeval timeout = { remaining / 1000, (remaining % 1000) * 1000 };
+        lwip_setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+        len = lwip_recvfrom(s, buf, sizeof(buf), 0, (struct sockaddr *)&from, (socklen_t *)&fromlen);
+        if (len <= 0) {
+            return len;
+        }
+
         if (len >= (int)(sizeof(struct ip_hdr) + sizeof(struct icmp_echo_hdr))) {
             iphdr = (struct ip_hdr *)buf;
             iecho = (struct icmp_echo_hdr *)(buf + (IPH_HL(iphdr) * 4));
@@ -114,8 +131,6 @@ int lwip_ping_recv(int s, int *ttl)
             }
         }
     }
-
-    return len;
 }
 
 /* using the lwIP custom ping */
@@ -164,6 +179,20 @@ uint32_t ping(char *target_name, uint16_t interval, uint16_t size, uint32_t coun
     }
 
     lwip_setsockopt(s, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
+
+    /* Bind the raw ICMP socket to the netif actually used to route to the
+       target, so that when multiple netifs are up (e.g. STA + SoftAP) a
+       reply arriving on the wrong interface can't be mistaken for the
+       target's reply. */
+    {
+        struct netif *out_if = ip4_route(ip_2_ip4(&target_addr));
+        if (out_if != NULL) {
+            struct ifreq ifr;
+            memset(&ifr, 0, sizeof(ifr));
+            netif_index_to_name(netif_get_index(out_if), ifr.ifr_name);
+            lwip_setsockopt(s, SOL_SOCKET, SO_BINDTODEVICE, &ifr, sizeof(ifr));
+        }
+    }
 
     while (1) {
         int elapsed_time;

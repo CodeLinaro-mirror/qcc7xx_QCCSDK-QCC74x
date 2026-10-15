@@ -26,7 +26,7 @@ MEMORY
     ram_psram  (wxa)   : ORIGIN = 0xA8000000, LENGTH = 4M
     ram_nocache (!rx) : ORIGIN = 0x22FC0400, LENGTH = 320K + 6K - 1K + remain_wifi_ram /* reserved 1k for security */
     ram_memory  (!rx) : ORIGIN = 0x62FC0400, LENGTH = 320K + 6K - 1K + remain_wifi_ram /* reserved 1k for security */
-    ram_wifi  (wxa)   : ORIGIN = 0x23038000 - wifi_ram_max_size - __EM_SIZE, LENGTH = wifi_ram_max_size - 6K
+    ram_wifi  (wxa)   : ORIGIN = 0x23038000 - wifi_ram_max_size - __EM_SIZE + 6K, LENGTH = wifi_ram_max_size - 6K
 }
 
 SECTIONS
@@ -434,4 +434,5 @@ SECTIONS
     PROVIDE( _heap_wifi_size = ORIGIN(ram_wifi) + LENGTH(ram_wifi) - _heap_wifi_start );
     PROVIDE(__LD_CONFIG_EM_SEL = __EM_SIZE);
     ASSERT((wifi_ram_max_size + __EM_SIZE) <= 160K,"wifi ram overflow")
+    ASSERT((ORIGIN(ram_memory) - 0x40000000 + LENGTH(ram_memory)) <= ORIGIN(ram_wifi), "ram_memory and ram_wifi physically overlap")
 }

@@ -2126,9 +2126,14 @@ u16_t bt_gatt_get_mtu(struct bt_conn *conn)
 }
 
 #if defined(QCC74x_BLE_SET_LOCAL_ATT_MTU_SIZE)
-void bt_gatt_set_mtu(u16_t size)
+int bt_gatt_set_mtu(u16_t size)
 {
-	bt_att_set_mtu(size);
+	return bt_att_set_mtu(size);
+}
+
+u16_t bt_gatt_get_local_mtu(void)
+{
+	return bt_att_get_local_mtu();
 }
 #endif
 
@@ -2582,7 +2587,11 @@ int bt_gatt_exchange_mtu(struct bt_conn *conn,
 		return -ENOMEM;
 	}
 
+	#if defined(QCC74x_BLE_SET_LOCAL_ATT_MTU_SIZE)
+	mtu = bt_att_get_local_mtu();
+	#else
 	mtu = BT_ATT_MTU;
+	#endif
 
 	BT_DBG("Client MTU %u", mtu);
 

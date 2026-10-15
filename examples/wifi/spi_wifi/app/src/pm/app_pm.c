@@ -30,7 +30,7 @@
 #include "shell.h"
 #if defined(CFG_BLE_ENABLE)
 #include "btble_lib_api.h"
-#ifndef NXSPI_HCI
+#if !defined(NXSPI_HCI) && !defined(NXUART_HCI)
 #include "bluetooth.h"
 #include "conn.h"
 #include "conn_internal.h"
@@ -74,8 +74,10 @@ GLB_GPIO_Type pinList[4] = {
   GLB_GPIO_PIN_3,
 };
 
+#ifdef CONFIG_SHELL
 extern void uart_shell_isr();
 extern struct qcc74x_device_s *uart_shell;
+#endif
 
 static void set_cpu_bclk_80M_and_gate_clk(void)
 {
@@ -129,9 +131,11 @@ static int lp_exit(void *arg)
 
     vPortSetupTimerInterrupt();
 
+#ifdef CONFIG_SHELL
     qcc74x_uart_rxint_mask(uart_shell, false);
     qcc74x_irq_attach(uart_shell->irq_num, uart_shell_isr, NULL);
     qcc74x_irq_enable(uart_shell->irq_num);
+#endif
 
     wakeup_reason = qcc74x_lp_get_wake_reason();
     if (wakeup_reason & LPFW_WAKEUP_WIFI_BROADCAST) {

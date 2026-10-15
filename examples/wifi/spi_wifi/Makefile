@@ -14,8 +14,12 @@ CONFIG_LWIP_ONHOST_ENABLE ?= n
 CONFIG_USE_LPAPP ?= y
 CONFIG_BLUETOOTH_APP ?= y
 CONFIG_BLE_HOST_CHECK ?= y
-CONFIG_HCI_ENABLE ?= n
-ifeq ($(CONFIG_HCI_ENABLE), y)
+CONFIG_HCI_SPI_ENABLE ?= n
+CONFIG_HCI_UART_ENABLE ?= n
+ifeq ($(CONFIG_HCI_SPI_ENABLE)$(CONFIG_HCI_UART_ENABLE), yy)
+    $(error "SPI and UART HCI cannot be enabled at the same time.")
+endif
+ifeq ($(or $(CONFIG_HCI_SPI_ENABLE),$(CONFIG_HCI_UART_ENABLE)), y)
     ifneq ($(CONFIG_LWIP_ONHOST_ENABLE), y)
         $(error "Bluetooth HCI mode only runs with Wi-Fi Lwip On Host mode.")
     endif
@@ -37,6 +41,7 @@ CONFIG_MQTT ?= y
 CONFIG_HTTP ?= y
 CONFIG_NETWORK ?= y
 CONFIG_ANTENNA_CONTROL ?= y
+CONFIG_MBEDTLS_SSL_MAX_CONTENT_LEN_16K ?= n
 
 ifeq ($(CONFIG_AT_MDNS_ENABLE), y)
 CONFIG_MDNS = y

@@ -15,7 +15,14 @@ In this solution:
 
 This example is intended to work with the STM32 host reference implementation in:
 
-`components/net/nethub/host/stm32_host`
+`examples/stm32_host`
+
+## Architecture
+
+![Nethub SDIO RCP architecture](assets/rcp.png)
+
+The diagram shows the host and device software layers, the SDIO message format,
+and the host/device link state machines.
 
 ## Features
 
@@ -80,13 +87,18 @@ After boot, the device performs:
 3. Wi-Fi clock enable and reset
 4. Wi-Fi IRQ registration
 5. EasyFlash initialization
-6. Nethub SDIO Wi-Fi initialization
-7. Control service startup for the SDIO RCP host
+6. Nethub profile endpoint registration and hub startup
+7. SDIO message control and Wi-Fi netdev initialization
+8. Optional HCI and TTY or virtual-channel backend initialization
+9. Optional BLE controller initialization
+10. Power management or AT module initialization, according to the low-power build
 
 Reference files:
 
 - `main.c`
 - `app/src/app_user.c`
+- `components/net/nethub/bootstrap/nh_bootstrap.c`
+- `components/net/nethub/backend/host/sdio/transport_sdio.c`
 
 ## Host-Side Reference
 
@@ -114,7 +126,7 @@ The STM32 host is the SDIO RCP master. It is responsible for:
 - RCP stream setup
 - Control path processing
 - Host-side LwIP integration
-- DHCP start and stop
+- Automatic DHCP start after Wi-Fi connection
 - Optional iperf verification through the shell
 
 ### Host Shell
@@ -265,7 +277,8 @@ Behavior:
 - The host monitors the connection state reported by the device through the RCP
   control path
 - After the device reports Wi-Fi connected, the host starts DHCP automatically
-- After the device reports Wi-Fi disconnected, the host stops the DHCP flow
+- After the device reports Wi-Fi disconnected, the host cancels the DHCP wait
+  timer; it does not currently stop the DHCP client or bring the netif down
 
 This means:
 
@@ -274,8 +287,8 @@ This means:
 
 Relevant implementation:
 
-- `components/net/nethub/host/stm32_host/RCP/Src/rcp_wifi_mgmt.c`
-- `components/net/nethub/host/stm32_host/RCP/Src/rcp_lwip_netif.c`
+- `examples/stm32_host/RCP/stream/wifi/src/rcp_wifi_mgmt.c`
+- `examples/stm32_host/RCP/stream/net/src/rcp_lwip_netif.c`
 
 ## OTA Test
 
@@ -332,20 +345,21 @@ Expected host log:
 - The STM32 side provides the SDIO RCP host, shell, host networking, and DHCP behavior
 - Wi-Fi association is host-driven through the RCP control workflow
 - The host currently starts DHCP after the device reports Wi-Fi connected
+- Runtime device reset recovery is implemented through link-loss detection, SDIO
+  reinitialization, and per-stream re-handshake
 
 ## Known Issues
 
-- Automatic hot-plug is not supported
-- If the qcc743 device is reset, the host must also be reset to complete the SDIO handshake again
-- After a device reset, the current host implementation cannot recover the link automatically without a host reboot or reset
-- In other words, automatic host-side re-handshake after device reset is not supported yet
+- On Wi-Fi disconnect, the host cancels the DHCP wait timer but does not
+  explicitly stop the DHCP client or bring the network interface down
 
 ## Related Paths
 
 - Device example: `examples/wifi/nethub_sdio_wifi`
-- Host reference: `components/net/nethub/host/stm32_host`
-- SDIO transport: `components/net/nethub/transportsdio`
-- Nethub core: `components/net/nethub/nethub`
+- Host reference: `examples/stm32_host`
+- SDIO backend: `components/net/nethub/backend/host/sdio`
+- Message Router: `bsp/common/msg_router/device`
+- Nethub core: `components/net/nethub/core`
 
 ## License
 

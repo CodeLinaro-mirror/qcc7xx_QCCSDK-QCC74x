@@ -195,12 +195,19 @@ enum ME_PARAM_ID_E {
     ME_PARAM_ID_TX_AMPDU_PROTECT_ENABLE,
     ME_PARAM_ID_TX_AMPDU_DROP_TO_SINGLETON_RETRYCNT_THRESHOLD,
     ME_PARAM_ID_TX_POWER,
+    /// Hard upper-limit power table; caps the final per-rate TX power
+    /// regardless of whether it comes from ME_PARAM_ID_TX_POWER or the
+    /// regulatory/calibration table.
+    ME_PARAM_ID_TX_POWER_LIMIT,
     ME_PARAM_ID_MAX,
 };
 
 enum ME_PARAM_CMD_E {
     ME_PARAM_CMD_SET,
     ME_PARAM_CMD_GET,
+    /// Revoke a previously SET value and fall back to the default/regulatory
+    /// behavior. Currently only meaningful for ME_PARAM_ID_TX_POWER.
+    ME_PARAM_CMD_CLEAR,
 };
 
 /// Structure containing the parameters of the @ref ME_PARAM_REQ message
@@ -233,6 +240,10 @@ struct mm_raw_send_start_req
     void *pkt;
     /// Packet len
     uint32_t len;
+    /// Packet buffer valid for queued ad-hoc raw send
+    bool pkt_valid;
+    /// Packet buffer copied for queued ad-hoc raw send
+    uint8_t pkt_buf[NX_TXFRAME_LEN];
     /// Duration in ms, default 20ms
     uint32_t duration;
     /// Raw Send wait end callback
@@ -243,10 +254,14 @@ struct mm_raw_send_start_req
     int need_rx;
     /// Ad-hoc mode
     bool adhoc;
+    /// Receiver address valid
+    bool ra_valid;
     /// Receiver address
-    struct mac_addr *ra;
+    struct mac_addr ra;
+    /// Transmitter address valid
+    bool ta_valid;
     /// Transmitter address
-    struct mac_addr *ta;
+    struct mac_addr ta;
     /// Tx rate
     uint8_t rate;
     /// RTS thrshold

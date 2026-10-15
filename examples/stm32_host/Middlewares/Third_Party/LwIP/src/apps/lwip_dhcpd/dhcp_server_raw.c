@@ -965,6 +965,28 @@ void dhcpd_stop_with_netif(const struct netif *netif)
     }
 }
 
+err_t dhcpd_get_client_ip(const struct netif *netif, const u8_t mac[6], u8_t ip[4])
+{
+    struct dhcp_server *dhcp_server;
+    struct dhcp_client_node *node = NULL;
+    err_t err = ERR_VAL;
+
+    LOCK_TCPIP_CORE();
+    for (dhcp_server = lw_dhcp_server; dhcp_server != NULL; dhcp_server = dhcp_server->next) {
+        if (dhcp_server->netif == netif) {
+            node = dhcp_client_find_by_mac(dhcp_server, mac, DHCP_MAX_HLEN);
+            break;
+        }
+    }
+    if (node != NULL) {
+        memcpy(ip, &node->ipaddr.addr, sizeof(node->ipaddr.addr));
+        err = ERR_OK;
+    }
+    UNLOCK_TCPIP_CORE();
+
+    return err;
+}
+
 err_t dhcpd_status_callback_set(struct netif *netif, dhcpd_callback_t cb)
 {
     struct dhcp_server *dhcp_server;

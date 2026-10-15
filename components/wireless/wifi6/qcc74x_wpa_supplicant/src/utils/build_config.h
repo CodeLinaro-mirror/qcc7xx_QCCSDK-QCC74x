@@ -30,6 +30,7 @@
 #define CONFIG_WNM
 #define CONFIG_MBO
 #define CONFIG_RRM
+#define CONFIG_INTERWORKING
 #endif
 /* #define CONFIG_DFS */
 

@@ -765,6 +765,11 @@ void net_al_rx_resend(bool rx_buf_forward,
     net_buf_tx_1 = net_buf_tx_alloc(mac_hdr_len);
     net_buf_tx_2 = net_buf_tx_alloc_ref(length - mac_hdr_len);
 
+    if (net_buf_tx_2 == NULL) {
+        printf("WARN: AP RX resend PBUF_REF allocation failed (len=%d, pool=%d)\r\n",
+               length - mac_hdr_len, MEMP_NUM_PBUF);
+    }
+
     if ((net_buf_tx_1 == NULL) || (net_buf_tx_2 == NULL))
     {
         if (net_buf_tx_1)

@@ -2,6 +2,8 @@
 #include <unistd.h>
 #include <stdlib.h>
 #include <stdio.h>
+#include "lwip/dns.h"
+#include "lwip/ip_addr.h"
 #include "https_fota.h"
 
 const char ca_cert[] =
@@ -113,9 +115,27 @@ int cmd_wifi_ota_rollback(int argc, char **argv)
 	return 0;
 }
 
+int cmd_dns_local_hostadd(int argc, char **argv)
+{
+    ip_addr_t addr;
+
+    if ((argc != 3) || !ipaddr_aton(argv[2], &addr)) {
+        return -1;
+    }
+
+    dns_local_removehost(argv[1], NULL);
+    if (dns_local_addhost(argv[1], &addr) != ERR_OK) {
+        return -1;
+    }
+
+    printf("DNS_LOCAL_HOSTADD_OK: %s %s\r\n", argv[1], argv[2]);
+    return 0;
+}
+
 #ifdef CONFIG_SHELL
 #include <shell.h>
 
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ota_test, wifi_ota_test, wifi ota test);
 SHELL_CMD_EXPORT_ALIAS(cmd_wifi_ota_rollback, wifi_ota_rollback, wifi ota rollback test);
+SHELL_CMD_EXPORT_ALIAS(cmd_dns_local_hostadd, dns_local_hostadd, add DNS local host entry);
 #endif

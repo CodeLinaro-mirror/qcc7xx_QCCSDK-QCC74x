@@ -539,6 +539,42 @@ RCP_Status_t RCP_WiFi_SetCountryCode(RCP_Object_t *Obj, uint32_t *Policy, char *
   return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_WIFI_TIMEOUT);
 }
 
+RCP_Status_t RCP_WiFi_GetTxMaxPower(RCP_Object_t *Obj, uint32_t *Enable, int32_t *MaxDbm)
+{
+  char *argv[CONFIG_MODEM_CMD_HANDLER_MAX_PARAM_COUNT];
+  char cmd[RCP_CMD_MATCH_BUFF_SIZE];
+  uint16_t argc = 0;
+  RCP_Status_t ret;
+  RCP_NULL_ASSERT(Obj);
+  RCP_NULL_ASSERT(Enable);
+  RCP_NULL_ASSERT(MaxDbm);
+
+  strncpy(cmd, "AT+TXMAXPWR?\r\n", sizeof(cmd));
+  ret = RCP_Common_Query_Parse(Obj, cmd, "+TXMAXPWR:", &argc, argv, RCP_WIFI_TIMEOUT);
+  if (ret != RCP_STATUS_OK)
+  {
+    return ret;
+  }
+  if (argc < 2)
+  {
+    return RCP_STATUS_ERROR;
+  }
+
+  *Enable = (uint32_t)strtoul(argv[0], NULL, 10);
+  *MaxDbm = (int32_t)strtol(argv[1], NULL, 10);
+
+  return ret;
+}
+
+RCP_Status_t RCP_WiFi_SetTxMaxPower(RCP_Object_t *Obj, uint32_t Enable, int32_t MaxDbm)
+{
+  char cmd[RCP_CMDRSP_STRING_SIZE];
+  RCP_NULL_ASSERT(Obj);
+
+  snprintf(cmd, RCP_CMDRSP_STRING_SIZE, "AT+TXMAXPWR=%" PRIu32 ",%" PRId32 "\r\n", Enable, MaxDbm);
+  return RCP_Common_SetExecute(Obj, (uint8_t *)cmd, RCP_WIFI_TIMEOUT);
+}
+
 RCP_Status_t RCP_Net_SetDhcpConfig(RCP_Object_t *Obj, RCP_Net_DhcpType_e *State, uint32_t *Operate)
 {
   RCP_Status_t ret = RCP_STATUS_ERROR;

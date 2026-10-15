@@ -143,6 +143,11 @@ static struct {
   uint16_t appearance_char_handle;
 } ble_gap_ctx;
 
+static struct {
+  bool connected;
+  uint16_t handle;
+} ble_last_connection;
+
 /* Global variables ----------------------------------------------------------*/
 /* Private function prototypes -----------------------------------------------*/
 static void BleAppBlock( void );
@@ -187,7 +192,8 @@ bool BleAppAciInit(void)
     LogError("aci_gatt_init failed\n");
     return false;
   }
-  if (aci_gap_init(GAP_PERIPHERAL_ROLE, 0, 10,
+  if (aci_gap_init(GAP_PERIPHERAL_ROLE | GAP_CENTRAL_ROLE | GAP_OBSERVER_ROLE | GAP_BROADCASTER_ROLE,
+                   0, 10,
                    &ble_gap_ctx.gap_service_handle,
                    &ble_gap_ctx.dev_name_char_handle,
                    &ble_gap_ctx.appearance_char_handle) != BLE_STATUS_SUCCESS) {
@@ -264,19 +270,77 @@ bool BleAppAddService(void)
   return true;
 }
 
+bool BleAppGetLastConnectionHandle(uint16_t *connection_handle)
+{
+  bool connected;
+
+  if (connection_handle == NULL) {
+    return false;
+  }
+
+  taskENTER_CRITICAL();
+  connected = ble_last_connection.connected;
+  if (connected) {
+    *connection_handle = ble_last_connection.handle;
+  }
+  taskEXIT_CRITICAL();
+  return connected;
+}
+
 /* Override weak HCI event callbacks */
 tBleStatus hci_le_connection_complete_event(uint8_t Status, uint16_t Connection_Handle,
     uint8_t Role, uint8_t Peer_Address_Type, const uint8_t *Peer_Address,
     uint16_t Conn_Interval, uint16_t Conn_Latency, uint16_t Supervision_Timeout,
     uint8_t Central_Clock_Accuracy)
 {
+  if (Status == BLE_STATUS_SUCCESS) {
+    taskENTER_CRITICAL();
+    ble_last_connection.connected = true;
+    ble_last_connection.handle = Connection_Handle;
+    taskEXIT_CRITICAL();
+  }
   LogInfo("BLE connected, handle=0x%04x status=0x%02x\n", Connection_Handle, Status);
+  return BLE_STATUS_SUCCESS;
+}
+
+tBleStatus hci_le_advertising_report_event(uint8_t Num_Reports,
+    const Advertising_Report_t *Advertising_Report)
+{
+  if ((Num_Reports == 0U) || (Advertising_Report == NULL)) {
+    return BLE_STATUS_SUCCESS;
+  }
+
+  static const char hex[] = "0123456789ABCDEF";
+  char data_hex[(31U * 3U) + 1U] = {0};
+  for (uint8_t i = 0; i < Advertising_Report->Length_Data; i++) {
+    size_t offset = (size_t)i * 3U;
+    data_hex[offset] = hex[Advertising_Report->Data[i] >> 4];
+    data_hex[offset + 1U] = hex[Advertising_Report->Data[i] & 0x0FU];
+    data_hex[offset + 2U] =
+        (i + 1U < Advertising_Report->Length_Data) ? ' ' : 0;
+  }
+
+  LogInfo("BLE ADV type=%u addr_type=%u addr=%02X:%02X:%02X:%02X:%02X:%02X rssi=%d len=%u data=%s\n",
+          Advertising_Report->Event_Type, Advertising_Report->Address_Type,
+          Advertising_Report->Address[5], Advertising_Report->Address[4],
+          Advertising_Report->Address[3], Advertising_Report->Address[2],
+          Advertising_Report->Address[1], Advertising_Report->Address[0],
+          (int8_t)Advertising_Report->RSSI, Advertising_Report->Length_Data,
+          data_hex);
   return BLE_STATUS_SUCCESS;
 }
 
 tBleStatus hci_disconnection_complete_event(uint8_t Status, uint16_t Connection_Handle,
     uint8_t Reason)
 {
+  if (Status == BLE_STATUS_SUCCESS) {
+    taskENTER_CRITICAL();
+    if (ble_last_connection.connected &&
+        (ble_last_connection.handle == Connection_Handle)) {
+      memset(&ble_last_connection, 0, sizeof(ble_last_connection));
+    }
+    taskEXIT_CRITICAL();
+  }
   LogInfo("BLE disconnected, handle=0x%04x reason=0x%02x\n", Connection_Handle, Reason);
   return BLE_STATUS_SUCCESS;
 }

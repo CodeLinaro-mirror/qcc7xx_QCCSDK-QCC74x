@@ -155,6 +155,7 @@ extern int *__errno(void);
 #if CONFIG_AT_MDNS_ENABLE
 #define LWIP_MDNS_RESPONDER           1
 #define MDNS_MAX_SERVICES             1
+#define LWIP_DNS_SUPPORT_MDNS_QUERIES 1
 #define LWIP_NUM_NETIF_CLIENT_DATA    1
 #undef LWIP_IGMP
 #define LWIP_IGMP                     1

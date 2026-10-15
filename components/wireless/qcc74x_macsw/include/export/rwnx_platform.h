@@ -27,6 +27,16 @@
  */
 void rwnx_platform_init(void);
 
+/**
+ ****************************************************************************************
+ * @brief Get the platform RTC counter value.
+ *
+ * The returned value is the raw 32 kHz RTC counter. MACSW users that need a time value
+ * in microseconds must convert it with the platform RTC counter conversion macro.
+ ****************************************************************************************
+ */
+uint64_t rwnx_platform_get_rtc_cnt(void);
+
 #ifdef CFG_QCC74x_WIFI_PS_ENABLE
 /**
  ****************************************************************************************

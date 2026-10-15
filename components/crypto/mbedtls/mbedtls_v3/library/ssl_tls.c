@@ -321,6 +321,23 @@ int mbedtls_ssl_session_copy(mbedtls_ssl_session *dst,
 MBEDTLS_CHECK_RETURN_CRITICAL
 static int resize_buffer(unsigned char **buffer, size_t len_new, size_t *len_old)
 {
+#if defined(MBEDTLS_PLATFORM_REALLOC_MACRO)
+    size_t old_len = *len_old;
+    unsigned char *resized_buffer;
+
+    if (len_new < old_len) {
+        mbedtls_platform_zeroize(*buffer + len_new, old_len - len_new);
+    }
+
+    resized_buffer = MBEDTLS_PLATFORM_REALLOC_MACRO(*buffer, len_new);
+    if (resized_buffer == NULL) {
+        return MBEDTLS_ERR_SSL_ALLOC_FAILED;
+    }
+
+    if (len_new > old_len) {
+        memset(resized_buffer + old_len, 0, len_new - old_len);
+    }
+#else
     unsigned char *resized_buffer = mbedtls_calloc(1, len_new);
     if (resized_buffer == NULL) {
         return MBEDTLS_ERR_SSL_ALLOC_FAILED;
@@ -333,6 +350,7 @@ static int resize_buffer(unsigned char **buffer, size_t len_new, size_t *len_old
     memcpy(resized_buffer, *buffer,
            (len_new < *len_old) ? len_new : *len_old);
     mbedtls_zeroize_and_free(*buffer, *len_old);
+#endif
 
     *buffer = resized_buffer;
     *len_old = len_new;

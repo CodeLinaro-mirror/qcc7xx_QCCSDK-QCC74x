@@ -40,11 +40,7 @@
 #include <stdint.h>
 #include <stdarg.h>
 #include <stddef.h>
-#ifdef CONFIG_CONSOLE_WO
-#include "qcc74x_wo.h"
-#else
-#include "qcc74x_uart.h"
-#endif
+#include "console_output.h"
 
 // 'ntoa' conversion buffer size, this must be big enough to hold one converted
 // numeric number including padded zeros (dynamically created on stack)
@@ -207,15 +203,13 @@ static inline void out_buffer(char character, void* buffer, size_t idx, size_t m
   }
 }
 
-// uart device output
-extern struct qcc74x_device_s *console;
+// console device output
 static inline void out_console(char character, void* buffer, size_t idx, size_t maxlen)
 {
-#ifdef CONFIG_CONSOLE_WO
-  qcc74x_wo_uart_putchar(console, character);
-#else
-  qcc74x_uart_putchar(console, character);
-#endif
+  (void)buffer;
+  (void)idx;
+  (void)maxlen;
+  (void)qcc74x_console_write(&character, 1);
 }
 
 

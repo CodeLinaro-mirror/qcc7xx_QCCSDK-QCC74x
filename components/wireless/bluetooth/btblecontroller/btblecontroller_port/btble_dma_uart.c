@@ -107,7 +107,6 @@ static void dma_rx_copy(uint8_t *data, uint32_t len)
     Ring_Buffer_Write(&uartRB, data, len);
 }
 
-
 static void gpio_init(void)
 {
     struct qcc74x_device_s *gpio = qcc74x_device_get_by_name("gpio");

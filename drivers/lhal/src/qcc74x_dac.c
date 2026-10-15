@@ -196,3 +196,25 @@ void qcc74x_dac_set_value(struct qcc74x_device_s *dev, uint8_t ch, uint16_t valu
     putreg32(regval, reg_base + GLB_GPDAC_DATA_OFFSET);
 #endif
 }
+
+void qcc74x_dac_set_reference(struct qcc74x_device_s *dev, uint8_t ref)
+{
+    LHAL_PARAM_ASSERT(IS_DAC_REF_TYPE(ref));
+
+#ifdef romapi_qcc74x_dac_set_reference
+    romapi_qcc74x_dac_set_reference(dev, ref);
+#else
+    uint32_t regval;
+    uint32_t reg_base;
+
+    reg_base = dev->reg_base;
+
+    regval = getreg32(reg_base + GLB_GPDAC_CTRL_OFFSET);
+    if (ref == DAC_VREF_EXTERNAL) {
+        regval |= GLB_GPDAC_REF_SEL;
+    } else {
+        regval &= ~GLB_GPDAC_REF_SEL;
+    }
+    putreg32(regval, reg_base + GLB_GPDAC_CTRL_OFFSET);
+#endif
+}

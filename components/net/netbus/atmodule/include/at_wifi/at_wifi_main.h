@@ -59,6 +59,10 @@ wifi_proto at_wifi_mode_get(uint8_t ap_or_sta);
 
 bool at_wifi_is_busy(void);
 
+int at_wifi_limit_tx_pwr_set(uint8_t enable, int8_t max_dbm);
+
+int at_wifi_limit_tx_pwr_get(uint8_t *enable, int8_t *max_dbm);
+
 #ifdef __cplusplus
 }
 #endif

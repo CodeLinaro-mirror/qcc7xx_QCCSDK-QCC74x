@@ -10,11 +10,20 @@
 #ifndef __SHELL_H__
 #define __SHELL_H__
 
+#ifndef CONFIG_SHELL
+
+#define SHELL_CMD_EXPORT(command, desc)
+#define SHELL_CMD_EXPORT_ALIAS(command, alias, desc)
+
+#else
+
 #include <stdint.h>
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include "shell_config.h"
+
+struct qcc74x_device_s;
 
 #ifdef SHELL_USING_COLOR
 /*
@@ -162,6 +171,9 @@ void shell_handler(uint8_t data);
 int shell_set_prompt(const char *prompt);
 int shell_set_print(void (*shell_printf)(char *fmt, ...));
 void shell_init(void);
+void shell_init_with_task(struct qcc74x_device_s *shell);
 void shell_exe_cmd(uint8_t *cmd, uint16_t len);
 shell_sig_func_ptr shell_signal(int sig, shell_sig_func_ptr func);
+#endif
+
 #endif

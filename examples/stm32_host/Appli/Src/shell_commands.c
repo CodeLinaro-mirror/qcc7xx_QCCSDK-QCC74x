@@ -9,6 +9,7 @@
 #include "stm32h7rsxx_hal_uart_ex.h"
 // #include "bt_host.h"
 #include "app_ble.h"
+#include "ble_gap_aci.h"
 #include "ble_hal_aci.h"
 #include "ble_hci_le.h"
 #include "rcp_api.h"
@@ -87,7 +88,11 @@ static void cmd_hci_read_version(int argc, char **argv);
 static void cmd_hci_send(int argc, char **argv);
 static void cmd_bt_adv_start(int argc, char **argv);
 static void cmd_bt_adv_stop(int argc, char **argv);
+static void cmd_bt_scan_start(int argc, char **argv);
+static void cmd_bt_scan_stop(int argc, char **argv);
 static void cmd_bt_connect(int argc, char **argv);
+static void cmd_bt_disconnect(int argc, char **argv);
+static void cmd_bt_conn_update(int argc, char **argv);
 static void cmd_bt_add_service(int argc, char **argv);
 /* ACI HAL vendor commands (OGF=0x3F) */
 static void cmd_bt_set_tx_power(int argc, char **argv);
@@ -103,8 +108,6 @@ static void cmd_bt_tx_test_pkt_num(int argc, char **argv);
 static void cmd_bt_continuous_tx(int argc, char **argv);
 static void cmd_bt_le_tx_test(int argc, char **argv);
 static void cmd_bt_le_test_end(int argc, char **argv);
-static void cmd_bt_ext_adv_start(int argc, char **argv);
-static void cmd_bt_per_adv_setup(int argc, char **argv);
 static void cmd_bt_ead(int argc, char **argv);
 static void cmd_bt_selftest(int argc, char **argv);
 
@@ -149,7 +152,11 @@ static const shell_cmd_t commands[] = {
     {RCP_MCU_CAP_BT, "hci_read_version", cmd_hci_read_version, "Read Local Version Information"},
     {RCP_MCU_CAP_BT, "bt_adv_start", cmd_bt_adv_start, "Start BLE advertising: bt_adv_start [name]"},
     {RCP_MCU_CAP_BT, "bt_adv_stop", cmd_bt_adv_stop, "Stop BLE advertising"},
+    {RCP_MCU_CAP_BT, "bt_scan_start", cmd_bt_scan_start, "Start BLE scan: bt_scan_start [passive|active] [interval] [window]"},
+    {RCP_MCU_CAP_BT, "bt_scan_stop", cmd_bt_scan_stop, "Stop BLE scan"},
     {RCP_MCU_CAP_BT, "bt_connect", cmd_bt_connect, "Connect (Central): bt_connect <addr_type> <XX:XX:XX:XX:XX:XX>"},
+    {RCP_MCU_CAP_BT, "bt_disconnect", cmd_bt_disconnect, "Disconnect last BLE link: bt_disconnect [reason]"},
+    {RCP_MCU_CAP_BT, "bt_conn_update", cmd_bt_conn_update, "Update last connection: bt_conn_update <min> <max> <latency> <timeout>"},
     {RCP_MCU_CAP_BT, "bt_add_service", cmd_bt_add_service, "Add example GATT service (call before advertising)"},
 	  /* ACI HAL vendor commands (OGF=0x3F) */
     {RCP_MCU_CAP_BT, "bt_set_tx_power", cmd_bt_set_tx_power, "Set TX power: bt_set_tx_power <0-35> (0x00..0x23 -> 0..20 dBm)"},
@@ -165,8 +172,6 @@ static const shell_cmd_t commands[] = {
     {RCP_MCU_CAP_BT, "bt_continuous_tx", cmd_bt_continuous_tx, "Start continuous TX: bt_continuous_tx <ch> <phy> <pat>"},
     {RCP_MCU_CAP_BT, "bt_le_tx_test", cmd_bt_le_tx_test, "Start standard LE TX test: bt_le_tx_test <ch> <len> <pat>"},
     {RCP_MCU_CAP_BT, "bt_le_test_end", cmd_bt_le_test_end, "Stop TX/RX test via HCI_LE_TEST_END"},
-    {RCP_MCU_CAP_BT, "bt_ext_adv_start", cmd_bt_ext_adv_start, "Start extended advertising (non-connectable): bt_ext_adv_start [hdl=0] [interval_ms=160]"},
-    {RCP_MCU_CAP_BT, "bt_per_adv_setup", cmd_bt_per_adv_setup, "Setup+enable periodic adv: bt_per_adv_setup [hdl=0] [interval_ms=40]"},
     {RCP_MCU_CAP_BT, "bt_ead", cmd_bt_ead, "EAD encrypt/decrypt round-trip self-test (no args)"},
     {RCP_MCU_CAP_BT, "bt_selftest", cmd_bt_selftest, "Run ACI HAL self-test (all non-RF commands)"},
 
@@ -883,6 +888,24 @@ static uint8_t parse_mac(const char *str, uint8_t *out)
     return 1;
 }
 
+static bool parse_uint_arg(const char *str, uint32_t max, uint32_t *value)
+{
+    char *end;
+    unsigned long parsed;
+
+    if ((str == NULL) || (str[0] == 0) || (str[0] == '-')) {
+        return false;
+    }
+
+    parsed = strtoul(str, &end, 0);
+    if ((end == str) || (*end != 0) || (parsed > max)) {
+        return false;
+    }
+
+    *value = (uint32_t)parsed;
+    return true;
+}
+
 static void cmd_bt_connect(int argc, char **argv)
 {
     if (argc < 3) {
@@ -896,28 +919,138 @@ static void cmd_bt_connect(int argc, char **argv)
         printf("Invalid MAC address format\n");
         return;
     }
-    Init_Param_Phy_t phy_params = {
-        .Scan_Interval       = 0x0060,  /* 60ms */
-        .Scan_Window         = 0x0030,  /* 30ms */
-        .Conn_Interval_Min   = 0x0006,  /* 7.5ms */
-        .Conn_Interval_Max   = 0x0020,  /* 40ms */
-        .Conn_Latency        = 0x0000,
-        .Supervision_Timeout = 0x002A,  /* 420ms */
-        .Min_CE_Length       = 0x0000,
-        .Max_CE_Length       = 0xFFFF,
-    };
     /* Reverse MAC: user inputs LSB-first (b0:6a:...), HCI needs MSB-first (7c:bc:...) */
     uint8_t addr_rev[6];
     for (int i = 0; i < 6; i++) addr_rev[i] = addr[5 - i];
 
-    tBleStatus ret = hci_le_extended_create_connection(
-        0x00 /* no filter policy */,
-        0x00 /* own addr: public */,
+    tBleStatus ret = hci_le_create_connection(
+        0x0060, /* scan interval: 60 ms */
+        0x0030, /* scan window: 30 ms */
+        0x00,   /* no filter policy */
         addr_type, addr_rev,
-        0x01 /* Initiating PHYs: LE 1M */,
-        &phy_params);
-    printf("hci_le_extended_create_connection(type=%d %02X:%02X:%02X:%02X:%02X:%02X) = 0x%02X\n",
+        0x00,   /* own address: public */
+        0x0006, /* connection interval min: 7.5 ms */
+        0x0020, /* connection interval max: 40 ms */
+        0x0000, /* connection latency */
+        0x002A, /* supervision timeout: 420 ms */
+        0x0000, /* minimum CE length */
+        0xFFFF  /* maximum CE length */);
+    printf("hci_le_create_connection(type=%d %02X:%02X:%02X:%02X:%02X:%02X) = 0x%02X\n",
            addr_type, addr_rev[0],addr_rev[1],addr_rev[2],addr_rev[3],addr_rev[4],addr_rev[5], ret);
+}
+
+static void cmd_bt_scan_start(int argc, char **argv)
+{
+    uint8_t scan_type = 0x01;
+    uint16_t scan_interval = 0x0060;
+    uint16_t scan_window = 0x0030;
+    uint32_t parsed;
+
+    if (argc >= 2) {
+        if (strcmp(argv[1], "passive") == 0) {
+            scan_type = 0x00;
+        } else if (strcmp(argv[1], "active") != 0) {
+            printf("Usage: bt_scan_start [passive|active] [interval] [window]\n");
+            return;
+        }
+    }
+    if ((argc >= 3) && parse_uint_arg(argv[2], 0x4000, &parsed)) {
+        scan_interval = (uint16_t)parsed;
+    } else if (argc >= 3) {
+        printf("Invalid scan interval\n");
+        return;
+    }
+    if ((argc >= 4) && parse_uint_arg(argv[3], 0x4000, &parsed)) {
+        scan_window = (uint16_t)parsed;
+    } else if (argc >= 4) {
+        printf("Invalid scan window\n");
+        return;
+    }
+    if ((argc > 4) || (scan_interval < 0x0004) ||
+        (scan_window < 0x0004) || (scan_window > scan_interval)) {
+        printf("Invalid scan parameters (range 0x0004..0x4000, window <= interval)\n");
+        return;
+    }
+
+    tBleStatus ret = aci_gap_start_observation_proc(
+        scan_interval, scan_window, scan_type, 0x00, 0x01, 0x00);
+    printf("BLE scan start = 0x%02X (type=%s interval=0x%04X window=0x%04X)\n",
+           ret, scan_type ? "active" : "passive", scan_interval, scan_window);
+}
+
+static void cmd_bt_scan_stop(int argc, char **argv)
+{
+    (void)argc;
+    (void)argv;
+    tBleStatus ret = aci_gap_terminate_gap_proc(GAP_OBSERVATION_PROC);
+    printf("BLE scan stop = 0x%02X\n", ret);
+}
+
+static void cmd_bt_disconnect(int argc, char **argv)
+{
+    uint16_t handle;
+    uint8_t reason = HCI_REMOTE_USER_TERMINATED_CONNECTION_ERR_CODE;
+    uint32_t parsed;
+
+    if (argc > 2) {
+        printf("Usage: bt_disconnect [reason]\n");
+        return;
+    }
+    if (!BleAppGetLastConnectionHandle(&handle)) {
+        printf("No active BLE connection\n");
+        return;
+    }
+    if (argc == 2) {
+        if (!parse_uint_arg(argv[1], 0xFF, &parsed)) {
+            printf("Invalid disconnect reason\n");
+            return;
+        }
+        reason = (uint8_t)parsed;
+    }
+
+    tBleStatus ret = hci_disconnect(handle, reason);
+    printf("hci_disconnect(handle=0x%04X reason=0x%02X) = 0x%02X\n",
+           handle, reason, ret);
+}
+
+static void cmd_bt_conn_update(int argc, char **argv)
+{
+    uint16_t handle;
+    uint32_t values[4];
+
+    if (argc != 5) {
+        printf("Usage: bt_conn_update <min> <max> <latency> <timeout>\n");
+        printf("  Raw HCI units: interval=1.25ms, timeout=10ms\n");
+        return;
+    }
+    for (int i = 0; i < 4; i++) {
+        if (!parse_uint_arg(argv[i + 1], UINT16_MAX, &values[i])) {
+            printf("Invalid numeric argument: %s\n", argv[i + 1]);
+            return;
+        }
+    }
+
+    uint16_t interval_min = (uint16_t)values[0];
+    uint16_t interval_max = (uint16_t)values[1];
+    uint16_t latency = (uint16_t)values[2];
+    uint16_t timeout = (uint16_t)values[3];
+    if ((interval_min < 0x0006) || (interval_max > 0x0C80) ||
+        (interval_min > interval_max) || (latency > 0x01F3) ||
+        (timeout < 0x000A) || (timeout > 0x0C80) ||
+        ((uint32_t)timeout * 8U <=
+         (uint32_t)(latency + 1U) * interval_max * 2U)) {
+        printf("Invalid connection parameters\n");
+        return;
+    }
+    if (!BleAppGetLastConnectionHandle(&handle)) {
+        printf("No active BLE connection\n");
+        return;
+    }
+
+    tBleStatus ret = hci_le_connection_update(
+        handle, interval_min, interval_max, latency, timeout, 0x0000, 0xFFFF);
+    printf("hci_le_connection_update(handle=0x%04X) = 0x%02X\n",
+           handle, ret);
 }
 
 static void cmd_bt_adv_start(int argc, char **argv)
@@ -1141,81 +1274,6 @@ static void cmd_bt_le_test_end(int argc, char **argv)
     uint16_t nb_pkt = 0xFFFF;
     tBleStatus ret = hci_le_test_end(&nb_pkt);
     printf("hci_le_test_end = 0x%02X, nb_pkt=%u\n", ret, nb_pkt);
-}
-
-static void cmd_bt_ext_adv_start(int argc, char **argv)
-{
-    uint8_t  adv_hdl     = (argc > 1) ? (uint8_t)atoi(argv[1]) : 0;
-    uint32_t interval_ms = (argc > 2) ? (uint32_t)atoi(argv[2]) : 160;
-    /* interval in 0.625us units, encoded as 3-byte array */
-    uint32_t interval = (interval_ms * 1000) / 625;
-    uint8_t interval_min[3] = { interval & 0xFF, (interval >> 8) & 0xFF, (interval >> 16) & 0xFF };
-    uint8_t interval_max[3] = { interval_min[0], interval_min[1], interval_min[2] };
-    uint8_t peer_addr[6] = {0};
-    tBleStatus ret;
-    int8_t sel_tx_power;
-
-    /* Non-connectable, non-scannable, non-legacy extended advertising (required for periodic adv + BIG) */
-    ret = hci_le_set_extended_advertising_parameters(adv_hdl,
-                                                     0x0000 /* Properties: ext non-conn non-scan */,
-                                                     interval_min, interval_max,
-                                                     0x07 /* channel map: all */,
-                                                     0x00 /* Own addr: public */,
-                                                     0x00 /* Peer addr type: public */,
-                                                     peer_addr,
-                                                     0x00 /* Filter policy */,
-                                                     0x09 /* TX power: +6 dBm default */,
-                                                     0x01 /* Primary PHY: 1M */,
-                                                     0x00 /* Max skip */,
-                                                     0x01 /* Secondary PHY: 1M */,
-                                                     0x00 /* SID */,
-                                                     0x00 /* Scan req notification: disable */,
-                                                     &sel_tx_power);
-    printf("hci_le_set_extended_advertising_parameters(hdl=%d interval=%lums tx_pwr=%d) = 0x%02X\n",
-           adv_hdl, (unsigned long)interval_ms, (int)sel_tx_power, ret);
-    if (ret != BLE_STATUS_SUCCESS) return;
-
-    /* Set minimal advertising data (complete local name) */
-    const uint8_t adv_data[] = {0x0B, 0x09, 'P','E','R','I','O','D','-','B','I','G'};
-    ret = hci_le_set_extended_advertising_data(adv_hdl, 0x03 /* complete */, 0x00 /* may fragment */,
-                                               sizeof(adv_data), adv_data);
-    printf("hci_le_set_extended_advertising_data = 0x%02X\n", ret);
-    if (ret != BLE_STATUS_SUCCESS) return;
-
-    /* Enable advertising set */
-    Adv_Set_t adv_set = { .Advertising_Handle = adv_hdl,
-                          .Duration = 0 /* no duration limit */,
-                          .Max_Extended_Advertising_Events = 0 };
-    ret = hci_le_set_extended_advertising_enable(0x01 /* enable */, 1, &adv_set);
-    printf("hci_le_set_extended_advertising_enable(hdl=%d) = 0x%02X\n", adv_hdl, ret);
-}
-
-static void cmd_bt_per_adv_setup(int argc, char **argv)
-{
-    uint8_t  adv_hdl     = (argc > 1) ? (uint8_t)atoi(argv[1]) : 0;
-    uint32_t interval_ms = (argc > 2) ? (uint32_t)atoi(argv[2]) : 40;
-    /* periodic interval in 1.25ms units */
-    uint16_t per_interval = (uint16_t)((interval_ms * 1000) / 1250);
-    tBleStatus ret;
-
-    /* Step 1: Set periodic advertising parameters */
-    ret = hci_le_set_periodic_advertising_parameters(adv_hdl,
-                                                     per_interval, per_interval,
-                                                     0x0000 /* Properties */);
-    printf("hci_le_set_periodic_advertising_parameters(hdl=%d interval=%lums) = 0x%02X\n",
-           adv_hdl, (unsigned long)interval_ms, ret);
-    if (ret != BLE_STATUS_SUCCESS) return;
-
-    /* Step 2: Set periodic advertising data */
-    const uint8_t per_data[] = {0x02, 0x01, 0x06 /* Flags + LE General Discoverable */};
-    ret = hci_le_set_periodic_advertising_data(adv_hdl, 0x03 /* complete */, sizeof(per_data), per_data);
-    printf("hci_le_set_periodic_advertising_data(len=%d) = 0x%02X\n", (int)sizeof(per_data), ret);
-    if (ret != BLE_STATUS_SUCCESS) return;
-
-    /* Step 3: Enable periodic advertising (Enable=0x01, no ADI bit) */
-    ret = hci_le_set_periodic_advertising_enable(0x01 /* enable */, adv_hdl);
-    printf("hci_le_set_periodic_advertising_enable(hdl=%d) = 0x%02X\n", adv_hdl, ret);
-    printf("Periodic advertising enabled (hdl=%d)\n", adv_hdl);
 }
 
 static void cmd_bt_ead(int argc, char **argv)

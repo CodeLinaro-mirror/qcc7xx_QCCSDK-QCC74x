@@ -49,6 +49,38 @@ static uint32_t g_jedec_id2 = 0;
 #endif
 #endif
 static uint32_t g_jedec_id = 0;
+
+__WEAK int ATTR_TCM_SECTION qcc74x_flash_resource_lock(uint32_t timeout_ms)
+{
+    (void)timeout_ms;
+    return -ENOSYS;
+}
+
+__WEAK void ATTR_TCM_SECTION qcc74x_flash_resource_unlock(void)
+{
+}
+
+static int ATTR_TCM_SECTION qcc74x_flash_op_enter(uintptr_t *irq_flags)
+{
+#ifndef CONFIG_DISABLE_FLASH_OP_IRQ_SAVE_RESTORE
+    *irq_flags = qcc74x_irq_save();
+    return 0;
+#else
+    (void)irq_flags;
+    return qcc74x_flash_resource_lock(QCC74x_FLASH_RESOURCE_WAIT_FOREVER);
+#endif
+}
+
+static void ATTR_TCM_SECTION qcc74x_flash_op_exit(uintptr_t irq_flags)
+{
+#ifndef CONFIG_DISABLE_FLASH_OP_IRQ_SAVE_RESTORE
+    qcc74x_irq_restore(irq_flags);
+#else
+    (void)irq_flags;
+    qcc74x_flash_resource_unlock();
+#endif
+}
+
 static spi_flash_cfg_type g_flash_cfg = {
     .reset_c_read_cmd = 0xff,
     .reset_c_read_cmd_size = 3,
@@ -376,9 +408,12 @@ static int ATTR_TCM_SECTION flash_config_init(spi_flash_cfg_type *p_flash_cfg, u
     uint8_t is_aes_enable = 0;
     uint32_t jid = 0;
     uint32_t offset = 0;
-    uintptr_t flag;
+    uintptr_t flag = 0;
 
-    flag = qcc74x_irq_save();
+    ret = qcc74x_flash_op_enter(&flag);
+    if (ret != 0) {
+        return ret;
+    }
     qcc74x_xip_sflash_opt_enter(&is_aes_enable);
     qcc74x_xip_sflash_state_save(p_flash_cfg, &offset, 0, 0);
     qcc74x_sflash_get_jedecid(p_flash_cfg, (uint8_t *)&jid);
@@ -415,7 +450,7 @@ static int ATTR_TCM_SECTION flash_config_init(spi_flash_cfg_type *p_flash_cfg, u
     qcc74x_xip_sflash_state_restore(p_flash_cfg, offset, 0, 0);
 #endif
     qcc74x_xip_sflash_opt_exit(is_aes_enable);
-    qcc74x_irq_restore(flag);
+    qcc74x_flash_op_exit(flag);
 
     return ret;
 }
@@ -518,7 +553,10 @@ int ATTR_TCM_SECTION qcc74x_flash_init(void)
         *(volatile uint32_t *)0x40000134 |= (1U << 16);
     }
 #endif
-    flag = qcc74x_irq_save();
+    ret = qcc74x_flash_op_enter(&flag);
+    if (ret != 0) {
+        return ret;
+    }
 #if defined(QCC74x_undef)
     qcc74x_sflash_cache_flush();
 #else
@@ -530,7 +568,7 @@ int ATTR_TCM_SECTION qcc74x_flash_init(void)
 #else
     L1C_Cache_Flush();
 #endif
-    qcc74x_irq_restore(flag);
+    qcc74x_flash_op_exit(flag);
     if (g_flash_cfg.mid != 0xff && g_flash_cfg.mid != 0x00) {
         return 0;
     }
@@ -623,7 +661,9 @@ void ATTR_TCM_SECTION qcc74x_flash_set_iomode(uint8_t iomode)
     uint8_t is_aes_enable = 0;
     uint32_t offset = 0;
 
-    flag = qcc74x_irq_save();
+    if (qcc74x_flash_op_enter(&flag) != 0) {
+        return;
+    }
     qcc74x_xip_sflash_opt_enter(&is_aes_enable);
     qcc74x_xip_sflash_state_save(&g_flash_cfg, &offset, 0, 0);
 
@@ -646,7 +686,7 @@ void ATTR_TCM_SECTION qcc74x_flash_set_iomode(uint8_t iomode)
     qcc74x_xip_sflash_state_restore(&g_flash_cfg, offset, 0, 0);
 #endif
     qcc74x_xip_sflash_opt_exit(is_aes_enable);
-    qcc74x_irq_restore(flag);
+    qcc74x_flash_op_exit(flag);
 }
 
 ATTR_TCM_SECTION uint32_t qcc74x_flash_get_image_offset(void)
@@ -664,30 +704,32 @@ ATTR_TCM_SECTION uint32_t qcc74x_flash_get_image_offset(void)
 int ATTR_TCM_SECTION qcc74x_flash_erase(uint32_t startaddr, uint32_t len)
 {
     int stat = -1;
-    uintptr_t flag;
+    uintptr_t flag = 0;
 
 #if defined(QCC743) || defined(QCC74x_undef) || defined(QCC74x_undef) || defined(QCC74x_undef)
     if ((startaddr + len) > (flash1_size + flash2_size)) {
         return -ENOMEM;
-    } else if ((startaddr + len) <= flash1_size) {
-        flag = qcc74x_irq_save();
+    }
+
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
+
+    if ((startaddr + len) <= flash1_size) {
         stat = qcc74x_xip_sflash_erase_need_lock(&g_flash_cfg, startaddr, len, 0, 0);
-        qcc74x_irq_restore(flag);
 #ifdef QCC74x_SF_CTRL_SBUS2_ENABLE
     } else if (startaddr >= flash1_size) {
         qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
         stat = qcc74x_sflash_erase(&g_flash2_cfg, startaddr, startaddr + len - 1);
         qcc74x_sf_ctrl_sbus2_revoke_replace();
     } else {
-        flag = qcc74x_irq_save();
         stat = qcc74x_xip_sflash_erase_need_lock(&g_flash_cfg, startaddr, flash1_size - startaddr, 0, 0);
-        qcc74x_irq_restore(flag);
-        if (stat != 0) {
-            return stat;
+        if (stat == 0) {
+            qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
+            stat = qcc74x_sflash_erase(&g_flash2_cfg, flash1_size, startaddr + len - flash1_size - 1);
+            qcc74x_sf_ctrl_sbus2_revoke_replace();
         }
-        qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
-        stat = qcc74x_sflash_erase(&g_flash2_cfg, flash1_size, startaddr + len - flash1_size - 1);
-        qcc74x_sf_ctrl_sbus2_revoke_replace();
     }
 #else
     }
@@ -697,7 +739,10 @@ int ATTR_TCM_SECTION qcc74x_flash_erase(uint32_t startaddr, uint32_t len)
         return -ENOMEM;
     }
 
-    flag = qcc74x_irq_save();
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
 #if defined(QCC74x_undef)
     stat = qcc74x_xip_sflash_erase_need_lock_ext(&g_flash_cfg, startaddr, startaddr + len - 1, 0, 0);
 #elif defined(QCC74x_undef)
@@ -708,9 +753,9 @@ int ATTR_TCM_SECTION qcc74x_flash_erase(uint32_t startaddr, uint32_t len)
 #else
     stat = qcc74x_xip_sflash_erase_need_lock(&g_flash_cfg, startaddr, len, 0, 0);
 #endif
-    qcc74x_irq_restore(flag);
 #endif
 
+    qcc74x_flash_op_exit(flag);
     return stat;
 }
 
@@ -725,30 +770,33 @@ int ATTR_TCM_SECTION qcc74x_flash_erase(uint32_t startaddr, uint32_t len)
 int ATTR_TCM_SECTION qcc74x_flash_write(uint32_t addr, uint8_t *data, uint32_t len)
 {
     int stat = -1;
-    uintptr_t flag;
+    uintptr_t flag = 0;
 
 #if defined(QCC743) || defined(QCC74x_undef) || defined(QCC74x_undef) || defined(QCC74x_undef)
     if ((addr + len) > (flash1_size + flash2_size)) {
         return -ENOMEM;
-    } else if ((addr + len) <= flash1_size) {
-        flag = qcc74x_irq_save();
+    }
+
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
+
+    if ((addr + len) <= flash1_size) {
         stat = qcc74x_xip_sflash_write_need_lock(&g_flash_cfg, addr, data, len, 0, 0);
-        qcc74x_irq_restore(flag);
 #ifdef QCC74x_SF_CTRL_SBUS2_ENABLE
     } else if (addr >= flash1_size) {
         qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
         stat = qcc74x_sflash_program(&g_flash2_cfg, SF_CTRL_DO_MODE, addr, data, len);
         qcc74x_sf_ctrl_sbus2_revoke_replace();
     } else {
-        flag = qcc74x_irq_save();
         stat = qcc74x_xip_sflash_write_need_lock(&g_flash_cfg, addr, data, flash1_size - addr, 0, 0);
-        qcc74x_irq_restore(flag);
-        if (stat != 0) {
-            return stat;
+        if (stat == 0) {
+            qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
+            stat = qcc74x_sflash_program(&g_flash2_cfg, SF_CTRL_DO_MODE, flash1_size,
+                                         data + (flash1_size - addr), addr + len - flash1_size);
+            qcc74x_sf_ctrl_sbus2_revoke_replace();
         }
-        qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
-        stat = qcc74x_sflash_program(&g_flash2_cfg, SF_CTRL_DO_MODE, flash1_size, data + (flash1_size - addr), addr + len - flash1_size);
-        qcc74x_sf_ctrl_sbus2_revoke_replace();
     }
 #else
     }
@@ -758,7 +806,10 @@ int ATTR_TCM_SECTION qcc74x_flash_write(uint32_t addr, uint8_t *data, uint32_t l
         return -ENOMEM;
     }
 
-    flag = qcc74x_irq_save();
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
 #if defined(QCC74x_undef)
     stat = qcc74x_xip_sflash_write_need_lock_ext(&g_flash_cfg, addr, data, len, 0, 0);
 #elif defined(QCC74x_undef)
@@ -769,9 +820,9 @@ int ATTR_TCM_SECTION qcc74x_flash_write(uint32_t addr, uint8_t *data, uint32_t l
 #else
     stat = qcc74x_xip_sflash_write_need_lock(&g_flash_cfg, addr, data, len, 0, 0);
 #endif
-    qcc74x_irq_restore(flag);
 #endif
 
+    qcc74x_flash_op_exit(flag);
     return stat;
 }
 
@@ -786,30 +837,33 @@ int ATTR_TCM_SECTION qcc74x_flash_write(uint32_t addr, uint8_t *data, uint32_t l
 int ATTR_TCM_SECTION qcc74x_flash_read(uint32_t addr, uint8_t *data, uint32_t len)
 {
     int stat = -1;
-    uintptr_t flag;
+    uintptr_t flag = 0;
 
 #if defined(QCC743) || defined(QCC74x_undef) || defined(QCC74x_undef) || defined(QCC74x_undef)
     if ((addr + len) > (flash1_size + flash2_size)) {
         return -ENOMEM;
-    } else if ((addr + len) <= flash1_size) {
-        flag = qcc74x_irq_save();
+    }
+
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
+
+    if ((addr + len) <= flash1_size) {
         stat = qcc74x_xip_sflash_read_need_lock(&g_flash_cfg, addr, data, len, 0, 0);
-        qcc74x_irq_restore(flag);
 #ifdef QCC74x_SF_CTRL_SBUS2_ENABLE
     } else if (addr >= flash1_size) {
         qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
         stat = qcc74x_sflash_read(&g_flash2_cfg, SF_CTRL_DO_MODE, 0, addr, data, len);
         qcc74x_sf_ctrl_sbus2_revoke_replace();
     } else {
-        flag = qcc74x_irq_save();
         stat = qcc74x_xip_sflash_read_need_lock(&g_flash_cfg, addr, data, flash1_size - addr, 0, 0);
-        qcc74x_irq_restore(flag);
-        if (stat != 0) {
-            return stat;
+        if (stat == 0) {
+            qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
+            stat = qcc74x_sflash_read(&g_flash2_cfg, SF_CTRL_DO_MODE, 0, flash1_size,
+                                      data + (flash1_size - addr), addr + len - flash1_size);
+            qcc74x_sf_ctrl_sbus2_revoke_replace();
         }
-        qcc74x_sf_ctrl_sbus2_replace(SF_CTRL_PAD2);
-        stat = qcc74x_sflash_read(&g_flash2_cfg, SF_CTRL_DO_MODE, 0, flash1_size, data + (flash1_size - addr), addr + len - flash1_size);
-        qcc74x_sf_ctrl_sbus2_revoke_replace();
     }
 #else
     }
@@ -819,7 +873,10 @@ int ATTR_TCM_SECTION qcc74x_flash_read(uint32_t addr, uint8_t *data, uint32_t le
         return -ENOMEM;
     }
 
-    flag = qcc74x_irq_save();
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
 #if defined(QCC74x_undef)
     stat = qcc74x_xip_sflash_read_need_lock_ext(&g_flash_cfg, addr, data, len, 0, 0);
 #elif defined(QCC74x_undef)
@@ -830,9 +887,9 @@ int ATTR_TCM_SECTION qcc74x_flash_read(uint32_t addr, uint8_t *data, uint32_t le
 #else
     stat = qcc74x_xip_sflash_read_need_lock(&g_flash_cfg, addr, data, len, 0, 0);
 #endif
-    qcc74x_irq_restore(flag);
 #endif
 
+    qcc74x_flash_op_exit(flag);
     return stat;
 }
 
@@ -846,11 +903,14 @@ int ATTR_TCM_SECTION qcc74x_flash_read(uint32_t addr, uint8_t *data, uint32_t le
 int ATTR_TCM_SECTION qcc74x_flash_get_unique_id(uint8_t *data, uint8_t id_len)
 {
     int stat = -1;
-    uintptr_t flag;
+    uintptr_t flag = 0;
 
-    flag = qcc74x_irq_save();
+    stat = qcc74x_flash_op_enter(&flag);
+    if (stat != 0) {
+        return stat;
+    }
     stat = qcc74x_xip_sflash_get_uniqueid_need_lock(&g_flash_cfg, data, id_len, 0, 0);
-    qcc74x_irq_restore(flag);
+    qcc74x_flash_op_exit(flag);
 
     return stat;
 }

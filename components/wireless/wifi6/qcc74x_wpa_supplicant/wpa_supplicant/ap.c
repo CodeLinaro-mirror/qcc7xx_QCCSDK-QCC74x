@@ -36,8 +36,10 @@
 #include "p2p_supplicant.h"
 #include "ap.h"
 #include "ap/sta_info.h"
+#include "ap/wnm_ap.h"
 #include "notify.h"
 
+/* CONFIG_WFA_BTM_REQ is derived from CONFIG_WFA + CONFIG_WNM_AP in wnm_ap.h. */
 
 #ifdef CONFIG_WPS
 static void wpas_wps_ap_pin_timeout(void *eloop_data, void *user_ctx);
@@ -479,15 +481,24 @@ static int wpa_supplicant_conf_ap(struct wpa_supplicant *wpa_s,
 #endif /* CONFIG_ACS */
 
 #ifndef CONFIG_EXTRA_SIZE_OPT
+	/* Enable DFS radar detection (ieee80211h) on DFS channels when a
+	 * country code is configured. The Country IE itself (ieee80211d +
+	 * country) is advertised unconditionally below whenever a country
+	 * code is present, so it is not duplicated here. */
 	if (ieee80211_is_dfs(ssid->frequency, wpa_s->hw.modes,
 			     wpa_s->hw.num_modes) && wpa_s->conf->country[0]) {
 		conf->ieee80211h = 1;
+	}
+#endif
+
+	/* Advertise Country IE whenever a country code is configured (e.g. set
+	 * via the global "country" option), independent of DFS. */
+	if (wpa_s->conf->country[0]) {
 		conf->ieee80211d = 1;
 		conf->country[0] = wpa_s->conf->country[0];
 		conf->country[1] = wpa_s->conf->country[1];
 		conf->country[2] = ' ';
 	}
-#endif
 
 #ifdef CONFIG_P2P
 	if (conf->hw_mode == HOSTAPD_MODE_IEEE80211G &&
@@ -798,6 +809,31 @@ no_wps:
 	bss->ftm_initiator = wpa_s->conf->ftm_initiator;
 
 	bss->transition_disable = ssid->transition_disable;
+
+#ifdef CONFIG_MBO
+	if (ssid->mbo_enabled)
+		bss->mbo_enabled = ssid->mbo_enabled;
+#endif /* CONFIG_MBO */
+#ifdef CONFIG_WNM_AP
+	if (ssid->bss_transition)
+		bss->bss_transition = ssid->bss_transition;
+#endif /* CONFIG_WNM_AP */
+#ifdef CONFIG_INTERWORKING
+	if (ssid->interworking) {
+		bss->interworking = ssid->interworking;
+		bss->access_network_type = 1; /* 1 = private network with guest access (802.11u: 0=private, 1=private+guest) */
+	}
+#endif /* CONFIG_INTERWORKING */
+#ifdef CONFIG_RRM
+	if (ssid->rrm_neighbor_report) {
+		/* RM Enabled Capabilities IE: advertise Neighbor Report and
+		 * Beacon Report (passive/active/table) support. */
+		bss->radio_measurements[0] |= WLAN_RRM_CAPS_NEIGHBOR_REPORT |
+			WLAN_RRM_CAPS_BEACON_REPORT_PASSIVE |
+			WLAN_RRM_CAPS_BEACON_REPORT_ACTIVE |
+			WLAN_RRM_CAPS_BEACON_REPORT_TABLE;
+	}
+#endif /* CONFIG_RRM */
 
 	return 0;
 }
@@ -1642,6 +1678,60 @@ int ap_ctrl_iface_acl_enable(struct wpa_supplicant *wpa_s,
                                         txtaddr);
 }
 
+#ifdef CONFIG_MBO
+int ap_ctrl_iface_set_mbo_assoc_disallow(struct wpa_supplicant *wpa_s,
+                                         const char *cmd)
+{
+    struct hostapd_data *hapd;
+    char *endp;
+    long reason;
+
+    if (wpa_s->ap_iface == NULL || wpa_s->ap_iface->bss[0] == NULL)
+        return -1;
+
+    /* Reason code 0 clears the attribute; 1-5 are the MBO Association
+     * Disallowed reason codes. Parse strictly (not atoi()): this entry point
+     * is also reachable directly via ctrl_iface, so it must validate without
+     * relying on the CLI. strtol() with an endptr check rejects non-numeric
+     * input ("abc" -> 0 would silently clear) and trailing garbage ("1xyz"). */
+    reason = strtol(cmd, &endp, 10);
+    if (endp == cmd)
+        return -1;
+    while (*endp == ' ' || *endp == '\t')
+        endp++;
+    if (*endp != '\0' || reason < 0 || reason > 5)
+        return -1;
+
+    hapd = wpa_s->ap_iface->bss[0];
+
+    /* The attribute is only advertised and enforced when MBO is enabled
+     * (see ieee802_11.c assoc handling). Reject the command otherwise so the
+     * caller is not misled into thinking it took effect. */
+    if (!hapd->conf->mbo_enabled)
+        return -1;
+
+    hapd->mbo_assoc_disallow = (unsigned int)reason;
+
+    /* Regenerate the Beacon/Probe Response so the MBO-OCE IE reflects the
+     * new Association Disallowed attribute. */
+    return ieee802_11_set_beacon(hapd);
+}
+#endif /* CONFIG_MBO */
+
+
+#ifdef CONFIG_WFA_BTM_REQ
+int ap_ctrl_iface_bss_tm_req(struct wpa_supplicant *wpa_s, const char *cmd)
+{
+	struct hostapd_data *hapd;
+
+	if (wpa_s->ap_iface == NULL || wpa_s->ap_iface->bss[0] == NULL)
+		return -1;
+
+	hapd = wpa_s->ap_iface->bss[0];
+	return wnm_send_wfa_bss_tm_req(hapd, cmd, 1);
+}
+#endif /* CONFIG_WFA_BTM_REQ */
+
 
 int ap_ctrl_iface_sta_deauthenticate(struct wpa_supplicant *wpa_s,
 				     const char *txtaddr)
@@ -1724,6 +1814,10 @@ int ap_switch_channel(struct wpa_supplicant *wpa_s,
 	else if (wpa_s->ifmsh)
 		iface = wpa_s->ifmsh;
 
+	wpa_printf(MSG_INFO, "CSA: ap_switch_channel ap_iface=%p ifmsh=%p iface=%p bss0=%p",
+		   wpa_s->ap_iface, wpa_s->ifmsh, iface,
+		   iface ? iface->bss[0] : NULL);
+
 	if (!iface || !iface->bss[0])
 		return -1;
 
@@ -1739,6 +1833,8 @@ int ap_ctrl_iface_chanswitch(struct wpa_supplicant *wpa_s, const char *pos)
 {
 	struct csa_settings settings;
 	int ret = hostapd_parse_csa_settings(pos, &settings);
+
+	wpa_printf(MSG_INFO, "CSA: chanswitch pos='%s' parse_ret=%d", pos, ret);
 
 	if (ret)
 		return ret;

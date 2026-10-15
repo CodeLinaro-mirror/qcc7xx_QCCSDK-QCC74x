@@ -1,4 +1,8 @@
-#include "qcc74x_uart.h"
+#if defined(CONFIG_NEWLIB) && CONFIG_NEWLIB
+#include <stdio.h>
+#endif
+
+#include "console_output.h"
 
 #ifdef CONFIG_QCC74xLOG
 #include "qcc74xlog.h"
@@ -12,13 +16,9 @@ void *__qcc74xlog_recorder_pointer = &__qcc74xlog_recorder;
 static uint8_t qcc74xlog_pool[CONFIG_LOG_POOL_SIZE];
 qcc74xlog_direct_stream_t qcc74xlog_direct_stream;
 
-extern struct qcc74x_device_s *console;
 static uint16_t console_output(void *ptr, uint16_t size)
 {
-    for (size_t i = 0; i < size; i++) {
-        qcc74x_uart_putchar(console, ((char *)ptr)[i]);
-    }
-    return size;
+    return qcc74x_console_write(ptr, size) < 0 ? 0 : size;
 }
 
 #endif

@@ -117,9 +117,6 @@ typedef struct {
     StreamBufferHandle_t recv_buf;
     uint32_t recvbuf_size;
 
-    char ca_path[32];
-    char cert_path[32];
-    char priv_key_path[32];
     char *ssl_hostname;
     char *ssl_alpn[6];
     int ssl_alpn_num;
@@ -144,9 +141,6 @@ typedef struct {
     int keepalive;
 
     uint8_t is_ipv6;
-    char ca_path[32];
-    char cert_path[32];
-    char priv_key_path[32];
     char ssl_psk[32];
     char ssl_pskhint[32];
     uint8_t ssl_psklen;
@@ -684,6 +678,7 @@ static int ssl_client_connect(int id, ip_addr_t *ipaddr, uint16_t port, void **p
 {
     int fd;
     void *handle;
+    const char *ca, *cert, *key;
     ssl_conn_param_t ssl_param = {0};
     struct timeval tv;
 
@@ -695,9 +690,10 @@ static int ssl_client_connect(int id, ip_addr_t *ipaddr, uint16_t port, void **p
         return fd;
     }
 
-    at_load_file(g_at_client_handle[id].ca_path, &ssl_param.ca_cert, &ssl_param.ca_cert_len);
-    at_load_file(g_at_client_handle[id].cert_path, &ssl_param.own_cert, &ssl_param.own_cert_len);
-    at_net_ssl_load_file_decrypt(g_at_client_handle[id].priv_key_path, &ssl_param.private_cert, &ssl_param.private_cert_len);
+    at_net_ssl_path_get(id, &ca, &cert, &key);
+    at_load_file(ca, &ssl_param.ca_cert, &ssl_param.ca_cert_len);
+    at_load_file(cert, &ssl_param.own_cert, &ssl_param.own_cert_len);
+    at_net_ssl_load_file_decrypt(key, &ssl_param.private_cert, &ssl_param.private_cert_len);
 
     ssl_param.alpn = at_net_ssl_alpn_get(id, &ssl_param.alpn_num);
     at_net_ssl_psk_get(id, &ssl_param.psk, &ssl_param.psk_len, &ssl_param.pskhint, &ssl_param.pskhint_len);
@@ -1415,10 +1411,12 @@ static int net_socket_accept(int fd, int type, uint16_t port, uint16_t timeout, 
         if (type == NET_SERVER_SSL) {
 
             ssl_conn_param_t ssl_param = {0};
+            const char *ca, *cert, *key;
 
-            at_load_file(g_at_server_handle[id].ca_path, &ssl_param.ca_cert, &ssl_param.ca_cert_len);
-            at_load_file(g_at_server_handle[id].cert_path, &ssl_param.own_cert, &ssl_param.own_cert_len);
-            at_net_ssl_load_file_decrypt(g_at_server_handle[id].priv_key_path, &ssl_param.private_cert, &ssl_param.private_cert_len);
+            at_net_ssl_server_path_get(0, &ca, &cert, &key);
+            at_load_file(ca, &ssl_param.ca_cert, &ssl_param.ca_cert_len);
+            at_load_file(cert, &ssl_param.own_cert, &ssl_param.own_cert_len);
+            at_net_ssl_load_file_decrypt(key, &ssl_param.private_cert, &ssl_param.private_cert_len);
             at_net_ssl_server_psk_get(id, &ssl_param.psk, &ssl_param.psk_len, &ssl_param.pskhint, &ssl_param.pskhint_len);
 
             priv = mbedtls_ssl_accept(sock, ssl_param.ca_cert, ssl_param.ca_cert_len,
@@ -1452,7 +1450,7 @@ static int net_socket_accept(int fd, int type, uint16_t port, uint16_t timeout, 
                 g_at_client_handle[id].recv_buf = xStreamBufferCreate(g_at_client_handle[id].recvbuf_size, 1);
                 if (!g_at_client_handle[id].recv_buf) {
                     net_unlock();
-                    net_socket_fd_close(fd, type, 1, priv);
+                    net_socket_fd_close(sock, type, 1, priv);
                     return -AT_SUB_NO_MEMORY;
                 }
             }
@@ -1770,19 +1768,10 @@ static int at_net_init(void)
 
     for (int id = 0; id < AT_NET_CLIENT_HANDLE_MAX; id++) {
         g_at_client_handle[id].recvbuf_size = AT_NET_RECV_BUF_SIZE;
-        at_net_ssl_path_set(id, at_net_config->sslconf[id].ca_file,
-                            at_net_config->sslconf[id].cert_file,
-                            at_net_config->sslconf[id].key_file);
         memset(buffer, 0, sizeof(buffer));
         if (at_config_read_with_id(AT_CONFIG_KEY_NET_SNI, id, buffer, sizeof(buffer))) {
             g_at_client_handle[id].ssl_hostname = strdup(buffer);
         }
-    }
-
-    for (int id = 0; id < AT_NET_SERVER_HANDLE_MAX; id++) {
-        at_net_ssl_server_path_set(id, at_net_config->sslsconf[id].ca_file,
-                                   at_net_config->sslsconf[id].cert_file,
-                                   at_net_config->sslsconf[id].key_file);
     }
 
     wake_socket_fd =  socket(AF_INET, SOCK_DGRAM, 0);
@@ -2651,6 +2640,7 @@ int at_net_mdns_query(const char *service, const char *proto, int timeout_ms,
     at_net_mdns_search_t ctx;
     struct netif *netif;
     uint8_t request_id;
+    int elapsed_ms = 0;
     err_t err;
     int ret;
 
@@ -2689,18 +2679,30 @@ int at_net_mdns_query(const char *service, const char *proto, int timeout_ms,
             return ret;
         }
     }
-    err = mdns_search_service(NULL, service, mdns_proto, netif,
-                              at_net_mdns_search_result, &ctx, &request_id);
     UNLOCK_TCPIP_CORE();
-    if (err != ERR_OK) {
-        vSemaphoreDelete(ctx.done);
-        return at_net_mdns_err_to_sub_code(err);
-    }
 
-    xSemaphoreTake(ctx.done, pdMS_TO_TICKS(timeout_ms));
-    LOCK_TCPIP_CORE();
-    mdns_search_stop(request_id);
-    UNLOCK_TCPIP_CORE();
+    while (elapsed_ms < timeout_ms) {
+        int wait_ms = LWIP_MIN(1000, timeout_ms - elapsed_ms);
+
+        LOCK_TCPIP_CORE();
+        err = mdns_search_service(NULL, service, mdns_proto, netif,
+                                  at_net_mdns_search_result, &ctx, &request_id);
+        UNLOCK_TCPIP_CORE();
+        if (err != ERR_OK) {
+            vSemaphoreDelete(ctx.done);
+            return at_net_mdns_err_to_sub_code(err);
+        }
+
+        BaseType_t query_done = xSemaphoreTake(ctx.done, pdMS_TO_TICKS(wait_ms));
+        LOCK_TCPIP_CORE();
+        mdns_search_stop(request_id);
+        UNLOCK_TCPIP_CORE();
+        if (query_done == pdTRUE) {
+            break;
+        }
+
+        elapsed_ms += wait_ms;
+    }
     vSemaphoreDelete(ctx.done);
 
     at_net_mdns_finish_current_result(&ctx);
@@ -2869,21 +2871,21 @@ int at_net_recvbuf_read(int linkid, ip_addr_t *remote_ipaddr, uint16_t *remote_p
 int at_net_ssl_path_set(int linkid, const char *ca, const char *cert, const char *key)
 {
     if (ca) {
-        strlcpy(g_at_client_handle[linkid].ca_path, ca, sizeof(g_at_client_handle[linkid].ca_path));
+        strlcpy(at_net_config->sslconf[linkid].ca_file, ca, sizeof(at_net_config->sslconf[linkid].ca_file));
     } else {
-        g_at_client_handle[linkid].ca_path[0] = '\0';
+        at_net_config->sslconf[linkid].ca_file[0] = '\0';
     }
 
     if (cert) {
-        strlcpy(g_at_client_handle[linkid].cert_path, cert, sizeof(g_at_client_handle[linkid].cert_path));
+        strlcpy(at_net_config->sslconf[linkid].cert_file, cert, sizeof(at_net_config->sslconf[linkid].cert_file));
     } else {
-        g_at_client_handle[linkid].cert_path[0] = '\0';
+        at_net_config->sslconf[linkid].cert_file[0] = '\0';
     }
 
     if (key) {
-        strlcpy(g_at_client_handle[linkid].priv_key_path, key, sizeof(g_at_client_handle[linkid].priv_key_path));
+        strlcpy(at_net_config->sslconf[linkid].key_file, key, sizeof(at_net_config->sslconf[linkid].key_file));
     } else {
-        g_at_client_handle[linkid].priv_key_path[0] = '\0';
+        at_net_config->sslconf[linkid].key_file[0] = '\0';
     }
     return 0;
 }
@@ -2893,30 +2895,30 @@ int at_net_ssl_server_path_set(int linkid, const char *ca, const char *cert, con
         return -1;
     }
     if (ca) {
-        strlcpy(g_at_server_handle[linkid].ca_path, ca, sizeof(g_at_server_handle[linkid].ca_path));
+        strlcpy(at_net_config->sslsconf[linkid].ca_file, ca, sizeof(at_net_config->sslsconf[linkid].ca_file));
     } else {
-        g_at_server_handle[linkid].ca_path[0] = '\0';
+        at_net_config->sslsconf[linkid].ca_file[0] = '\0';
     }
 
     if (cert) {
-        strlcpy(g_at_server_handle[linkid].cert_path, cert, sizeof(g_at_server_handle[linkid].cert_path));
+        strlcpy(at_net_config->sslsconf[linkid].cert_file, cert, sizeof(at_net_config->sslsconf[linkid].cert_file));
     } else {
-        g_at_server_handle[linkid].cert_path[0] = '\0';
+        at_net_config->sslsconf[linkid].cert_file[0] = '\0';
     }
 
     if (key) {
-        strlcpy(g_at_server_handle[linkid].priv_key_path, key, sizeof(g_at_server_handle[linkid].priv_key_path));
+        strlcpy(at_net_config->sslsconf[linkid].key_file, key, sizeof(at_net_config->sslsconf[linkid].key_file));
     } else {
-        g_at_server_handle[linkid].priv_key_path[0] = '\0';
+        at_net_config->sslsconf[linkid].key_file[0] = '\0';
     }
     return 0;
 }
 
 int at_net_ssl_path_get(int linkid, const char **ca, const char **cert, const char **key)
 {
-    *ca = g_at_client_handle[linkid].ca_path;
-    *cert = g_at_client_handle[linkid].cert_path;
-    *key = g_at_client_handle[linkid].priv_key_path;
+    *ca = at_net_config->sslconf[linkid].ca_file;
+    *cert = at_net_config->sslconf[linkid].cert_file;
+    *key = at_net_config->sslconf[linkid].key_file;
     return 0;
 }
 int at_net_ssl_server_path_get(int linkid, const char **ca, const char **cert, const char **key)
@@ -2924,9 +2926,9 @@ int at_net_ssl_server_path_get(int linkid, const char **ca, const char **cert, c
     if (linkid != 0) {
         return -1;
     }
-    *ca = g_at_server_handle[linkid].ca_path;
-    *cert = g_at_server_handle[linkid].cert_path;
-    *key = g_at_server_handle[linkid].priv_key_path;
+    *ca = at_net_config->sslsconf[linkid].ca_file;
+    *cert = at_net_config->sslsconf[linkid].cert_file;
+    *key = at_net_config->sslsconf[linkid].key_file;
     return 0;
 }
 

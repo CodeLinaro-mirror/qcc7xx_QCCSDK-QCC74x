@@ -22,6 +22,7 @@
  */
 #include "export/rwnx_config.h"
 #include "fhost.h"
+#include "wifi_mgmr_ext.h"
 #include "net_tg_al_priv.h"
 #include "net_tg_al.h"
 
@@ -85,9 +86,21 @@ static struct fhost_tg_stream *fhost_tg_find_stream_profile(uint32_t stream_id)
     }
 }
 
+bool fhost_tg_maxcnt_enabled(struct fhost_tg_stream *stream)
+{
+    struct fhost_vif_status status;
+
+    if (!stream || stream->prof.direction != FHOST_TG_DIRECT_SEND ||
+        stream->prof.prof_id != FHOST_PROF_TRANSC || stream->prof.maxcnt == 0 ||
+        fhost_get_vif_status(MGMR_VIF_AP, &status))
+        return false;
+
+    return status.type == VIF_AP;
+}
+
 int fhost_tg_config(uint32_t stream_id, uint32_t prof, int direction, uint32_t rip,
                     uint32_t remote_port, uint32_t lip, uint32_t local_port, uint32_t rate,
-                    uint32_t pksize, uint32_t duration, uint16_t tos)
+                    uint32_t pksize, uint32_t duration, uint16_t tos, uint32_t maxcnt)
 {
     struct fhost_tg_stream *stream = fhost_tg_find_stream_profile(stream_id);
     if (stream == NULL)
@@ -127,6 +140,9 @@ int fhost_tg_config(uint32_t stream_id, uint32_t prof, int direction, uint32_t r
     stream->prof.pksize = pksize;
     stream->prof.duration = duration;
     stream->prof.tos = tos;
+    stream->prof.maxcnt = maxcnt;
+    if (!fhost_tg_maxcnt_enabled(stream))
+        stream->prof.maxcnt = 0;
 
     return 0;
 }
@@ -220,7 +236,8 @@ struct fhost_tg_stats *fhost_tg_stop(uint32_t stream_id)
         return NULL;
     }
 
-    stream->active = false;
+    if (!fhost_tg_maxcnt_enabled(stream))
+        stream->active = false;
     if (stream->prof.direction == FHOST_TG_DIRECT_SEND)
     {
         // Wait for the TG task to finish its processing
@@ -233,7 +250,30 @@ struct fhost_tg_stats *fhost_tg_stop(uint32_t stream_id)
     {
         net_tg_recv_stop(stream);
     }
+    stream->active = false;
     return &(stream->stats);
+}
+
+uint32_t fhost_tg_reset(void)
+{
+    uint32_t stream_id;
+    uint32_t stopped = 0;
+
+    for (stream_id = 0; stream_id < FHOST_TG_MAX_TRAFFIC_STREAMS; stream_id++)
+    {
+        struct fhost_tg_stream *stream = &g_streams[stream_id];
+
+        if (!stream->active)
+            continue;
+
+        // Reset must interrupt AP transaction streams instead of waiting for maxcnt.
+        stream->prof.maxcnt = 0;
+        if (fhost_tg_stop(stream_id) != NULL)
+            stopped++;
+    }
+
+    memset(g_streams, 0, sizeof(g_streams));
+    return stopped;
 }
 #endif // NX_TG
 

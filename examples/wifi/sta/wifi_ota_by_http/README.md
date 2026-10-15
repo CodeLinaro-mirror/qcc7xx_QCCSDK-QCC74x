@@ -43,6 +43,10 @@ Run an https server using the python command in the directory where the OTA bin 
 $ python https.py --https --cert ./ssl/server_1.crt --key ./ssl/server_1.key
 ```
 
+The URL hostname must match the server certificate. If DNS cannot resolve it, use
+`dns_local_hostadd <hostname> <ip>` before OTA. The examples below use the bundled
+certificate.
+
 ### Connect wifi
 
 If you use automatic networking, you need `AUTO_CONNECT_WIFI` to `1` to enable automatic connection, and you need to configure your wifi ssid and password correctly in main.c.
@@ -51,8 +55,10 @@ When this program is downloaded to the chip, it will automatically search for th
 ```c
 /* config your wifi ssid and password */
 static const uint8_t wifi_sta_connet[] = "wifi_sta_connect QCC74x_TEST 12345678\r";
-/* config your OTA server and port */
-static const uint8_t wifi_ota_test[] = "wifi_ota_test https://192.168.31.112:5000/build/build_out/wifi_ota_qcc743.bin.ota\r";
+/* map the certificate hostname for the local OTA server */
+static const uint8_t ota_hostadd[] = "dns_local_hostadd localhost_1 192.168.31.112\r";
+/* config your OTA URL */
+static const uint8_t wifi_ota_test[] = "wifi_ota_test https://localhost_1:5000/build/build_out/wifi_ota_qcc743.bin.ota\r";
 
 ```
 
@@ -61,9 +67,13 @@ On QCC743 board, using <wifi_sta_connect> command connect your WiFi router, and 
 
 ```bash
 qcc74x />wifi_sta_connect QCC74x_TEST 12345678
-qcc74x />wifi_ota_test https://192.168.31.112:5000/build/build_out/wifi_ota_qcc743.bin.ota
+qcc74x />dns_local_hostadd localhost_1 192.168.31.112
+qcc74x />wifi_ota_test https://localhost_1:5000/build/build_out/wifi_ota_qcc743.bin.ota
 
 ```
+
+Replace the example hostname and IP address with values for your OTA server and
+certificate.
 
 if connect success, Linux server pc have send data to QCC743.
 

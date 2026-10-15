@@ -1,5 +1,6 @@
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include "export/rwnx_config.h"
 #include "ip/lmac/src/mm/mm.h"
 #include "ip/lmac/src/mm/mm_task.h"
@@ -240,8 +241,40 @@ struct_func_set_def(scanu_start_req, uint8_t, ssid_cnt)
     struct_func_set_def(mm_raw_send_start_req, void*, env)
     struct_func_set_def(mm_raw_send_start_req, int, need_rx)
     struct_func_set_def(mm_raw_send_start_req, bool, adhoc);
-    struct_func_set_def(mm_raw_send_start_req, struct mac_addr *, ra);
-    struct_func_set_def(mm_raw_send_start_req, struct mac_addr *, ta);
+    struct mac_addr *mm_raw_send_start_req_get_ra(void *pa)
+    {
+        struct mm_raw_send_start_req *p = (struct mm_raw_send_start_req *)pa;
+        return p->ra_valid ? &p->ra : NULL;
+    }
+
+    void mm_raw_send_start_req_set_ra(void *pa, struct mac_addr *val)
+    {
+        struct mm_raw_send_start_req *p = (struct mm_raw_send_start_req *)pa;
+
+        p->ra_valid = (val != NULL);
+        if (val)
+            memcpy(&p->ra, val, sizeof(p->ra));
+        else
+            memset(&p->ra, 0, sizeof(p->ra));
+    }
+
+    struct mac_addr *mm_raw_send_start_req_get_ta(void *pa)
+    {
+        struct mm_raw_send_start_req *p = (struct mm_raw_send_start_req *)pa;
+        return p->ta_valid ? &p->ta : NULL;
+    }
+
+    void mm_raw_send_start_req_set_ta(void *pa, struct mac_addr *val)
+    {
+        struct mm_raw_send_start_req *p = (struct mm_raw_send_start_req *)pa;
+
+        p->ta_valid = (val != NULL);
+        if (val)
+            memcpy(&p->ta, val, sizeof(p->ta));
+        else
+            memset(&p->ta, 0, sizeof(p->ta));
+    }
+
     struct_func_set_def(mm_raw_send_start_req, uint8_t, rate);
     struct_func_set_def(mm_raw_send_start_req, uint16_t, rts_thrshold);
     struct_func_set_def(mm_raw_send_start_req, uint8_t, retry_limit);

@@ -46,6 +46,7 @@
 #define I2C_M_READ    0x0001 /* Read data, from slave to master */
 #define I2C_M_TEN     0x0002 /* Ten bit address */
 #define I2C_M_DMA     0x0004 /* Enable dma mode */
+#define I2C_M_INT     0x0008 /* enable interrupt mode */
 #define I2C_M_NOSTOP  0x0040 /* Message should not end with a STOP */
 #define I2C_M_NOSTART 0x0080 /* Message should not begin with a START */
 
@@ -202,6 +203,26 @@ void qcc74x_i2c_link_rxdma(struct qcc74x_device_s *dev, bool enable);
  * @return A negated errno value on failure.
  */
 int qcc74x_i2c_transfer(struct qcc74x_device_s *dev, struct qcc74x_i2c_msg_s *msgs, int count);
+
+/**
+ * @brief Write data to TX FIFO.
+ *
+ * @param [in] dev device handle
+ * @param [in] data pointer of i2c data, little-endian mode
+ * @param [in] count data count
+ * @return The actual count of data written.
+ */
+int qcc74x_i2c_fifo_write(struct qcc74x_device_s *dev, uint8_t *data, uint32_t count);
+
+/**
+ * @brief Read data from RX FIFO.
+ *
+ * @param [in] dev device handle
+ * @param [in] data pointer of i2c data, little-endian mode
+ * @param [in] count data count
+ * @return The actual count of data read.
+ */
+int qcc74x_i2c_fifo_read(struct qcc74x_device_s *dev, uint8_t *data, uint32_t count);
 
 /**
  * @brief Enable or disable i2c interrupt.

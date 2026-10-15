@@ -110,6 +110,7 @@ static void shell_task(void *pvParameters)
 {
     uint8_t data;
     uint32_t len;
+
     while (1) {
         if (xSemaphoreTake(sem_shell, portMAX_DELAY) == pdTRUE) {
             len = Ring_Buffer_Get_Length(&shell_rb);
@@ -123,7 +124,11 @@ static void shell_task(void *pvParameters)
 
 void shell_init_with_task(struct qcc74x_device_s *shell)
 {
-    if (shell) {
+    if (shell_handle != NULL) {
+        return;
+    }
+
+    if (shell != NULL) {
         uart_shell = shell;
         qcc74x_uart_rxint_mask(uart_shell, false);
         qcc74x_irq_attach(uart_shell->irq_num, uart_shell_isr, NULL);

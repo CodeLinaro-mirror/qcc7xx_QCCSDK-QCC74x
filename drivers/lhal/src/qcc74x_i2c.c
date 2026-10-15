@@ -285,6 +285,7 @@ __UNUSED static int qcc74x_i2c_write_bytes(struct qcc74x_device_s *dev, uint8_t 
     uint32_t temp = 0;
     uint8_t *tmp_buf;
     uint64_t start_time;
+    uint32_t int_status;
 
     reg_base = dev->reg_base;
     tmp_buf = data;
@@ -298,6 +299,16 @@ __UNUSED static int qcc74x_i2c_write_bytes(struct qcc74x_device_s *dev, uint8_t 
         while ((getreg32(reg_base + I2C_FIFO_CONFIG_1_OFFSET) & I2C_TX_FIFO_CNT_MASK) == 0) {
             if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
                 return -ETIMEDOUT;
+            }
+            int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+            if (int_status & I2C_INTSTS_ARB) {
+                return -EAGAIN;
+            }
+            if (int_status & I2C_INTSTS_NACK) {
+                return -ENXIO;
+            }
+            if (int_status & I2C_INTSTS_FER) {
+                return -EIO;
             }
         }
         putreg32(temp, reg_base + I2C_FIFO_WDATA_OFFSET);
@@ -316,6 +327,16 @@ __UNUSED static int qcc74x_i2c_write_bytes(struct qcc74x_device_s *dev, uint8_t 
             if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
                 return -ETIMEDOUT;
             }
+            int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+            if (int_status & I2C_INTSTS_ARB) {
+                return -EAGAIN;
+            }
+            if (int_status & I2C_INTSTS_NACK) {
+                return -ENXIO;
+            }
+            if (int_status & I2C_INTSTS_FER) {
+                return -EIO;
+            }
         }
         putreg32(temp, reg_base + I2C_FIFO_WDATA_OFFSET);
         if (!qcc74x_i2c_isenable(dev)) {
@@ -324,10 +345,20 @@ __UNUSED static int qcc74x_i2c_write_bytes(struct qcc74x_device_s *dev, uint8_t 
     }
 
     start_time = qcc74x_mtimer_get_time_ms();
-    while (qcc74x_i2c_isbusy(dev) || !qcc74x_i2c_isend(dev) || qcc74x_i2c_isnak(dev)) {
+    while (qcc74x_i2c_isbusy(dev) || !qcc74x_i2c_isend(dev)) {
         if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
             return -ETIMEDOUT;
         }
+    }
+    int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+    if (int_status & I2C_INTSTS_ARB) {
+        return -EAGAIN;
+    }
+    if (int_status & I2C_INTSTS_NACK) {
+        return -ENXIO;
+    }
+    if (int_status & I2C_INTSTS_FER) {
+        return -EIO;
     }
     qcc74x_i2c_disable(dev);
 
@@ -340,6 +371,7 @@ __UNUSED static int qcc74x_i2c_read_bytes(struct qcc74x_device_s *dev, uint8_t *
     uint32_t temp = 0;
     uint8_t *tmp_buf;
     uint64_t start_time;
+    uint32_t int_status;
 
     reg_base = dev->reg_base;
     tmp_buf = data;
@@ -351,6 +383,16 @@ __UNUSED static int qcc74x_i2c_read_bytes(struct qcc74x_device_s *dev, uint8_t *
         while ((getreg32(reg_base + I2C_FIFO_CONFIG_1_OFFSET) & I2C_RX_FIFO_CNT_MASK) == 0) {
             if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
                 return -ETIMEDOUT;
+            }
+            int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+            if (int_status & I2C_INTSTS_ARB) {
+                return -EAGAIN;
+            }
+            if (int_status & I2C_INTSTS_NACK) {
+                return -ENXIO;
+            }
+            if (int_status & I2C_INTSTS_FER) {
+                return -EIO;
             }
         }
         temp = getreg32(reg_base + I2C_FIFO_RDATA_OFFSET);
@@ -365,6 +407,16 @@ __UNUSED static int qcc74x_i2c_read_bytes(struct qcc74x_device_s *dev, uint8_t *
             if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
                 return -ETIMEDOUT;
             }
+            int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+            if (int_status & I2C_INTSTS_ARB) {
+                return -EAGAIN;
+            }
+            if (int_status & I2C_INTSTS_NACK) {
+                return -ENXIO;
+            }
+            if (int_status & I2C_INTSTS_FER) {
+                return -EIO;
+            }
         }
         temp = getreg32(reg_base + I2C_FIFO_RDATA_OFFSET);
 
@@ -378,6 +430,16 @@ __UNUSED static int qcc74x_i2c_read_bytes(struct qcc74x_device_s *dev, uint8_t *
         if ((qcc74x_mtimer_get_time_ms() - start_time) > 100) {
             return -ETIMEDOUT;
         }
+    }
+    int_status = getreg32(reg_base + I2C_INT_STS_OFFSET);
+    if (int_status & I2C_INTSTS_ARB) {
+        return -EAGAIN;
+    }
+    if (int_status & I2C_INTSTS_NACK) {
+        return -ENXIO;
+    }
+    if (int_status & I2C_INTSTS_FER) {
+        return -EIO;
     }
     qcc74x_i2c_disable(dev);
 
@@ -513,28 +575,97 @@ int qcc74x_i2c_transfer(struct qcc74x_device_s *dev, struct qcc74x_i2c_msg_s *ms
         qcc74x_i2c_set_datalen(dev, msgs[i].length);
         if (msgs[i].flags & I2C_M_READ) {
             qcc74x_i2c_set_dir(dev, 1);
-            if ((msgs[i].flags & I2C_M_DMA) == 0) {
+            if (msgs[i].flags & I2C_M_INT) {
+                qcc74x_i2c_int_mask(dev, I2C_INTEN_RX_FIFO, false);
+                qcc74x_i2c_enable(dev);
+            } else if (msgs[i].flags & I2C_M_DMA) {
+                qcc74x_i2c_enable(dev);
+            } else {
                 ret = qcc74x_i2c_read_bytes(dev, msgs[i].buffer, msgs[i].length);
                 if (ret < 0) {
                     return ret;
                 }
-            } else {
-                qcc74x_i2c_enable(dev);
             }
         } else {
             qcc74x_i2c_set_dir(dev, 0);
-            if ((msgs[i].flags & I2C_M_DMA) == 0) {
+            if (msgs[i].flags & I2C_M_INT) {
+                qcc74x_i2c_int_mask(dev, I2C_INTEN_TX_FIFO, false);
+                qcc74x_i2c_enable(dev);
+            } else if (msgs[i].flags & I2C_M_DMA) {
+                qcc74x_i2c_enable(dev);
+            } else {
                 ret = qcc74x_i2c_write_bytes(dev, msgs[i].buffer, msgs[i].length);
                 if (ret < 0) {
                     return ret;
                 }
-            } else {
-                qcc74x_i2c_enable(dev);
             }
         }
     }
 
     return 0;
+#endif
+}
+
+int qcc74x_i2c_fifo_write(struct qcc74x_device_s *dev, uint8_t *data, uint32_t count)
+{
+#ifdef romapi_qcc74x_i2c_fifo_write
+    return romapi_qcc74x_i2c_fifo_write(dev, data, count);
+#else
+    uint32_t reg_base;
+    uint32_t idx_tx = 0;
+    uint32_t temp;
+
+    reg_base = dev->reg_base;
+    while (1) {
+        if (idx_tx >= count) {
+            return idx_tx;
+        } else {
+            if (getreg32(reg_base + I2C_FIFO_CONFIG_1_OFFSET) & I2C_TX_FIFO_CNT_MASK) {
+                temp = 0;
+                for (uint32_t i = 0; i < 4; i++) {
+                    temp |= (data[idx_tx] << (i * 8));
+                    idx_tx++;
+                    if (idx_tx >= count) {
+                        break;
+                    }
+                }
+                putreg32(temp, reg_base + I2C_FIFO_WDATA_OFFSET);
+            } else {
+                return idx_tx;
+            }
+        }
+    }
+#endif
+}
+
+int qcc74x_i2c_fifo_read(struct qcc74x_device_s *dev, uint8_t *data, uint32_t count)
+{
+#ifdef romapi_qcc74x_i2c_fifo_read
+    return romapi_qcc74x_i2c_fifo_read(dev, data, count);
+#else
+    uint32_t reg_base;
+    uint32_t idx_rx = 0;
+    uint32_t temp;
+
+    reg_base = dev->reg_base;
+    while (1) {
+        if (idx_rx >= count) {
+            return idx_rx;
+        } else {
+            if (getreg32(reg_base + I2C_FIFO_CONFIG_1_OFFSET) & I2C_RX_FIFO_CNT_MASK) {
+                temp = getreg32(reg_base + I2C_FIFO_RDATA_OFFSET);
+                for (uint32_t i = 0; i < 4; i++) {
+                    data[idx_rx] = (temp >> (i * 8)) & 0xFF;
+                    idx_rx++;
+                    if (idx_rx >= count) {
+                        break;
+                    }
+                }
+            } else {
+                return idx_rx;
+            }
+        }
+    }
 #endif
 }
 

@@ -10,35 +10,35 @@
 #define MGMR_BSSID_LEN  18
 #define MGMR_AKM_LEN    15
 
-/* WiFi async event */
-#define  EV_WIFI                  0x0002
-#define  CODE_WIFI_ON_INIT_DONE   1
-#define  CODE_WIFI_ON_MGMR_DONE   2
-#define  CODE_WIFI_CMD_RECONNECT  3
-#define  CODE_WIFI_ON_CONNECTED   4
-#define  CODE_WIFI_ON_DISCONNECT  5
-#define  CODE_WIFI_ON_PRE_GOT_IP  6
-#define  CODE_WIFI_ON_GOT_IP      7
-#define  CODE_WIFI_ON_CONNECTING  8
-#define  CODE_WIFI_ON_SCAN_DONE   9
-#define  CODE_WIFI_ON_SCAN_DONE_ONJOIN  10
-#define  CODE_WIFI_ON_AP_STARTED        11
-#define  CODE_WIFI_ON_AP_STOPPED        12
-#define  CODE_WIFI_ON_PROV_SSID         13
-#define  CODE_WIFI_ON_PROV_BSSID        14
-#define  CODE_WIFI_ON_PROV_PASSWD       15
-#define  CODE_WIFI_ON_PROV_CONNECT      16
-#define  CODE_WIFI_ON_PROV_DISCONNECT   17
-#define  CODE_WIFI_ON_PROV_SCAN_START   18
-#define  CODE_WIFI_ON_PROV_STATE_GET    19
-#define  CODE_WIFI_ON_MGMR_DENOISE      20
-#define  CODE_WIFI_ON_AP_STA_ADD        21
-#define  CODE_WIFI_ON_AP_STA_DEL        22
-#define  CODE_WIFI_ON_EMERGENCY_MAC     23
-#define  CODE_WIFI_ON_EXIT_PS           24
-#define  CODE_WIFI_ON_GOT_IP6           25
-#define  CODE_WIFI_ON_LOST_IP           26
-#define  CODE_WIFI_ON_LOST_IP6          27
+/* WiFi async event
+ *
+ * WiFi status and operation completion are notified by
+ * EV_WIFI + CODE_WIFI_ON_* events posted through platform_post_event().
+ * The posted event code is delivered to wifi_event_handler(code).
+ */
+#define  EV_WIFI                  0x0002  /* Wi-Fi event catalogue ID */
+#define  CODE_WIFI_ON_INIT_DONE   1       /* Firmware/control initialization completed */
+#define  CODE_WIFI_ON_MGMR_DONE   2       /* Wi-Fi manager task/link is ready */
+#define  CODE_WIFI_CMD_RECONNECT  3       /* Reserved for reconnect trigger; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_CONNECTED   4       /* STA association completed */
+#define  CODE_WIFI_ON_DISCONNECT  5       /* STA disconnected */
+#define  CODE_WIFI_ON_PRE_GOT_IP  6       /* Reserved for pre-got-ip stage; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_GOT_IP      7       /* STA obtained IPv4 address */
+#define  CODE_WIFI_ON_CONNECTING  8       /* Reserved for connecting stage; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_SCAN_DONE   9       /* Scan completed */
+#define  CODE_WIFI_ON_SCAN_DONE_ONJOIN  10 /* Reserved for join-related scan done; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_AP_STARTED        11 /* AP operational */
+#define  CODE_WIFI_ON_AP_STOPPED        12 /* AP stopped */
+#define  CODE_WIFI_ON_AP_CSA_DONE       13 /* AP channel switch completed */
+#define  CODE_WIFI_ON_STA_CSA_DONE      14 /* STA channel switch completed */
+#define  CODE_WIFI_ON_MGMR_DENOISE      20 /* Reserved for denoise; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_AP_STA_ADD        21 /* STA joined AP */
+#define  CODE_WIFI_ON_AP_STA_DEL        22 /* STA left AP */
+#define  CODE_WIFI_ON_EMERGENCY_MAC     23 /* Reserved for emergency MAC; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_EXIT_PS           24 /* Reserved for exit power-save; no current post_event() trigger in this tree */
+#define  CODE_WIFI_ON_GOT_IP6           25 /* STA obtained IPv6 address */
+#define  CODE_WIFI_ON_LOST_IP           26 /* STA lost IPv4 address */
+#define  CODE_WIFI_ON_LOST_IP6          27 /* STA lost IPv6 address */
 
 /// Interface types
 typedef enum
@@ -73,20 +73,35 @@ typedef enum
 } ap_acl_perm;
 
 typedef struct wifi_mgmr_scan_item {
+    /** Supported PHY modes bitmap. See WiFi_Mode_t and wifi_mgmr_mode_to_str(). */
     uint32_t mode;
+    /** Internal scan-cache timestamp used to expire stale entries. */
     uint32_t timestamp_lastseen;
+    /** SSID length in bytes, from 0 to MGMR_SSID_LEN. */
     int ssid_len;
+    /** Primary channel number. */
     uint8_t channel;
+    /** Received signal strength in dBm. */
     int8_t rssi;
+    /** SSID bytes. Use ssid_len instead of assuming a shorter string. */
     char ssid[32];
-    char ssid_tail[1];//always put ssid_tail after ssid
+    /** Internal NUL terminator for a 32-byte SSID. Applications must not use this field. */
+    char ssid_tail[1];
+    /** AP BSSID as a six-byte MAC address. */
     uint8_t bssid[6];
+    /** Reserved; not populated by the current implementation. */
     int8_t ppm_abs;
+    /** Reserved; not populated by the current implementation. */
     int8_t ppm_rel;
+    /** Authentication type. See WIFI_EVENT_BEACON_IND_AUTH_*. */
     uint8_t auth;
+    /** Cipher type. See WIFI_EVENT_BEACON_IND_CIPHER_*. */
     uint8_t cipher;
+    /** Scan-cache validity flag. Ignore the entry when this is 0. */
     uint8_t is_used;
+    /** Nonzero when the AP advertises WPS support. */
     uint8_t wps;
+    /** Best antenna index after a static antenna-diversity scan; otherwise 0. */
     uint8_t best_antenna;
 } wifi_mgmr_scan_item_t;
 
@@ -107,44 +122,60 @@ typedef struct wifi_mgmr_sniffer_item {
     void *cb_arg;
 } wifi_mgmr_sniffer_item_t;
 
-/// sta connect config params
-/*
- * param:
- *  ssid     : SSID of target AP
- *  key      : Password of AP
- *  bssid    : BSSID of AP
- *  akm_str  : AKM of AP
- *  pmf_cfg  : PMF config
- *  freq1    : Frequency of AP
- *  freq2    : Frequency of AP (You can specify up to two frequencies on which AP will be scanned.)
- *  use_dhcp : Whether to use the dhcp server which provided by AP
+/**
+ * STA connection parameters.
+ *
+ * Zero-initialize this structure before setting the required fields.
  */
 typedef struct wifi_mgmr_sta_connect_params {
+    /** Target SSID bytes. */
     char ssid[MGMR_SSID_LEN];
+    /** NUL terminator storage for a 32-byte SSID. Set to '\0'; do not use as data. */
     uint8_t ssid_tail[1];
+    /** Passphrase or WEP key bytes. */
     char key[MGMR_KEY_LEN];
+    /** NUL terminator storage for a 64-byte key. Set to '\0'; do not use as data. */
     char key_tail[1];
+    /** Number of valid bytes in ssid. */
     uint8_t ssid_len;
+    /** Number of valid bytes in key; 0 for an open network. */
     uint8_t key_len;
+    /** Optional NUL-terminated BSSID string ("xx:xx:xx:xx:xx:xx"); empty for any AP. */
     char bssid_str[MGMR_BSSID_LEN];
-    // must be uppercase, NULL terminated string
+    /**
+     * Optional uppercase, NUL-terminated AKM list. Supported tokens are OPEN, WEP,
+     * WPA, RSN (or WPA2), and SAE (or WPA3). Separate mixed modes with commas,
+     * for example "WPA2,WPA3" or "WPA,WPA2,WPA3".
+     */
     char akm_str[MGMR_AKM_LEN];
+    /** AKM string length excluding the NUL terminator; 0 enables automatic selection. */
     uint8_t akm_len;
+    /** Optional first AP frequency in MHz; 0 leaves it unspecified. */
     uint16_t freq1;
+    /** Optional second AP frequency in MHz; 0 leaves it unspecified. */
     uint16_t freq2;
+    /** Protected Management Frames policy: 0 disabled, 1 optional, 2 required. */
     uint8_t pmf_cfg;
+    /** Nonzero to start the DHCP client after connection. */
     uint8_t use_dhcp;
-    // listen_interval to monitor AP beacon
-    // range:[1, 100]
+    /** Reserved; currently not applied by wifi_mgmr_sta_connect(). Set to 0. */
     uint8_t listen_interval;
-    // default: 1, scan on all channels
-    // if 0, quick scan, connect to the first ssid_matched AP
+    /** 0 stops at the first matching AP; nonzero permits a full scan unless quick_connect is set. */
     uint8_t scan_mode;
-    // default: normal connect
-    // if 1, quick connect
+    /**
+     * Nonzero enables fast-connect behavior: stop scanning after a matching AP is
+     * found and, when LWIP quick connect is enabled, restore cached DHCP state.
+     */
     uint8_t quick_connect;
+    /**
+     * Connection timeout in milliseconds. 0 selects the 200000 ms default, a
+     * negative value disables the timeout, and a positive value sets the timeout.
+     */
     int timeout_ms;
-    // Extra flags passed to wpa_supplicant. See FHOST_WPA_SSID_* in fhost_wpa.h.
+    /**
+     * Extra FHOST_WPA_SSID_* flags passed to wpa_supplicant. Normally 0;
+     * FHOST_WPA_SSID_PREFER_WPA2_TO_WPA3 prefers PSK on WPA2/WPA3 transition APs.
+     */
     int wpa_flags;
 } wifi_mgmr_sta_connect_params_t;
 
@@ -204,7 +235,8 @@ typedef struct wifi_mgmr_ap_params {
     char *ssid;
     /// if NULL and the akm is not NULL, the default value "12345678" will be setted
     char *key;
-    /// OPEN/WPA/WPA2 can be supported now, if NULL and the key is not NULL, the default value "WPA2" will be setted
+    /// AKM string (NULL-terminated, uppercase),
+    ///  e.g. "OPEN", "WEP", "WPA", "WPA2", "WPA3", "WPA2,WPA3".
     char *akm;
     /// if zero, the default value 6 will be setted
     uint8_t channel;
@@ -254,6 +286,16 @@ typedef struct wifi_mgmr_ap_params {
     uint8_t sae_pwe;
     /// Transition Disable bitmap (0:disabled, bit0:disable WPA3-Personal/PSK)
     int transition_disable;
+#ifdef CONFIG_WFA
+    /// Enable MBO-OCE IE.
+    bool mbo_enabled;
+    /// Enable BSS Transition Management capability.
+    bool bss_transition;
+    /// Enable Interworking / IEEE 802.11u.
+    bool interworking;
+    /// Enable RRM Neighbor Report.
+    bool rrm_neighbor_report;
+#endif /* CONFIG_WFA */
 } wifi_mgmr_ap_params_t;
 
 #define WIFI_MGMR_AP_FLAG_MFP      (1U << 0)
@@ -348,6 +390,7 @@ typedef struct wifi_sta_basic_info {
 } wifi_sta_basic_info_t;
 
 typedef struct rf_pwr_table {
+    // Power table entries are in units of 0.25 dBm.
     int8_t     pwr_11b[4];
     int8_t     pwr_11g[8];
     int8_t     pwr_11n_ht20[8];
@@ -427,7 +470,7 @@ int wifi_sta_antenna_connect(const char *ssid, const char *key, const char *bssi
  *  key      : Password of AP
  *  bssid    : BSSID of AP
  *  akm_str  : AKM of AP, must be all in upper case
- *  pmf_cfg  : PMF config
+ *  pmf_cfg  : PMF config (0: disable, 1: optional, 2: required)
  *  freq1    : Frequency of AP
  *  freq2    : Frequency of AP (You can specify up to two frequencies on which AP will be scanned.)
  *  use_dhcp : Whether to use the dhcp server which provided by AP
@@ -435,6 +478,9 @@ int wifi_sta_antenna_connect(const char *ssid, const char *key, const char *bssi
  *  0 : Success
  *  -1 : Failed
  *  Others is Failed
+ * completion:
+ *  CODE_WIFI_ON_CONNECTED / CODE_WIFI_ON_DISCONNECT /
+ *  CODE_WIFI_ON_GOT_IP / CODE_WIFI_ON_LOST_IP / CODE_WIFI_ON_GOT_IP6 / CODE_WIFI_ON_LOST_IP6
  */
 int wifi_sta_connect(const char *ssid, const char *key, const char *bssid, const char *akm_str, uint8_t pmf_cfg, uint16_t freq1, uint16_t freq2, uint8_t use_dhcp);
 /**
@@ -459,9 +505,12 @@ int wifi_mgmr_sta_quickconnect(const char *ssid, const char *key, uint16_t freq1
  * param:
  *  param1 : Configuration of connecting
  * return:
- *  0 : Success
- *  -1 : Failed
+ *  0 : Request accepted (asynchronous operation)
+ *  -1 : Immediate failure (invalid state/parameter/request submit failure)
  *  Others is Failed
+ * completion:
+ *  CODE_WIFI_ON_CONNECTED / CODE_WIFI_ON_DISCONNECT /
+ *  CODE_WIFI_ON_GOT_IP / CODE_WIFI_ON_LOST_IP / CODE_WIFI_ON_GOT_IP6 / CODE_WIFI_ON_LOST_IP6
  */
 int wifi_mgmr_sta_connect(const wifi_mgmr_sta_connect_params_t *config);
 /**
@@ -621,9 +670,13 @@ int wifi_mgmr_sta_connect_ind_stat_get(wifi_mgmr_connect_ind_stat_info_t *wifi_m
  * param:
  *  param1 : Configuration of scanning
  * return:
- *  0 : Success
- *  -1 : Failed
+ *  0 : Request accepted (asynchronous operation)
+ *  -1 : Immediate failure
  *  Others is Failed
+ * completion:
+ *  CODE_WIFI_ON_SCAN_DONE
+ * result retrieval:
+ *  wifi_mgmr_sta_scanlist(), wifi_mgmr_sta_scanlist_nums_get(), wifi_mgmr_sta_scanlist_dump()
  */
 int wifi_mgmr_sta_scan(const wifi_mgmr_scan_params_t *config);
 
@@ -710,6 +763,8 @@ int wifi_mgmr_scan_ap_all(void *env, void *arg, scan_item_cb_t cb);
  *  0 : Success
  *  -1 : Failed
  *  Others is Failed
+ * notification:
+ *  CODE_WIFI_ON_AP_STARTED / CODE_WIFI_ON_AP_STOPPED
  */
 int wifi_mgmr_ap_start(const wifi_mgmr_ap_params_t *config);
 
@@ -728,6 +783,9 @@ int wifi_mgmr_ap_stop(void);
  *
  * This API can be used to update the AP static IPv4 configuration after AP mode
  * has been started.
+ *
+ * The Wi-Fi manager and AP must be started, and the AP DHCP server must be
+ * disabled before calling this API.
  *
  * param:
  *  ip   : IPv4 address in network byte order
@@ -748,6 +806,28 @@ int wifi_mgmr_ap_ip_set(uint32_t ip, uint32_t mask, uint32_t gw, uint32_t dns);
  *  Others is Failed
  */
 int wifi_mgmr_ap_acl_enable(ap_acl_perm default_perm);
+
+/**
+ * wifi_mgmr_ap_set_mbo_assoc_disallow
+ * Set the MBO Association Disallowed attribute advertised in the MBO-OCE IE
+ * and reject subsequent associations. reason 0 clears it; 1-5 are the MBO
+ * Association Disallowed reason codes.
+ * Only available in CONFIG_WFA builds.
+ * return:
+ *  0 : Success
+ *  -1 : Failed
+ */
+#ifdef CONFIG_WFA
+int wifi_mgmr_ap_set_mbo_assoc_disallow(int reason);
+
+/**
+ * wifi_mgmr_ap_send_btm_req
+ * Send a BSS Transition Management Request to an associated STA.
+ * cmd format: "<sta_mac> [pref=1] [disassoc_imminent=1] [disassoc_timer=N]
+ *              [bss_term=TSF,DURATION] [mbo=0:RETRY_DELAY:0]"
+ */
+int wifi_mgmr_ap_send_btm_req(const char *cmd);
+#endif /* CONFIG_WFA */
 
 /**
  * wifi_mgmr_ap_acl_set
@@ -903,9 +983,12 @@ int wifi_mgmr_sta_autoconnect_disable(void);
 /**
  * wifi_mgmr_sta_wps_pbc
  * Start sta wps pbc
+ * param:
+ *  param1 : Minimum security level (WIFI_EVENT_BEACON_IND_AUTH_*). Usually, set to WIFI_EVENT_BEACON_IND_AUTH_OPEN.
+ *  param2 : Whether to use the dhcp server provided by AP
  * return:
- *  0 : Success
- *  -1 : Failed
+ *  0 : Request accepted (asynchronous operation)
+ *  -1 : Immediate failure
  *  Others is Failed
  */
 int wifi_mgmr_sta_wps_pbc(uint8_t auth, uint8_t use_dhcp);
@@ -1163,7 +1246,7 @@ int wifi_mgmr_ap_sta_info_get(struct wifi_sta_basic_info *sta_info, uint8_t idx)
 
 /**
  * wifi_mgmr_tpc_pwr_set
- * Set power table
+ * Set power table. Ensure to set before connect/AP start.
  * return:
  *  0 : Success
  *  -1 : Failed
@@ -1394,6 +1477,37 @@ int wifi_mgmr_sta_ap_tx_power_set(tx_pwr_table_t *pwr_table);
  * Get value of Tx power in unit of 0.5dBm for sta/ap mode
 */
 int wifi_mgmr_sta_ap_tx_power_get(void);
+
+/*
+ * wifi_mgmr_sta_ap_tx_power_clear
+ * Revoke a previously set per-rate Tx power table (wifi_mgmr_sta_ap_tx_power_set)
+ * and fall back to the regulatory/calibration table again.
+*/
+int wifi_mgmr_sta_ap_tx_power_clear(void);
+
+/*
+ * wifi_mgmr_sta_ap_tx_power_limit_set
+ * Set a hard per-rate Tx power upper limit (unit of 0.5dBm), in the same
+ * format as wifi_mgmr_sta_ap_tx_power_set(). Once set, the final TX power
+ * used for a rate is clamped to this table's value, whether it came from
+ * wifi_mgmr_sta_ap_tx_power_set() or the regulatory/calibration table.
+ * ref tx_power_limit_tables[2] for setting limit
+*/
+int wifi_mgmr_sta_ap_tx_power_limit_set(tx_pwr_table_t *pwr_table);
+
+/*
+ * wifi_mgmr_sta_ap_tx_power_limit_get
+ * Read back the currently configured limit table into *pwr_table (unit of
+ * 0.5dBm). Returns an all-zero table if no limit is currently set.
+*/
+int wifi_mgmr_sta_ap_tx_power_limit_get(tx_pwr_table_t *pwr_table);
+
+/*
+ * wifi_mgmr_sta_ap_tx_power_limit_clear
+ * Revoke a previously set limit table (wifi_mgmr_sta_ap_tx_power_limit_set);
+ * TX power is no longer clamped.
+*/
+int wifi_mgmr_sta_ap_tx_power_limit_clear(void);
 /**
  * wifi_mgmr_sta_ap_retry_limit_set
  * Set tx retry limit for ap/sta mode
@@ -1568,3 +1682,11 @@ int wifi_sta_ipv6_enable(int enable);
  * return: 0 on success, -1 on error
  */
 int wifi_mgmr_wps_event_register(void);
+
+/**
+ * Trigger an AP Channel Switch Announcement (CSA).
+ *
+ * channel: target primary channel. cs_count: beacon count before switch; 0 uses 10.
+ * Returns 0 if hostapd accepts the request, otherwise -1.
+ */
+int wifi_mgmr_ap_chan_switch(int channel, uint8_t cs_count);

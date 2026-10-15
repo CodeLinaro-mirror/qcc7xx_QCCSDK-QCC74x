@@ -1,3 +1,8 @@
+if(CONFIG_BSP_CONSOLE_USB_CDC)
+    target_sources(app PRIVATE usb_app/usb_console.c)
+    sdk_add_include_directories(usb_app)
+endif()
+
 if(CONFIG_BSP_ETH_PHY)
     target_sources(app PRIVATE eth_phy/eth_phy.c)
     target_sources(app PRIVATE eth_phy/eth_phy_port.c)

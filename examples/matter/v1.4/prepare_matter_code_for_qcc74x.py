@@ -81,7 +81,7 @@ def main():
     # Copy patch files
     patch_src = os.path.join(sdk_root, "examples/matter/v1.4")
     for item in os.listdir(patch_src):
-        if item.startswith("000"):
+        if item.startswith("00"):
             src_file = os.path.join(patch_src, item)
             dst_file = os.path.join(chip_dir, item)
             try:
@@ -91,7 +91,7 @@ def main():
                 print(f"Failed to copy {item}: {e}")
                 sys.exit(1)
 
-    run_command("git am 000*")
+    run_command("git am 00*")
 
     # Prepare environment variables for subprocesses
     env = os.environ.copy()

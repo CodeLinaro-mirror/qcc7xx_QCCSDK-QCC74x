@@ -80,8 +80,10 @@ static TaskHandle_t ota_task_handle;
 // clang-format off
 /* config your wifi ssid and password */
 static const uint8_t wifi_sta_connet[] = "wifi_sta_connect 21a 12344321\r";
+/* config your ota server hostname and IP address */
+static const uint8_t ota_hostadd[] = "dns_local_hostadd localhost_1 192.168.31.112\r";
 /* config your ota server and port */
-static const uint8_t wifi_ota_test[] = "wifi_ota_test https://192.168.31.112:5000/build/build_out/wifi_ota_qcc743.bin.ota\r";
+static const uint8_t wifi_ota_test[] = "wifi_ota_test https://localhost_1:5000/build/build_out/wifi_ota_qcc743.bin.ota\r";
 /* reboot command */
 // static const uint8_t send_buf1[] = "reboot\r";
 // clang-format on
@@ -196,6 +198,7 @@ void ota_task(void *param)
     }
 
     if (xSemaphoreTake(sem_wifi_connect_done, portMAX_DELAY) == pdTRUE) {
+        Ring_Buffer_Write(&shell_rb, ota_hostadd, sizeof(ota_hostadd) - 1);
         Ring_Buffer_Write(&shell_rb, wifi_ota_test, sizeof(wifi_ota_test) - 1);
         shell_release_sem();
     }

@@ -1,0 +1,57 @@
+From 2fb52869eb6196f7419049fcc1c968ba1a91432d Mon Sep 17 00:00:00 2001
+From: Surendra Guduri <sguduri@qti.qualcomm.com>
+Date: Mon, 3 Aug 2026 10:19:28 +0800
+Subject: [PATCH 1/2] fix(qcc74x): gate shell component build with sdk 2.0.116
+
+Without -DCONFIG_SHELL, shell.h exposes only empty macros, so compiling
+shell_freertos.c fails (implicit declaration of shell_handler/shell_init,
+undefined SHELL_THREAD_STACK_SIZE/SHELL_THREAD_PRIO). Build shell sources
+only when chip_build_libshell is on; define CONFIG_SHELL then.
+---
+ examples/lighting-app/qualcomm/qcc74x/BUILD.gn |  6 ++++++
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni     | 12 ++++++++----
+ 2 files changed, 14 insertions(+), 4 deletions(-)
+
+diff --git a/examples/lighting-app/qualcomm/qcc74x/BUILD.gn b/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
+index f85384d878..8594b3fcee 100644
+--- a/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
++++ b/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
+@@ -134,6 +134,12 @@ qcc74x_executable("lighting_app") {
+   if (chip_enable_wifi) {
+     ldscript_defines += [ "CONFIG_WIFI6=1" ]
+   }
++  # Shell CLI command tables (FSymTab/VSymTab) are guarded by #ifdef CONFIG_SHELL
++  # in common.ld.in; define it for the linker-script preprocessor when libshell
++  # is on, otherwise __fsymtab_*/__vsymtab_* are undefined at link time.
++  if (chip_build_libshell) {
++    ldscript_defines += [ "CONFIG_SHELL=1" ]
++  }
+ 
+   ldflags = [
+     "--specs=nano.specs",
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index 6b333cf694..f3be77fdd6 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -354,10 +354,14 @@ template("qcc74x_sdk") {
+   source_set("${sdk_target_name}_shell") {
+     include_dirs = [ "${qcc74x_sdk_root}/bsp/board/${qcc74x_board}" ]
+ 
+-    sources = [
+-      "${qcc74x_sdk_root}/components/shell/shell.c",
+-      "${qcc74x_sdk_root}/components/shell/shell_freertos.c",
+-    ]
++    sources = []
++    if (chip_build_libshell) {
++      sources += [
++        "${qcc74x_sdk_root}/components/shell/shell.c",
++        "${qcc74x_sdk_root}/components/shell/shell_freertos.c",
++      ]
++      defines = [ "CONFIG_SHELL=1" ]
++    }
+ 
+     cflags_c = [
+       "-Wno-shadow",
+-- 
+2.34.1
+

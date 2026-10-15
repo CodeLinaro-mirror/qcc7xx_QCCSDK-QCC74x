@@ -21,7 +21,6 @@
 
 #include <hardware/spi_reg.h>
 #include <utils_list.h>
-#include <shell.h>
 
 #define DBG_TAG "NXSPIMEM"
 #include <qcc74x_core.h>

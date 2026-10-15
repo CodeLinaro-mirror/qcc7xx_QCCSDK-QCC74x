@@ -500,6 +500,30 @@ struct fhost_vif_sta_cfg
 
 
 /**
+ * Security protocol(s) advertised by an AP
+ */
+enum fhost_ap_proto
+{
+    /**
+     * Derive from the AKM (legacy behaviour): a pre-RSN AKM yields WPA,
+     * anything else yields RSN
+     */
+    FHOST_AP_PROTO_AUTO = 0,
+    /**
+     * Advertise the WPA IE only (WPA1)
+     */
+    FHOST_AP_PROTO_WPA,
+    /**
+     * Advertise the RSN IE only (WPA2 and/or WPA3)
+     */
+    FHOST_AP_PROTO_RSN,
+    /**
+     * Advertise both IEs (WPA/WPA2 mixed mode)
+     */
+    FHOST_AP_PROTO_WPA_RSN,
+};
+
+/**
  * AP mode
  */
 enum fhost_ap_mode
@@ -556,12 +580,22 @@ struct fhost_vif_ap_cfg
      * Supported combination are:\n
      * - MAC_AKM_NONE : for open security
      * - MAC_AKM_PRE_RSN : for WEP security (deprecated)
-     * - MAC_AKM_PRE_RSN | MAC_AKM_PSK : For WPA1 security (deprecated)
+     * - MAC_AKM_PRE_RSN | MAC_AKM_PSK : For WPA1 security. Set @p proto to
+     *   FHOST_AP_PROTO_WPA_RSN to also advertise RSN, i.e. WPA/WPA2 mixed
+     *   mode
      * - MAC_AKM_PSK : For WPA2 security
      * - MAC_AKM_SAE : For WPA3 security
      * - MAC_AKM_PSK | MAC_AKM_SAE : For WPA2/WPA3 security
      */
     uint32_t akm;
+    /**
+     * Security protocol(s) to advertise (@ref fhost_ap_proto).
+     * Leave at FHOST_AP_PROTO_AUTO (0) to derive it from @p akm, which keeps
+     * the legacy behaviour. It is only meaningful for a pre-RSN AKM, where
+     * FHOST_AP_PROTO_WPA_RSN selects WPA/WPA2 mixed mode instead of a
+     * WPA1-only BSS.
+     */
+    uint8_t proto;
     /**
      * AP password/PSK passed as a string (i.e. MUST be terminated by a null byte)
      */
@@ -570,9 +604,13 @@ struct fhost_vif_ap_cfg
      * Bit field of Cipher suites (@ref mac_cipher_suite) allowed for pairwise key
      * if AP security protocol is WPAx. Several ciphers can be selected and unsupported
      * ciphers are silently ignored (unless they are all unsupported).
-     * Can be left to 0 to use default one (depending of AKM selected):\n
+     * Can be left to 0 to use default one (depending of AKM and proto):\n
      * - WPA1: TKIP
+     * - WPA/WPA2 mixed mode: TKIP + CCMP
      * - WPA2/WPA3: CCMP
+     *
+     * Note that a TKIP-only pairwise cipher forces the supplicant to disable
+     * HT/VHT/HE, so a WPA1-only AP is limited to legacy rates.
      */
     uint32_t unicast_cipher;
     /**
@@ -599,6 +637,18 @@ struct fhost_vif_ap_cfg
      * A non-zero value is passed to wpa_supplicant.
      */
     int transition_disable;
+#ifdef CONFIG_WFA
+    /** Enable MBO-OCE IE. */
+    bool mbo_enabled;
+    /** Enable BSS Transition Management capability. */
+    bool bss_transition;
+    /** Enable Interworking / IEEE 802.11u. */
+    bool interworking;
+    /** Enable RRM Neighbor Report. */
+    bool rrm_neighbor_report;
+#endif /* CONFIG_WFA */
+    /** Country code for Country IE (e.g. "US"). Empty string = not set. */
+    char country_code[4];
     /**
      * This fhost_vif_ap_cfg structure is transformed into wpa_supplicant configuration.
      * For clarity, not all configuration options provided by wpa_supplicant are exposed

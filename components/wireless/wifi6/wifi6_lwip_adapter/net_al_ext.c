@@ -456,6 +456,16 @@ int net_al_dhcpd_start(net_al_if_t net_if, int start, int limit)
     return 0;
 }
 
+int net_al_dhcpd_stop(net_al_if_t net_if)
+{
+    if (!net_if) {
+        return -1;
+    }
+
+    dhcpd_stop_with_netif(net_if);
+    return 0;
+}
+
 int net_al_gw_service_enable(net_al_if_t net_if)
 {
 #ifdef CONFIG_WIFI_GATEWAY

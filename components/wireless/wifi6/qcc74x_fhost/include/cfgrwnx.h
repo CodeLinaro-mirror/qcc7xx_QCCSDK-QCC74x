@@ -128,6 +128,8 @@ enum cfgrwnx_msg_index {
     CFGRWNX_BCN_CONTROL_CMD,
     /// resp of Beacon Transmission Control
     CFGRWNX_BCN_CONTROL_RESP,
+    /// Event sent when AP CSA completes (param: @ref cfgrwnx_csa_finish_event)
+    CFGRWNX_CSA_FINISH_EVENT,
     /// Send to supplicant to register a new Station (param: @ref cfgrwnx_sta_add)
     CFGRWNX_STA_ADD_CMD,
     /// Response to CFGRWNX_STA_ADD_CMD (param: @ref cfgrwnx_resp)
@@ -879,6 +881,18 @@ struct cfgrwnx_bcn_update {
     uint8_t csa_oft[BCN_MAX_CSA_CPT];
 };
 
+/// structure for CFGRWNX_CSA_FINISH_EVENT
+struct cfgrwnx_csa_finish_event {
+    /// header
+    struct cfgrwnx_msg_hdr hdr;
+    /// Vif idx
+    uint16_t fhost_vif_idx;
+    /// Frequency of the new channel in MHz
+    uint16_t freq;
+    /// Status (0 = success)
+    uint8_t status;
+};
+
 struct cfgrwnx_bcn_control {
     /// header
     struct cfgrwnx_msg_hdr hdr;
@@ -1082,11 +1096,18 @@ enum CFGRWNX_ME_PARAM_ID_E {
     CFGRWNX_ME_PARAM_ID_TX_AMPDU_PROTECT_ENABLE,
     CFGRWNX_ME_PARAM_ID_TX_AMPDU_DROP_TO_SINGLETON_RETRYCNT_THRESHOLD,
     CFGRWNX_ME_PARAM_ID_TX_POWER,
+    /// Hard upper-limit power table; caps the final per-rate TX power
+    /// regardless of whether it comes from CFGRWNX_ME_PARAM_ID_TX_POWER or
+    /// the regulatory/calibration table.
+    CFGRWNX_ME_PARAM_ID_TX_POWER_LIMIT,
 };
 
 enum CFGRWNX_ME_PARAM_CMD_E {
     CFGRWNX_ME_PARAM_CMD_SET,
     CFGRWNX_ME_PARAM_CMD_GET,
+    /// Revoke a previously SET value and fall back to the default/regulatory
+    /// behavior. Currently only meaningful for CFGRWNX_ME_PARAM_ID_TX_POWER.
+    CFGRWNX_ME_PARAM_CMD_CLEAR,
 };
 /// structure for CFGRWNX_ME_PARAM_CMD
 struct cfgrwnx_me_param {

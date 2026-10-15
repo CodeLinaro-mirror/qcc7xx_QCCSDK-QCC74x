@@ -2652,6 +2652,18 @@ static const struct parse_data ssid_fields[] = {
 	{ INT_RANGE(transition_disable, 0, 255) },
 	{ INT_RANGE(sae_pk, 0, 2) },
 #endif
+#ifdef CONFIG_MBO
+	{ INT_RANGE(mbo_enabled, 0, 1) },
+#endif /* CONFIG_MBO */
+#ifdef CONFIG_WNM_AP
+	{ INT_RANGE(bss_transition, 0, 1) },
+#endif /* CONFIG_WNM_AP */
+#ifdef CONFIG_INTERWORKING
+	{ INT_RANGE(interworking, 0, 1) },
+#endif /* CONFIG_INTERWORKING */
+#ifdef CONFIG_RRM
+	{ INT_RANGE(rrm_neighbor_report, 0, 1) },
+#endif /* CONFIG_RRM */
 #ifdef CONFIG_QCC74x_EXTRA_WPA_SSID_FLAG
 	{ INT(qcc74x_flags) },
 #endif

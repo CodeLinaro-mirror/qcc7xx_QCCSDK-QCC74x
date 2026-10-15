@@ -13,7 +13,6 @@
 #include <nxspi_log.h>
 
 #include <utils_list.h>
-#include <shell.h>
 
 #define DBG_TAG "NXSPI"
 #include <log.h>
@@ -356,7 +355,7 @@ static inline bool isAnyQueueWaiting()
         return true;
     }
     for (int i = 0; i < NXSPI_TYPE_MAX; i++) {
-        if (0 != uxQueueMessagesWaiting(g_nxspi.dn[i])) {
+        if (g_nxspi.dn[i] && 0 != uxQueueMessagesWaiting(g_nxspi.dn[i])) {
             return true;
         }
     }

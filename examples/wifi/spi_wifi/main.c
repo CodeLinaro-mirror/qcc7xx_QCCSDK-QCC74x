@@ -54,14 +54,17 @@
 #include "shell.h"
 
 #include "assert.h"
+
 #include "qcc74x_mtd.h"
 #include "coredump.h"
 
 #define INIT_STACK_SIZE    (2048)
 #define TASK_PRIORITY_INIT (16)
 
+#ifdef CONFIG_SHELL
 static struct qcc74x_device_s *uart0;
 extern void shell_init_with_task(struct qcc74x_device_s *shell);
+#endif
 #if CONFIG_THREAD
 extern void __libc_init_array(void);
 #endif
@@ -110,12 +113,14 @@ int main(void)
 void at_minidump_init(uint32_t, size_t);
     at_minidump_init(core_partition_addr(),core_partition_size());
 
+#ifdef CONFIG_SHELL
     uart0 = qcc74x_device_get_by_name("uart0");
     if (!uart0) {
         printf("[main] Error: uart0 device not found\r\n");
         return -1;
     }
     shell_init_with_task(uart0);
+#endif
 
     // UART1 GPIO conflicts with SPI pins, only one can be used
     //board_uartx_gpio_init();

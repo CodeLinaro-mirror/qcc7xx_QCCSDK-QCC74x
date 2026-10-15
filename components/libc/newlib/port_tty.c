@@ -2,11 +2,14 @@
 #include <reent.h>
 #include <stdint.h>
 #include <stdbool.h>
+#include <string.h>
 #include <sys/stat.h>
+
+#include "console_output.h"
 
 #ifdef CONFIG_CONSOLE_WO
 #include "qcc74x_wo.h"
-#else
+#elif !defined(CONFIG_BSP_CONSOLE_USB_CDC)
 #include "qcc74x_uart.h"
 #endif
 
@@ -191,11 +194,9 @@ static inline int _ttyin_fifo_get(struct _ttyin_fifo *fifo)
 /*---------------------------------------------------------------------------
 * @}            ttyin_fifo
 ----------------------------------------------------------------------------*/
-struct qcc74x_device_s *console = NULL;
-
 static TTYIN_FIFO_DEFINE(stdin_fifo, 512);
 
-#ifndef CONFIG_CONSOLE_WO
+#if !defined(CONFIG_CONSOLE_WO) && !defined(CONFIG_BSP_CONSOLE_USB_CDC)
 void console_receive_isr(int irq, void *arg)
 {
     uint32_t intstatus = qcc74x_uart_get_intstatus(console);
@@ -212,21 +213,6 @@ void console_receive_isr(int irq, void *arg)
         }
         qcc74x_uart_int_clear(console, UART_INTCLR_RTO);
     }
-}
-#endif
-
-#ifdef CONFIG_CONSOLE_WO
-void qcc74x_wo_set_console(struct qcc74x_device_s *dev)
-{
-    console = dev;
-}
-#else
-void qcc74x_uart_set_console(struct qcc74x_device_s *dev)
-{
-    console = dev;
-    // qcc74x_uart_rxint_mask(console, false);
-    // qcc74x_irq_attach(console->irq_num, console_receive_isr, console);
-    // qcc74x_irq_enable(console->irq_num);
 }
 #endif
 
@@ -295,6 +281,9 @@ _ssize_t _read_tty_r(struct _reent *reent, int fd, void *ptr, size_t size)
     if (fd == 0x3ff) {
         return -1;
     } else if (fd == 0) {
+#ifdef CONFIG_BSP_CONSOLE_USB_CDC
+        return -1;
+#else
         int ch;
 
         for (size_t i = 0; i < size; i++) {
@@ -309,6 +298,7 @@ _ssize_t _read_tty_r(struct _reent *reent, int fd, void *ptr, size_t size)
         }
 
         return size;
+#endif
     } else if ((fd == 1) || (fd == 2)) {
         reent->_errno = EACCES;
         return -1;
@@ -336,14 +326,7 @@ _ssize_t _write_tty_r(struct _reent *reent, int fd, const void *ptr, size_t size
         reent->_errno = EACCES;
         return -1;
     } else if ((fd == 1) || (fd == 2)) {
-        for (size_t i = 0; i < size; i++) {
-#ifdef CONFIG_CONSOLE_WO
-            qcc74x_wo_uart_putchar(console, ((uint8_t *)ptr)[i]);
-#else
-            qcc74x_uart_putchar(console, ((uint8_t *)ptr)[i]);
-#endif
-        }
-        return size;
+        return qcc74x_console_write(ptr, size);
     } else {
         reent->_errno = EBADF;
         return -1;

@@ -23,6 +23,16 @@
 
 #define MAX_TFS_IE_LEN  1024
 
+/* CONFIG_WFA_BTM_REQ is derived from CONFIG_WFA + CONFIG_WNM_AP in wnm_ap.h. */
+
+#define WFA_BTM_CANDIDATE_NUM 3
+#define WFA_BTM_NEIGHBOR_BODY_LEN 16
+#define WFA_BTM_NEIGHBOR_ELEM_LEN (2 + WFA_BTM_NEIGHBOR_BODY_LEN)
+#define WFA_BTM_NEIGHBOR_BUF_LEN \
+	(WFA_BTM_CANDIDATE_NUM * WFA_BTM_NEIGHBOR_ELEM_LEN)
+#define WFA_BTM_OPER_CLASS_24G 0x51
+#define WFA_BTM_PHY_TYPE_HT 7
+
 
 /* get the TFS IE from driver */
 static int ieee80211_11_get_tfs_ie(struct hostapd_data *hapd, const u8 *addr,
@@ -361,6 +371,206 @@ static void ieee802_11_rx_wnmsleep_req(struct hostapd_data *hapd,
 }
 
 
+#ifdef CONFIG_WFA_BTM_REQ
+static void wfa_btm_build_neighbor_report(struct hostapd_data *hapd,
+					  u8 *buf, size_t *buf_len)
+{
+	u8 *pos = buf;
+	int i;
+	u8 channel = hapd->iconf ? hapd->iconf->channel : 1;
+
+	if (channel == 0)
+		channel = 1;
+
+	for (i = 0; i < WFA_BTM_CANDIDATE_NUM; i++) {
+		u8 bssid[ETH_ALEN];
+
+		os_memcpy(bssid, hapd->own_addr, ETH_ALEN);
+		if (i > 0) {
+			bssid[0] &= 0xfe;
+			bssid[0] |= 0x02;
+			bssid[5] += i;
+		}
+
+		*pos++ = WLAN_EID_NEIGHBOR_REPORT;
+		*pos++ = WFA_BTM_NEIGHBOR_BODY_LEN;
+		os_memcpy(pos, bssid, ETH_ALEN);
+		pos += ETH_ALEN;
+		WPA_PUT_LE32(pos, 0);
+		pos += 4;
+		*pos++ = WFA_BTM_OPER_CLASS_24G;
+		*pos++ = channel;
+		*pos++ = WFA_BTM_PHY_TYPE_HT;
+		*pos++ = WNM_NEIGHBOR_BSS_TRANSITION_CANDIDATE;
+		*pos++ = 1;
+		*pos++ = 255 - i;
+	}
+
+	*buf_len = pos - buf;
+}
+
+static int wfa_btm_get_int_param(const char *cmd, const char *name,
+				 int min, int max, int *value)
+{
+	const char *pos = os_strstr(cmd, name);
+	char *endp;
+	long val;
+
+	if (!pos)
+		return 0;
+
+	pos += os_strlen(name);
+	val = strtol(pos, &endp, 10);
+	if (endp == pos || (*endp != '\0' && *endp != ' ') ||
+	    val < min || val > max)
+		return -1;
+
+	*value = val;
+	return 1;
+}
+
+static int wfa_btm_get_bss_term(const char *cmd, u64 *tsf, u16 *duration)
+{
+	const char *pos, *comma;
+	char *endp;
+	unsigned long long tsf_val;
+	long duration_val;
+
+	pos = os_strstr(cmd, " bss_term=");
+	if (!pos)
+		return 0;
+
+	pos += 10;
+	comma = os_strchr(pos, ',');
+	if (!comma)
+		return -1;
+
+	tsf_val = strtoull(pos, &endp, 10);
+	if (endp != comma)
+		return -1;
+
+	pos = comma + 1;
+	duration_val = strtol(pos, &endp, 10);
+	if (endp == pos || (*endp != '\0' && *endp != ' ') ||
+	    duration_val < 0 || duration_val > 0xffff)
+		return -1;
+
+	*tsf = (u64) tsf_val;
+	*duration = duration_val;
+	return 1;
+}
+
+static int wfa_btm_build_mbo_attrs(const char *cmd, int disassoc_timer,
+				   int disassoc_imminent, int bss_term,
+				   u8 *mbo_attrs, size_t *mbo_len)
+{
+	u8 *pos = mbo_attrs;
+	const char *mbo, *colon;
+	char *endp;
+	int retry_delay = -1;
+
+	*pos++ = MBO_ATTR_ID_TRANSITION_REASON;
+	*pos++ = 1;
+	*pos++ = MBO_TRANSITION_REASON_UNSPECIFIED;
+
+	mbo = os_strstr(cmd, " mbo=");
+	if (mbo) {
+		colon = os_strchr(mbo + 5, ':');
+		if (colon) {
+			long val;
+
+			val = strtol(colon + 1, &endp, 10);
+			if (endp == colon + 1 ||
+			    (*endp != '\0' && *endp != ' ' && *endp != ':') ||
+			    val < 0 || val > 0xffff)
+				return -1;
+			retry_delay = val;
+		}
+	}
+
+	if (retry_delay < 0 && disassoc_imminent && !bss_term)
+		retry_delay = disassoc_timer ? disassoc_timer : 1;
+
+	if (retry_delay >= 0 && !bss_term) {
+		*pos++ = MBO_ATTR_ID_ASSOC_RETRY_DELAY;
+		*pos++ = 2;
+		WPA_PUT_LE16(pos, retry_delay);
+		pos += 2;
+	}
+
+	*mbo_len = pos - mbo_attrs;
+	return 0;
+}
+
+int wnm_send_wfa_bss_tm_req(struct hostapd_data *hapd, const char *cmd,
+			    u8 dialog_token)
+{
+	u8 addr[ETH_ALEN], nei_rep[WFA_BTM_NEIGHBOR_BUF_LEN];
+	u8 mbo_attrs[8], bss_term_dur[12];
+	size_t nei_rep_len = 0, mbo_len = 0;
+	struct sta_info *sta;
+	u8 req_mode = 0;
+	int pref = 0, disassoc_imminent = 0, disassoc_timer = 0;
+	int bss_term = 0, ret;
+	u64 bss_term_tsf = 0;
+	u16 bss_term_duration = 0;
+
+	if (hwaddr_aton(cmd, addr))
+		return -1;
+
+	sta = ap_get_sta(hapd, addr);
+	if (!sta) {
+		wpa_printf(MSG_DEBUG, "WNM: WFA BTM target STA " MACSTR
+			   " is not associated", MAC2STR(addr));
+		return -1;
+	}
+
+	ret = wfa_btm_get_int_param(cmd, " pref=", 0, 1, &pref);
+	if (ret < 0)
+		return -1;
+	ret = wfa_btm_get_int_param(cmd, " disassoc_imminent=", 0, 1,
+					    &disassoc_imminent);
+	if (ret < 0)
+		return -1;
+	ret = wfa_btm_get_int_param(cmd, " disassoc_timer=", 0, 0xffff,
+					    &disassoc_timer);
+	if (ret < 0)
+		return -1;
+	ret = wfa_btm_get_bss_term(cmd, &bss_term_tsf, &bss_term_duration);
+	if (ret < 0)
+		return -1;
+	bss_term = ret > 0;
+
+	if (pref) {
+		req_mode |= WNM_BSS_TM_REQ_PREF_CAND_LIST_INCLUDED;
+		wfa_btm_build_neighbor_report(hapd, nei_rep, &nei_rep_len);
+	}
+	if (disassoc_imminent)
+		req_mode |= WNM_BSS_TM_REQ_DISASSOC_IMMINENT;
+	if (bss_term)
+		req_mode |= WNM_BSS_TM_REQ_BSS_TERMINATION_INCLUDED;
+
+	if (wfa_btm_build_mbo_attrs(cmd, disassoc_timer, disassoc_imminent,
+				    bss_term, mbo_attrs, &mbo_len) < 0)
+		return -1;
+
+	if (bss_term) {
+		bss_term_dur[0] = WNM_NEIGHBOR_BSS_TERMINATION_DURATION;
+		bss_term_dur[1] = 10;
+		WPA_PUT_LE64(&bss_term_dur[2], bss_term_tsf);
+		WPA_PUT_LE16(&bss_term_dur[10], bss_term_duration);
+	}
+
+	ret = wnm_send_bss_tm_req(hapd, sta, req_mode, disassoc_timer, 1,
+				  bss_term ? bss_term_dur : NULL,
+				  dialog_token, NULL,
+				  nei_rep_len ? nei_rep : NULL, nei_rep_len,
+				  mbo_attrs, mbo_len);
+	return ret;
+}
+#endif /* CONFIG_WFA_BTM_REQ */
+
+
 static int ieee802_11_send_bss_trans_mgmt_request(struct hostapd_data *hapd,
 						  const u8 *addr,
 						  u8 dialog_token)
@@ -443,7 +653,21 @@ static void ieee802_11_rx_bss_trans_mgmt_query(struct hostapd_data *hapd,
 	wpa_hexdump(MSG_DEBUG, "WNM: BSS Transition Candidate List Entries",
 		    pos, end - pos);
 
+#ifdef CONFIG_WFA_BTM_REQ
+	{
+		char cmd[40];
+
+		os_snprintf(cmd, sizeof(cmd), MACSTR " pref=1", MAC2STR(addr));
+		if (wnm_send_wfa_bss_tm_req(hapd, cmd, dialog_token) < 0) {
+			wpa_printf(MSG_DEBUG,
+				   "WNM: failed to send WFA BSS Transition Management Request");
+			ieee802_11_send_bss_trans_mgmt_request(hapd, addr,
+							       dialog_token);
+		}
+	}
+#else
 	ieee802_11_send_bss_trans_mgmt_request(hapd, addr, dialog_token);
+#endif /* CONFIG_WFA_BTM_REQ */
 }
 
 
@@ -799,6 +1023,7 @@ int wnm_send_bss_tm_req(struct hostapd_data *hapd, struct sta_info *sta,
 {
 	u8 *buf, *pos;
 	struct ieee80211_mgmt *mgmt;
+	size_t buf_len;
 	size_t url_len;
 
 	wpa_printf(MSG_DEBUG, "WNM: Send BSS Transition Management Request to "
@@ -806,7 +1031,8 @@ int wnm_send_bss_tm_req(struct hostapd_data *hapd, struct sta_info *sta,
 		   " req_mode=0x%x disassoc_timer=%d valid_int=0x%x dialog_token=%u",
 		   MAC2STR(sta->addr), req_mode, disassoc_timer, valid_int,
 		   dialog_token);
-	buf = os_zalloc(1000 + nei_rep_len + mbo_len);
+	buf_len = 1000 + nei_rep_len + mbo_len;
+	buf = os_zalloc(buf_len);
 	if (buf == NULL)
 		return -1;
 	mgmt = (struct ieee80211_mgmt *) buf;
@@ -850,7 +1076,7 @@ int wnm_send_bss_tm_req(struct hostapd_data *hapd, struct sta_info *sta,
 	}
 
 	if (mbo_len > 0) {
-		pos += mbo_add_ie(pos, buf + sizeof(buf) - pos, mbo_attrs,
+		pos += mbo_add_ie(pos, buf + buf_len - pos, mbo_attrs,
 				  mbo_len);
 	}
 

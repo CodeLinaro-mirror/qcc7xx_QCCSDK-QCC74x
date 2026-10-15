@@ -681,6 +681,7 @@ int net_tg_send_transc(struct fhost_tg_stream *stream)
     int duration;
     // current duration of TG sending process
     int duration_cur = 0;
+    bool maxcnt_enabled = fhost_tg_maxcnt_enabled(stream);
 
     if (pack_len > NET_MAX_UDP_LEN)
         pack_len = NET_MAX_UDP_LEN;
@@ -703,7 +704,9 @@ int net_tg_send_transc(struct fhost_tg_stream *stream)
     stream->stats.rt_time = 2000;
 
     get_time_SINCE_EPOCH(&init.sec, &init.usec);
-    while (stream->active && duration_cur < duration)
+    while (stream->active && (maxcnt_enabled ?
+           (stream->stats.tx_frames < stream->prof.maxcnt) :
+           (duration_cur < duration)))
     {
         h = pbuf_alloc(PBUF_TRANSPORT, NET_TG_HEADER_SIZE, PBUF_RAM);
         if (h == NULL)

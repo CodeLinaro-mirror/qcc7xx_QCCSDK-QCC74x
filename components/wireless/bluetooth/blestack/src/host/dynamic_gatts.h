@@ -25,7 +25,7 @@ struct gatt_add_characteristic {
 	const struct bt_uuid *uuid;
 };
 
-void ble_dynamic_gatt_server_init(void);
+int ble_dynamic_gatt_server_init(void);
 void ble_dynamic_gatt_server_deinit(void);
 int ble_dynamic_unregister_service(void);
 void ble_dynamic_gatt_cb_register(dynamic_gatt_rd_callbck_func_t rb,dynamic_gatt_wr_callbck_func_t wb,dynamic_gatt_noti_callbck_func_t nb);

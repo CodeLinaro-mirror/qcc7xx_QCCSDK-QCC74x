@@ -154,7 +154,7 @@
  * Maximum number of simultaneous connections and advertising that the device will support.
  * This setting should not exceed the number of BLE connection supported by BLE host stack.
  */
-#define CFG_BLE_NUM_LINK            (8)
+#define CFG_BLE_NUM_LINK            (2)
 
 /**
  * Maximum number of Services that can be stored in the GATT database.
@@ -175,7 +175,7 @@
  * Maximum supported ATT_MTU size
  * This setting should be aligned with ATT_MTU value configured in the ble host
  */
-#define CFG_BLE_ATT_MTU_MAX         (300)
+#define CFG_BLE_ATT_MTU_MAX         (247)
 
 /**
  * Size of the storage area for Attribute values

@@ -69,6 +69,10 @@
                                   ((type) == DAC_CLK_DIV_64) || \
                                   ((type) == DAC_CLK_DIV_1))
 
+#define IS_DAC_REF_TYPE(type)  (((type) == DAC_VREF_INTERNAL) || \
+                                ((type) == DAC_VREF_EXTERNAL))
+
+
 // clang-format on
 
 #ifdef __cplusplus
@@ -130,6 +134,14 @@ void qcc74x_dac_channel_disable(struct qcc74x_device_s *dev, uint8_t ch);
  * @param [in] value output value
  */
 void qcc74x_dac_set_value(struct qcc74x_device_s *dev, uint8_t ch, uint16_t value);
+
+/**
+ * @brief Select dac reference type
+ *
+ * @param [in] dev device handle
+ * @param [in] ref reference type
+ */
+void qcc74x_dac_set_reference(struct qcc74x_device_s *dev, uint8_t ref);
 
 #ifdef __cplusplus
 }

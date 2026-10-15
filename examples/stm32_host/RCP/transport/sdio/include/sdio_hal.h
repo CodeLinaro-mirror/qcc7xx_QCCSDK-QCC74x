@@ -7,6 +7,9 @@
 #include <rcp_os.h>
 #include <rcp_stat.h>
 
+#define SDIO_CCCR_FUNCTION_0   0U
+#define SDIO_CCCR_REVISION_REG 0x00U
+
 enum sdio_bus_width {
 	SDIO_BUS_WIDTH_1B,
 	SDIO_BUS_WIDTH_4B,

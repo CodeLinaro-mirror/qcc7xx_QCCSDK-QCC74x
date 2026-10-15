@@ -75,6 +75,7 @@ bool BleAppAdvStart(uint8_t adv_type, uint16_t interval_min, uint16_t interval_m
                     const uint8_t *dev_name, uint8_t dev_name_len);
 bool BleAppAdvStop(void);
 bool BleAppAddService(void);
+bool BleAppGetLastConnectionHandle(uint16_t *connection_handle);
 
 /* USER CODE BEGIN EFP */
 

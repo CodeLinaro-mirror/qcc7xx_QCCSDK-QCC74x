@@ -10,6 +10,12 @@
 #ifndef AP_H
 #define AP_H
 
+/* Canonical derivation of CONFIG_WFA_BTM_REQ for the wpa_supplicant/ module
+ * (kept in sync with src/ap/wnm_ap.h); includers get it through this header. */
+#if defined(CONFIG_WFA) && defined(CONFIG_WNM_AP) && !defined(CONFIG_WFA_BTM_REQ)
+#define CONFIG_WFA_BTM_REQ
+#endif
+
 int wpa_supplicant_create_ap(struct wpa_supplicant *wpa_s,
 			     struct wpa_ssid *ssid);
 void wpa_supplicant_ap_deinit(struct wpa_supplicant *wpa_s);
@@ -44,6 +50,12 @@ int ap_ctrl_iface_acl_clear_list(struct wpa_supplicant *wpa_s, bool allow);
 int ap_ctrl_iface_acl_show_mac(struct wpa_supplicant *wpa_s, bool allow, char *reply, size_t reply_size);
 int ap_ctrl_iface_acl_del_mac(struct wpa_supplicant *wpa_s, bool allow, const char *txtaddr);
 int ap_ctrl_iface_acl_add_mac(struct wpa_supplicant *wpa_s, bool allow, const char *txtaddr);
+#ifdef CONFIG_MBO
+int ap_ctrl_iface_set_mbo_assoc_disallow(struct wpa_supplicant *wpa_s, const char *cmd);
+#endif /* CONFIG_MBO */
+#ifdef CONFIG_WFA_BTM_REQ
+int ap_ctrl_iface_bss_tm_req(struct wpa_supplicant *wpa_s, const char *cmd);
+#endif /* CONFIG_WFA_BTM_REQ */
 void ap_tx_status(void *ctx, const u8 *addr,
 		  const u8 *buf, size_t len, int ack);
 void ap_eapol_tx_status(void *ctx, const u8 *dst,

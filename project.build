@@ -5,8 +5,12 @@ endif
 
 BUILD_DIR?=build
 
+ifeq ($(CHIP),qcc743)
+FLASH_CHIP_NAME=qcc74x
+endif
+
 command_flash = $(QCC74x_FLASH_PROGRAM) --interface=uart --baudrate=$(BAUDRATE) \
-	--port=$(COMX) --cpu_id=$(CPU_ID) --config=flash_prog_cfg.ini
+	--port=$(COMX) --chipname=$(FLASH_CHIP_NAME) --cpu_id=$(CPU_ID) --config=flash_prog_cfg.ini
 command_efuse = $(QCC74x_FLASH_PROGRAM) --interface=uart --baudrate=$(BAUDRATE) \
 	--port=$(COMX) --efuse=$(BUILD_DIR)/build_out/efusedata.bin
 command_puncover = $(PUNCOVER_PROGRAM) \
@@ -147,7 +151,7 @@ whole:
 	$(CMAKE) -E copy flash_prog_cfg.ini $(BUILD_DIR)/flash_prog_cfg.ini
 	sed -i 's/\.\/build/\./g' $(BUILD_DIR)/flash_prog_cfg.ini
 	$(CMAKE) -E chdir $(BUILD_DIR) ../$(command_flash) --build
-	$(CMAKE) -E copy ${QCC74x_SDK_BASE}/tools/qcc74x_tools/QConn_Flash/chips/$(CHIP)/img_create/whole_flash_data.bin $(BUILD_DIR)/whole_flash_data.bin
+	$(CMAKE) -E copy ${QCC74x_SDK_BASE}/tools/qcc74x_tools/QConn_Flash/chips/$(FLASH_CHIP_NAME)/img_create/whole_flash_data.bin $(BUILD_DIR)/whole_flash_data.bin
 
 efuse:
 	$(command_efuse)

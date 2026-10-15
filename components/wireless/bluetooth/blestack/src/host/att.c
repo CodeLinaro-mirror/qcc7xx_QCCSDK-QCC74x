@@ -2575,13 +2575,20 @@ u16_t bt_att_get_mtu(struct bt_conn *conn)
 }
 
 #if defined(QCC74x_BLE_SET_LOCAL_ATT_MTU_SIZE)
-void bt_att_set_mtu(u16_t mtu)
+int bt_att_set_mtu(u16_t mtu)
 {
-	if(mtu > 0 && mtu <= BT_ATT_MTU){
+	if (mtu >= BT_ATT_DEFAULT_LE_MTU && mtu <= BT_ATT_MTU) {
 		local_mtu_size = mtu;
-	}else{
-		BT_ERR("Invalid MTU size %d",mtu);
+		return 0;
 	}
+
+	BT_ERR("Invalid MTU size %d", mtu);
+	return -EINVAL;
+}
+
+u16_t bt_att_get_local_mtu(void)
+{
+	return local_mtu_size;
 }
 #endif
 

@@ -106,6 +106,7 @@ typedef struct wifi_mgmr {
 extern wifi_mgmr_t wifiMgmr;
 
 int wifi_mgmr_init(void);
+int wifi_mgmr_check_country_code(const char *country_code);
 int wifi_mgmr_get_channel_nums(const char *country_code);
 char *wifi_mgmr_auth_to_str(uint8_t auth);
 char *wifi_mgmr_cipher_to_str(uint8_t cipher);

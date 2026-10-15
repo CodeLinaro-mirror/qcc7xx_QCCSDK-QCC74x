@@ -432,7 +432,7 @@ static int at_setup_efuse_write(int argc, const char **argv)
     }
     memset(buffer, 0, word * 4);
     
-    at_response_result(AT_RESULT_CODE_OK);
+    at_response_string("%s%s", AT_CMD_MSG_OK, AT_CMD_MSG_WAIT_DATA);
 
     while(recv_num < nbytes) {
         recv_num += AT_CMD_DATA_RECV(buffer + recv_num, nbytes - recv_num);
@@ -633,7 +633,7 @@ static int at_setup_flash_write(int argc, const char **argv)
     }
     memset(buffer, 0, nbytes);
 
-    at_response_result(AT_RESULT_CODE_OK);
+    at_response_string("%s%s", AT_CMD_MSG_OK, AT_CMD_MSG_WAIT_DATA);
 
     while(recv_num < nbytes) {
         recv_num += AT_CMD_DATA_RECV(buffer + recv_num, nbytes - recv_num);
@@ -1148,6 +1148,10 @@ static int at_setup_fs(int argc, const char **argv)
     switch (opt) {
         case AT_FS_DELETE:
             ret = at_fs_remove(filename);
+            if (ret < 0) {
+                return AT_RESULT_WITH_SUB_CODE(AT_SUB_IO_ERROR);
+            }
+            ret = AT_RESULT_CODE_OK;
         break;
         case AT_FS_CREATE:
             ret = at_fs_open(filename, O_CREAT | O_RDWR);

@@ -1,0 +1,56 @@
+From 9fc9e916c3686096235e23d52f5786ef8f898bee Mon Sep 17 00:00:00 2001
+From: Surendra Guduri <sguduri@qti.qualcomm.com>
+Date: Tue, 27 Jan 2026 15:47:43 +0800
+Subject: [PATCH 1/2] add ci build script
+
+---
+ ci_example_build.sh | 37 +++++++++++++++++++++++++++++++++++++
+ 1 file changed, 37 insertions(+)
+ create mode 100755 ci_example_build.sh
+
+diff --git a/ci_example_build.sh b/ci_example_build.sh
+new file mode 100755
+index 0000000000..31b6e60304
+--- /dev/null
++++ b/ci_example_build.sh
+@@ -0,0 +1,37 @@
++#!/bin/bash
++
++matter_example=$1
++matter_folder=$(dirname "$(readlink -f "$BASH_SOURCE")")
++
++current_folder=`pwd`
++cd $matter_folder
++
++git clean -dffx
++
++ln -s /root/.environment $matter_folder
++cp /root/build_overrides/pigweed_environment.gni $matter_folder/build_overrides/pigweed_environment.gni
++
++git config --global --add safe.directory .
++
++rm -rf third_party/pigweed/repo
++cp -rf /root/pigweed third_party/pigweed/repo
++git submodule update --init third_party/pigweed/repo
++
++rm -rf third_party/nlassert/repo
++cp -rf /root/nlassert third_party/nlassert/repo
++git submodule update --init third_party/nlassert/repo
++
++rm -rf third_party/nlio/repo
++cp -rf /root/nlio third_party/nlio/repo
++git submodule update --init third_party/nlio/repo
++
++rm -rf third_party/jsoncpp/repo
++cp -rf /root/jsoncpp third_party/jsoncpp/repo
++git submodule update --init third_party/jsoncpp/repo
++
++git status
++git submodule
++
++
++source scripts/activate.sh 
++./scripts/build/build_examples.py --target $matter_example build
+-- 
+2.34.1
+

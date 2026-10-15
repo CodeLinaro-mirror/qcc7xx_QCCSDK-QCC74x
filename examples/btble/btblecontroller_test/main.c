@@ -2,6 +2,7 @@
 #include <FreeRTOS.h>
 #include "task.h"
 #include "board.h"
+#include <qcc74x_gpio.h>
 
 #if defined(QCC74x_undef) || defined(QCC74x_undef)
 #include "ble_lib_api.h"
@@ -14,15 +15,30 @@
 #include "qcc74x_undef_glb.h"
 #endif
 
-//#include "btblecontroller_port_uart.h"
+#include "btblecontroller_port_uart.h"
 
 static TaskHandle_t app_start_handle;
 
 static void app_start_task(void *pvParameters)
 {
+    const btble_uart_config_t uart_config = {
+        .uart_id = 1,
+        .tx_pin = GPIO_PIN_27,
+        .rx_pin = GPIO_PIN_28,
+        .cts_pin = GPIO_PIN_29,
+        .rts_pin = GPIO_PIN_30,
+        .baudrate = 2000000,
+        .dma_enable = 1,
+        .flow_ctrl_enable = 1,
+    };
+
     printf("config hci uart\r\n");
-    btble_uart_pin_config(1,27,28,29,30);
-    btble_uart_init(1);
+    if (btble_uart_configure(&uart_config) != 0) {
+        printf("config hci uart failed\r\n");
+        vTaskDelete(NULL);
+        return;
+    }
+    btble_uart_init(uart_config.uart_id);
 
     // Initialize BLE controller
     #if defined(QCC74x_undef) || defined(QCC74x_undef)

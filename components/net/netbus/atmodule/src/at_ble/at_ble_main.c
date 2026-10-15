@@ -314,6 +314,38 @@ static int find_index_by_attr(const struct bt_gatt_attr *attr, int *srv_idx, int
     return 0;
 }
 
+static uint8_t at_char_properties_to_blestack(uint32_t properties)
+{
+    uint8_t bt_properties = 0U;
+
+    if (properties & BLE_GATT_CHAR_PROP_READ)
+        bt_properties |= BT_GATT_CHRC_READ;
+    if (properties & BLE_GATT_CHAR_PROP_WRITE_WITHOUT_RESP)
+        bt_properties |= BT_GATT_CHRC_WRITE_WITHOUT_RESP;
+    if (properties & BLE_GATT_CHAR_PROP_WRITE)
+        bt_properties |= BT_GATT_CHRC_WRITE;
+    if (properties & BLE_GATT_CHAR_PROP_NOTIFY)
+        bt_properties |= BT_GATT_CHRC_NOTIFY;
+    if (properties & BLE_GATT_CHAR_PROP_INDICATE)
+        bt_properties |= BT_GATT_CHRC_INDICATE;
+    if (properties & BLE_GATT_CHAR_PROP_AUTH_SIGNED_WRITE)
+        bt_properties |= BT_GATT_CHRC_AUTH;
+
+    return bt_properties;
+}
+
+static uint8_t at_char_permissions_to_blestack(uint32_t permissions)
+{
+    uint8_t bt_permissions = 0U;
+
+    if (permissions & BLE_GATT_PERM_READ)
+        bt_permissions |= BT_GATT_PERM_READ;
+    if (permissions & BLE_GATT_PERM_WRITE)
+        bt_permissions |= BT_GATT_PERM_WRITE;
+
+    return bt_permissions;
+}
+
 static void ble_add_service(void)
 {
 
@@ -343,8 +375,10 @@ static void ble_add_service(void)
                 {
                     struct gatt_add_characteristic cmd_data;
                     cmd_data.char_id = 0U;
-                    cmd_data.properties  = g_ble_srv_data[i].srv_char[n].char_prop;
-                    cmd_data.permissions = g_ble_srv_data[i].srv_char[n].char_perm;
+                    cmd_data.properties = at_char_properties_to_blestack(
+                        g_ble_srv_data[i].srv_char[n].char_prop);
+                    cmd_data.permissions = at_char_permissions_to_blestack(
+                        g_ble_srv_data[i].srv_char[n].char_perm);
                     if(g_ble_srv_data[i].srv_char[n].uuid_type == BT_UUID_TYPE_128)
                         cmd_data.uuid = &g_ble_srv_data[i].srv_char[n].char_uuid.uuid;
                     if(g_ble_srv_data[i].srv_char[n].uuid_type == BT_UUID_TYPE_16)
@@ -1465,6 +1499,15 @@ int at_ble_conn_get_role(int idx)
     return conn_data->role;
 }
 
+int at_ble_conn_get_rssi(int idx, int8_t *rssi)
+{
+    struct ble_conn_data *conn_data = ble_conn_data_get_by_idx(idx);
+
+    if (rssi == NULL || conn_data == NULL || conn_data->state != BLE_CONN_STATE_CONNECTED || conn_data->conn == NULL)
+        return -1;
+
+    return bt_le_read_rssi(conn_data->conn->handle, rssi);
+}
 
 int at_ble_conn_get_param(int idx, int *min_interval, int *max_interval, int *cur_interval, int *latency, int *timeout)
 {
@@ -1707,7 +1750,10 @@ int at_ble_gatts_service_register(int enable)
     {
         if(g_ble_dynamic_init == 0)
         {
-            ble_dynamic_gatt_server_init();
+            if (ble_dynamic_gatt_server_init())
+            {
+                return 1;
+            }
             ble_dynamic_gatt_cb_register(ble_dynamic_rd_cb,ble_dynamic_wr_cb,ble_dynamic_noti_cb);
             g_ble_dynamic_init = 1;
         }
@@ -1763,13 +1809,13 @@ int at_ble_gatts_service_char_set(int srv_idx, int char_idx, uint8_t *char_uuid,
     }
 
     if (char_prop & BLE_GATT_CHAR_PROP_READ) {
-        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = (char *)at_malloc(244);
+        g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = (char *)at_malloc(BLE_AT_GATTS_READ_VALUE_MAX_LEN);
         if (g_ble_srv_data[srv_idx].srv_char[char_idx].read_data == NULL)
         {
             AT_BLE_PRINTF("Failed to allocate memory for read_data\r\n");
             return 0;
         }
-        memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, 244);
+        memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, BLE_AT_GATTS_READ_VALUE_MAX_LEN);
         g_ble_srv_data[srv_idx].srv_char[char_idx].read_data_len = 0;
     } else {
         g_ble_srv_data[srv_idx].srv_char[char_idx].read_data = NULL;
@@ -1794,7 +1840,7 @@ int at_ble_gatts_service_notify(int idx,int srv_idx, int char_idx, void * buffer
         return 0;
     if (g_ble_srv_data[srv_idx].srv_char[char_idx].valid == 0)
         return 0;
-    if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_NOTIFY && length <= 244) {
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_NOTIFY) {
 
         struct bt_gatt_attr* noti_attr =NULL;
         if(g_ble_srv_data[srv_idx].srv_char[char_idx].uuid_type == BT_UUID_TYPE_16)
@@ -1887,7 +1933,7 @@ int at_ble_gatts_service_indicate(int idx,int srv_idx, int char_idx, void * buff
     conn_data = ble_conn_data_get_by_idx(idx);
     if (conn_data == NULL || conn_data->state != BLE_CONN_STATE_CONNECTED||conn_data->role != BT_CONN_ROLE_SLAVE)
         return 0;
-    if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_INDICATE && length <= 244) {
+    if (g_ble_srv_data[srv_idx].srv_char[char_idx].char_prop & BLE_GATT_CHAR_PROP_INDICATE) {
        
         struct bt_gatt_attr* indicate_attr =NULL;
         if(g_ble_srv_data[srv_idx].srv_char[char_idx].uuid_type == BT_UUID_TYPE_16)
@@ -1953,13 +1999,13 @@ int at_ble_gatts_service_read(int srv_idx, int char_idx, void * buffer, int leng
     }
 
     // Validate length
-    if (length > 244) {
-        AT_BLE_PRINTF("Error: length %d exceeds maximum buffer size 244\r\n", length);
+    if (length > BLE_AT_GATTS_READ_VALUE_MAX_LEN) {
+        AT_BLE_PRINTF("Error: length %d exceeds maximum buffer size %d\r\n", length, BLE_AT_GATTS_READ_VALUE_MAX_LEN);
         return 0;
     }
 
     // Clear data buffer
-    memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, 244);
+    memset(g_ble_srv_data[srv_idx].srv_char[char_idx].read_data, 0, BLE_AT_GATTS_READ_VALUE_MAX_LEN);
 
     // Copy data only if length > 0 and buffer is not NULL
     if (length > 0 && buffer != NULL) {
@@ -2006,6 +2052,7 @@ static uint32_t print_chrc_props(u8_t properties)
 
     if (properties & BT_GATT_CHRC_AUTH) {
         AT_BLE_PRINTF("[auth]");
+        props |= BLE_GATT_CHAR_PROP_AUTH_SIGNED_WRITE;
     }
 
     if (properties & BT_GATT_CHRC_EXT_PROP) {
@@ -2454,7 +2501,7 @@ static void ble_write_func(struct bt_conn *conn, u8_t err, struct bt_gatt_write_
 	(void)memset(&g_ble_write_params, 0, sizeof(g_ble_write_params));
 }
 
-int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void * buffer, int length)
+int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void *buffer, int length, bool signed_write)
 {
     struct ble_conn_data *conn_data = NULL;
     struct ble_discover_data *discover_data = NULL;
@@ -2473,7 +2520,23 @@ int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void * buffer
     if (!discover_data->disc_char[index].valid)
          return 0;
 
-    if (discover_data->disc_char[index].char_props & BLE_GATT_CHAR_PROP_WRITE_WITHOUT_RESP) {
+    if (signed_write) {
+        if (!(discover_data->disc_char[index].char_props & BLE_GATT_CHAR_PROP_AUTH_SIGNED_WRITE)) {
+            AT_BLE_PRINTF("Authenticated signed write is not supported by the characteristic\r\n");
+            return 0;
+        }
+#if defined(CONFIG_BT_SMP)
+        if (conn_data->conn->encrypt) {
+            AT_BLE_PRINTF("Authenticated signed write requires an unencrypted connection\r\n");
+            return 0;
+        }
+#endif
+    } else if (!(discover_data->disc_char[index].char_props &
+                 (BLE_GATT_CHAR_PROP_WRITE_WITHOUT_RESP | BLE_GATT_CHAR_PROP_WRITE))) {
+        return 0;
+    }
+
+    if (signed_write || (discover_data->disc_char[index].char_props & BLE_GATT_CHAR_PROP_WRITE_WITHOUT_RESP)) {
         gatt_write_buf = k_malloc(length);
         if(!gatt_write_buf) {
             AT_BLE_PRINTF("Failed to alloc buffer for the data\r\n");
@@ -2481,7 +2544,8 @@ int at_ble_gattc_service_write(int idx, int srv_idx, int char_idx, void * buffer
         }
         memcpy(gatt_write_buf, buffer, length);
 
-        err = bt_gatt_write_without_response(conn_data->conn, discover_data->disc_char[index].char_value_handle, gatt_write_buf, length, 0);
+        err = bt_gatt_write_without_response(conn_data->conn, discover_data->disc_char[index].char_value_handle,
+                                             gatt_write_buf, length, signed_write);
         k_free(gatt_write_buf);
 
         if (err) {

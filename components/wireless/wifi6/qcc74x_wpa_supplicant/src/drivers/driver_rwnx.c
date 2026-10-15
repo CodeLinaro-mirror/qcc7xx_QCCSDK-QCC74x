@@ -81,6 +81,8 @@ struct wpa_rwnx_driver_itf_data {
 	u8 ssid_len;
 	// Next authentication alg to try (used when connect with several algos)
 	int next_auth_alg;
+	// DTIM period cached from set_ap, reused when building CSA beacon
+	u8 dtim_period;
 };
 
 /**
@@ -122,8 +124,13 @@ enum wpa_rwnx_driver_status {
 // For STA only accept action frames
 #define STA_MGMT_RX_FILTER ~CO_BIT(WLAN_FC_STYPE_ACTION)
 
-// For AP accept everyting except beacon
+// For AP accept everything except Beacon. WFA 11n OBSS tests need Beacon
+// frames from overlapping BSSes to reach hostapd.
+#ifdef CONFIG_WFA
+#define AP_MGMT_RX_FILTER 0
+#else
 #define AP_MGMT_RX_FILTER CO_BIT(WLAN_FC_STYPE_BEACON)
+#endif
 
 #if RW_MESH_EN
 // Conversion table BETWEEN MESH_STATE defined in WPA and MAC
@@ -1083,6 +1090,31 @@ static void wpa_rwnx_driver_new_peer_candidate_event(struct wpa_rwnx_driver_data
 
 }
 
+static void wpa_rwnx_driver_process_csa_finish_event(struct wpa_rwnx_driver_data *gdrv)
+{
+	struct wpa_rwnx_driver_itf_data *drv;
+	union wpa_event_data data;
+	struct cfgrwnx_csa_finish_event event;
+
+	if (fhost_cntrl_cfgrwnx_event_get(gdrv->link, &event, sizeof(event)) < 0)
+		return;
+
+	drv = &gdrv->itfs[event.fhost_vif_idx];
+	if (!(drv->status & RWNX_INITIALIZED))
+		return;
+
+	if (event.status == 0) {
+		os_memset(&data, 0, sizeof(data));
+		data.ch_switch.freq = event.freq;
+		data.ch_switch.ht_enabled = 1;
+		data.ch_switch.ch_offset = 0;
+		data.ch_switch.ch_width = CHAN_WIDTH_20;
+		data.ch_switch.cf1 = event.freq;
+		data.ch_switch.cf2 = 0;
+		wpa_supplicant_event(drv->ctx, EVENT_CH_SWITCH, &data);
+	}
+}
+
 /******************************************************************************
  * Send / Receive functions
  *****************************************************************************/
@@ -1136,6 +1168,9 @@ static void wpa_rwnx_driver_event(int sock, void *eloop_ctx, void *sock_ctx)
 		break;
 	case CFGRWNX_NEW_PEER_CANDIDATE_EVENT:
 		wpa_rwnx_driver_new_peer_candidate_event(gdrv);
+		break;
+	case CFGRWNX_CSA_FINISH_EVENT:
+		wpa_rwnx_driver_process_csa_finish_event(gdrv);
 		break;
 	default:
 		fhost_cntrl_cfgrwnx_event_discard(gdrv->link, &msg_hdr);
@@ -1364,7 +1399,7 @@ static int wpa_rwnx_driver_update_bcn(struct wpa_rwnx_driver_itf_data *drv,
 		cmd.csa_oft[i] = 0;
 	}
 
-	if (fhost_cntrl_cfgrwnx_cmd_send(&cmd.hdr, &resp.hdr) && (resp.status != CFGRWNX_SUCCESS))
+	if (fhost_cntrl_cfgrwnx_cmd_send(&cmd.hdr, &resp.hdr) || resp.status != CFGRWNX_SUCCESS)
 		res = -1;
 
 	os_free(cmd.bcn);
@@ -1655,7 +1690,7 @@ static int wpa_rwnx_driver_get_capa(void *priv, struct wpa_driver_capa *capa)
 		       WPA_DRIVER_FLAGS_AP_MLME |
 		       WPA_DRIVER_FLAGS_AP_UAPSD;
 #endif
-		       //WPA_DRIVER_FLAGS_AP_CSA;
+	capa->flags |= WPA_DRIVER_FLAGS_AP_CSA;
 #endif
 #if NX_CRYPTOLIB
 	capa->flags |= WPA_DRIVER_FLAGS_SAE;
@@ -2145,6 +2180,8 @@ static int wpa_rwnx_driver_set_ap(void *priv, struct wpa_driver_ap_params *param
     g_ap_drv = drv;
 #endif
 
+	drv->dtim_period = params->dtim_period;
+
 	if (drv->status & RWNX_AP_STARTED)
 		return wpa_rwnx_driver_update_bcn(drv, params);
 
@@ -2183,6 +2220,49 @@ static int wpa_rwnx_driver_set_ap(void *priv, struct wpa_driver_ap_params *param
 		res = 0;
 		drv->status |= RWNX_AP_STARTED;
 	}
+
+	os_free(cmd.bcn);
+	return res;
+}
+
+static int wpa_rwnx_driver_switch_channel(void *priv,
+					  struct csa_settings *settings)
+{
+	struct wpa_rwnx_driver_itf_data *drv = priv;
+	struct cfgrwnx_bcn_update cmd;
+	struct cfgrwnx_resp resp;
+	struct wpa_driver_ap_params params;
+	int res = 0;
+
+	if (!(drv->status & RWNX_AP_STARTED))
+		return -1;
+
+	os_memset(&params, 0, sizeof(params));
+	params.head = settings->beacon_csa.head;
+	params.head_len = settings->beacon_csa.head_len;
+	params.tail = settings->beacon_csa.tail;
+	params.tail_len = settings->beacon_csa.tail_len;
+	params.dtim_period = drv->dtim_period;
+
+	wpa_rwnx_msg_hdr_init(drv, &cmd.hdr, CFGRWNX_BCN_UPDATE_CMD, sizeof(cmd));
+	wpa_rwnx_msg_hdr_init(drv, &resp.hdr, CFGRWNX_BCN_UPDATE_RESP, sizeof(resp));
+
+	cmd.fhost_vif_idx = drv->fhost_vif_idx;
+	cmd.bcn = wpa_rwnx_build_bcn(&params, &cmd.bcn_len, &cmd.tim_oft, &cmd.tim_len);
+	if (!cmd.bcn)
+		return -1;
+
+	for (int i = 0; i < BCN_MAX_CSA_CPT; i++) {
+		if (settings->counter_offset_beacon[i])
+			cmd.csa_oft[i] = cmd.tim_oft + cmd.tim_len +
+				settings->counter_offset_beacon[i];
+		else
+			cmd.csa_oft[i] = 0;
+	}
+
+	if (fhost_cntrl_cfgrwnx_cmd_send(&cmd.hdr, &resp.hdr) ||
+	    resp.status != CFGRWNX_SUCCESS)
+		res = -1;
 
 	os_free(cmd.bcn);
 	return res;
@@ -2780,6 +2860,7 @@ const struct wpa_driver_ops wpa_driver_rwnx_ops = {
 	.send_external_auth_status = wpa_rwnx_driver_send_external_auth_status,
 	.set_ap = wpa_rwnx_driver_set_ap,
 	.deinit_ap = wpa_rwnx_driver_deinit_ap,
+	.switch_channel = wpa_rwnx_driver_switch_channel,
 	.set_tx_queue_params = wpa_rwnx_driver_set_tx_queue_params,
 	.hapd_send_eapol = wpa_rwnx_driver_hapd_send_eapol,
 	.sta_add = wpa_rwnx_driver_sta_add,

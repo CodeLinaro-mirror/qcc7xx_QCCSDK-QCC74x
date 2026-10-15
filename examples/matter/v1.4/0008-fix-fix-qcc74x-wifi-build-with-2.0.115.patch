@@ -1,0 +1,352 @@
+From c4e4e88c906d6e1bf129a78a0232aa81f92e3b6c Mon Sep 17 00:00:00 2001
+From: Surendra Guduri <sguduri@qti.qualcomm.com>
+Date: Wed, 15 Jul 2026 17:42:48 +0800
+Subject: [PATCH 2/2] fix: fix qcc74x wifi build with 2.0.115
+
+---
+ .../qualcomm/qcc74x/BUILD.gn                  | 12 ++--
+ .../lighting-app/qualcomm/qcc74x/BUILD.gn     | 12 ++--
+ .../qcc74x/DiagnosticDataProviderImpl.cpp     |  2 +-
+ .../qualcomm/qcc74x/gen_linker_script.py      | 59 +++++++++++++++++++
+ .../qualcomm/qcc74x/qcc74x_executable.gni     | 48 +++++++++++++++
+ third_party/qualcomm/qcc74x/qcc74x_sdk.gni    | 35 +++++++++--
+ 6 files changed, 154 insertions(+), 14 deletions(-)
+ create mode 100644 third_party/qualcomm/qcc74x/gen_linker_script.py
+
+diff --git a/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn b/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
+index d21f5dd02d..d9612605e3 100644
+--- a/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
++++ b/examples/contact-sensor-app/qualcomm/qcc74x/BUILD.gn
+@@ -130,15 +130,19 @@ qcc74x_executable("contact_sensor_app") {
+ 
+   cflags_c = [ "-Wno-sign-compare" ]
+ 
+-  ldscript = "${qcc74x_sdk_root}/bsp/board/${qcc74x_board}/qcc743_flash.ld"
+-  ldflags = [ "-T" + rebase_path(ldscript, root_build_dir) ]
+-  ldflags += [
++  ldscript_in = "${qcc74x_sdk_root}/bsp/board/${qcc74x_board}/common.ld.in"
++  ldscript_defines = []
++  if (chip_enable_wifi) {
++    ldscript_defines += [ "CONFIG_WIFI6=1" ]
++  }
++
++  ldflags = [
+     "--specs=nano.specs",
+     "-Wl,--print-memory-usage",
+     "-fstack-usage",
+   ]
+ 
+-  inputs = [ ldscript ]
++  inputs = [ ldscript_in ]
+   output_dir = root_out_dir
+ }
+ 
+diff --git a/examples/lighting-app/qualcomm/qcc74x/BUILD.gn b/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
+index 548ba6ee5b..f85384d878 100644
+--- a/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
++++ b/examples/lighting-app/qualcomm/qcc74x/BUILD.gn
+@@ -129,15 +129,19 @@ qcc74x_executable("lighting_app") {
+ 
+   cflags_c = [ "-Wno-sign-compare" ]
+ 
+-  ldscript = "${qcc74x_sdk_root}/bsp/board/${qcc74x_board}/qcc743_flash.ld"
+-  ldflags = [ "-T" + rebase_path(ldscript, root_build_dir) ]
+-  ldflags += [
++  ldscript_in = "${qcc74x_sdk_root}/bsp/board/${qcc74x_board}/common.ld.in"
++  ldscript_defines = []
++  if (chip_enable_wifi) {
++    ldscript_defines += [ "CONFIG_WIFI6=1" ]
++  }
++
++  ldflags = [
+     "--specs=nano.specs",
+     "-Wl,--print-memory-usage",
+     "-fstack-usage",
+   ]
+ 
+-  inputs = [ ldscript ]
++  inputs = [ ldscript_in ]
+   output_dir = root_out_dir
+ }
+ 
+diff --git a/src/platform/qualcomm/qcc74x/DiagnosticDataProviderImpl.cpp b/src/platform/qualcomm/qcc74x/DiagnosticDataProviderImpl.cpp
+index 9d2b2778ba..b84e490cd7 100644
+--- a/src/platform/qualcomm/qcc74x/DiagnosticDataProviderImpl.cpp
++++ b/src/platform/qualcomm/qcc74x/DiagnosticDataProviderImpl.cpp
+@@ -48,7 +48,7 @@ DiagnosticDataProviderImpl & DiagnosticDataProviderImpl::GetDefaultInstance()
+ 
+ CHIP_ERROR DiagnosticDataProviderImpl::GetCurrentHeapFree(uint64_t & currentHeapFree)
+ {
+-    currentHeapFree = kfree_size() + pfree_size();
++    currentHeapFree = kfree_size();
+ 
+     return CHIP_NO_ERROR;
+ }
+diff --git a/third_party/qualcomm/qcc74x/gen_linker_script.py b/third_party/qualcomm/qcc74x/gen_linker_script.py
+new file mode 100644
+index 0000000000..fadff5d9f3
+--- /dev/null
++++ b/third_party/qualcomm/qcc74x/gen_linker_script.py
+@@ -0,0 +1,59 @@
++#!/usr/bin/env python3
++#
++# Copyright (c) 2026 Project CHIP Authors
++#
++# Licensed under the Apache License, Version 2.0 (the "License");
++# you may not use this file except in compliance with the License.
++# You may obtain a copy of the License at
++#
++# http://www.apache.org/licenses/LICENSE-2.0
++#
++# Unless required by applicable law or agreed to in writing, software
++# distributed under the License is distributed on an "AS IS" BASIS,
++# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
++# See the License for the specific language governing permissions and
++# limitations under the License.
++
++import argparse
++import os
++import subprocess
++import tempfile
++
++
++def main():
++    parser = argparse.ArgumentParser()
++    parser.add_argument("--cc", required=True)
++    parser.add_argument("--input", required=True)
++    parser.add_argument("--output", required=True)
++    parser.add_argument("--define", action="append", default=[])
++    args = parser.parse_args()
++
++    with tempfile.NamedTemporaryFile("w", delete=False) as config:
++        config_path = config.name
++        for define in args.define:
++            if "=" in define:
++                name, value = define.split("=", 1)
++            else:
++                name, value = define, "1"
++            config.write(f"#define {name} {value}\n")
++
++    os.makedirs(os.path.dirname(args.output), exist_ok=True)
++    try:
++        subprocess.check_call([
++            args.cc,
++            "-E",
++            "-P",
++            "-include",
++            config_path,
++            "-x",
++            "assembler-with-cpp",
++            args.input,
++            "-o",
++            args.output,
++        ])
++    finally:
++        os.unlink(config_path)
++
++
++if __name__ == "__main__":
++    main()
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_executable.gni b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+index bddc979dc1..00758c8123 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_executable.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_executable.gni
+@@ -66,8 +66,56 @@ template("qcc74x_executable") {
+   flashing_options += [ "--baudrate" ]
+   flashing_options += [ "2000000" ]
+ 
++  if (defined(invoker.ldscript_in)) {
++    generated_linker_script = "${target_gen_dir}/${target_name}.ld"
++    linker_script_target = "${target_name}.linker_script"
++
++    action(linker_script_target) {
++      script = "${qcc74x_build_root}/qcc74x/gen_linker_script.py"
++
++      inputs = [ invoker.ldscript_in ]
++      outputs = [ generated_linker_script ]
++
++      args = [
++        "--cc",
++        "${invoker.qcc74x_sdk_toolchain}/riscv64-unknown-elf-gcc",
++        "--input",
++        rebase_path(invoker.ldscript_in, root_build_dir),
++        "--output",
++        rebase_path(generated_linker_script, root_build_dir),
++      ]
++
++      if (defined(invoker.ldscript_defines)) {
++        foreach(define, invoker.ldscript_defines) {
++          args += [
++            "--define",
++            define,
++          ]
++        }
++      }
++    }
++  }
++
+   flashable_executable(target_name) {
+     forward_variables_from(invoker, "*")
++
++    if (defined(generated_linker_script)) {
++      if (!defined(ldflags)) {
++        ldflags = []
++      }
++      ldflags += [ "-T" + rebase_path(generated_linker_script, root_build_dir) ]
++
++      if (!defined(inputs)) {
++        inputs = []
++      }
++      inputs += [ generated_linker_script ]
++
++      if (!defined(deps)) {
++        deps = []
++      }
++      deps += [ ":${linker_script_target}" ]
++    }
++
+     data_deps = [
+       ":${flashing_config_target}",
+       ":${flashing_runtime_target}",
+diff --git a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+index fa63e6a8c1..6b333cf694 100644
+--- a/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
++++ b/third_party/qualcomm/qcc74x/qcc74x_sdk.gni
+@@ -276,10 +276,18 @@ template("qcc74x_sdk") {
+   source_set("${sdk_target_name}_sys") {
+     # defines = [ "BL_WIFI_LP_FW" ]
+     sources = [
+-      "${qcc74x_sdk_root}/drivers/sys/qcc743/qcc743_lp.c",
+       "${qcc74x_sdk_root}/drivers/sys/qcc743/qcc743_sys.c",
+     ]
+ 
++    if (defined(invoker.enable_pm) && invoker.enable_pm) {
++      defines = [
++        "CONFIG_PM",
++        "LP_FW_START_ADDR=0x63029000",
++      ]
++
++      sources += [ "${qcc74x_sdk_root}/drivers/sys/qcc743/qcc743_lp.c" ]
++    }
++
+     cflags_c = [
+       "-Wno-sign-compare",
+       "-Wno-shadow",
+@@ -331,6 +339,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_lhal",
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+       ":${sdk_target_name}_config_rf",
+       ":${sdk_target_name}_config_sys",
+     ]
+@@ -366,6 +375,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_board",
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+     ]
+     public_configs = [ ":${sdk_target_name}_config_shell" ]
+   }
+@@ -473,6 +483,7 @@ template("qcc74x_sdk") {
+     ]
+     configs += [
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+       ":${sdk_target_name}_config_lhal",
+     ]
+     public_configs = [ ":${sdk_target_name}_config" ]
+@@ -481,7 +492,7 @@ template("qcc74x_sdk") {
+   config("${sdk_target_name}_config_freertos") {
+     defines = [
+       "CONFIG_FREERTOS",
+-      "configSTACK_ALLOCATION_FROM_SEPARATE_HEAP=1",
++      "configSTACK_ALLOCATION_FROM_SEPARATE_HEAP=0",
+     ]
+ 
+     include_dirs = [
+@@ -518,6 +529,7 @@ template("qcc74x_sdk") {
+     ]
+     configs += [
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+     ]
+     public_configs = [
+       ":${sdk_target_name}_config",
+@@ -529,12 +541,17 @@ template("qcc74x_sdk") {
+     include_dirs = [
+       "${qcc74x_sdk_root}/components/mm",
+       "${qcc74x_sdk_root}/components/mm/tlsf",
++      "${qcc74x_sdk_root}/drivers/lhal/include",
+     ]
+   }
+ 
++  config("${sdk_target_name}_config_mm_compat") {
++    defines = [ "IS_ENABLED(config)=config" ]
++  }
++
+   source_set("${sdk_target_name}_mm") {
+     defines = [
+-      "configSTACK_ALLOCATION_FROM_SEPARATE_HEAP=1",
++      "configSTACK_ALLOCATION_FROM_SEPARATE_HEAP=0",
+       "CONFIG_TLSF",
+     ]
+ 
+@@ -545,9 +562,9 @@ template("qcc74x_sdk") {
+     ]
+ 
+     sources = [
+-      "${qcc74x_sdk_root}/components/mm/mem.c",
+-      "${qcc74x_sdk_root}/components/mm/tlsf/qcc74x_tlsf.c",
++      "${qcc74x_sdk_root}/components/mm/mm.c",
+       "${qcc74x_sdk_root}/components/mm/tlsf/tlsf.c",
++      "${qcc74x_sdk_root}/components/mm/tlsf/tlsf_allocator.c",
+     ]
+ 
+     cflags_c = [
+@@ -560,6 +577,8 @@ template("qcc74x_sdk") {
+     configs += [
+       ":${sdk_target_name}_config_lhal",
+       ":${sdk_target_name}_config_freertos",
++      ":${sdk_target_name}_config_utils",
++      ":${sdk_target_name}_config_mm_compat",
+     ]
+ 
+     public_configs = [
+@@ -855,6 +874,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_lhal",
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+       ":${sdk_target_name}_config_lwip",
+     ]
+ 
+@@ -957,6 +977,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_utils",
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+       ":${sdk_target_name}_config_wifi",
+     ]
+ 
+@@ -1012,6 +1033,9 @@ template("qcc74x_sdk") {
+       "WL_BB_PD=1",
+       "CONFIG_MAC_TXQ_DEPTH=32",
+       "CONFIG_MAC_RXQ_DEPTH=12",
++      "CONFIG_MBO",
++      "CONFIG_WNM",
++      "CONFIG_WNM_AP",
+       "__FILENAME__=__FILE__",
+       "CFG_IPV6" 
+     ]
+@@ -1200,6 +1224,7 @@ template("qcc74x_sdk") {
+       ":${sdk_target_name}_config_utils",
+       ":${sdk_target_name}_config_shell",
+       ":${sdk_target_name}_config_mm",
++      ":${sdk_target_name}_config_mm_compat",
+       ":${sdk_target_name}_config_freertos",
+       ":${sdk_target_name}_config_lwip",
+       ":${sdk_target_name}_config_mbedtls",
+-- 
+2.34.1
+

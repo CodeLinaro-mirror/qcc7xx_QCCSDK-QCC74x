@@ -1888,13 +1888,28 @@ RCP_Status_t RCP_FlashErase(RCP_Object_t *Obj, uint32_t nbytes,
                             const char *addr);
 
 /**
- * @brief  Configure GPIO as output with pull mode (AT+IOPUPD=<pin>,<state>)
+ * @brief  Configure GPIO direction and pull mode
+ *         (AT+IOPUPD=<pin>,<mode>,<pull>)
  * @param  Obj: pointer to module handle
  * @param  pin: GPIO pin number (0-31)
- * @param  state: 0=floating, 1=pull-up, 2=pull-down
+ * @param  mode: 0=input, 1=output
+ * @param  pull: 0=floating, 1=pull-up, 2=pull-down
  * @return Operation status
  */
-RCP_Status_t RCP_GPIOPullUpDn(RCP_Object_t *Obj, uint32_t pin, uint32_t state);
+RCP_Status_t RCP_GPIOPullUpDn(RCP_Object_t *Obj, uint32_t pin, uint32_t mode,
+                              uint32_t pull);
+
+/**
+ * @brief  Query GPIO direction and pull mode (AT+IOPUPD=<pin>?)
+ * @param  Obj: pointer to module handle
+ * @param  pin: GPIO pin number (0-31)
+ * @param  mode: output buffer for GPIO direction (0=input, 1=output)
+ * @param  pull: output buffer for pull configuration (0=floating, 1=pull-up,
+ *         2=pull-down)
+ * @return Operation status
+ */
+RCP_Status_t RCP_GPIOPullUpDnQuery(RCP_Object_t *Obj, uint32_t pin,
+                                   uint32_t *mode, uint32_t *pull);
 
 /**
  * @brief  Set GPIO output level (AT+IOOUT=<pin>,<state>)
@@ -1904,16 +1919,6 @@ RCP_Status_t RCP_GPIOPullUpDn(RCP_Object_t *Obj, uint32_t pin, uint32_t state);
  * @return Operation status
  */
 RCP_Status_t RCP_GPIOOutput(RCP_Object_t *Obj, uint32_t pin, uint32_t state);
-
-/**
- * @brief  Configure GPIO as input mode (AT+IOIN=<pin>,<pull_state>)
- * @param  Obj: pointer to module handle
- * @param  pin: GPIO pin number (0-31)
- * @param  pull_state: 0=floating, 1=pull-up, 2=pull-down
- * @return Operation status
- */
-RCP_Status_t RCP_GPIOInputConfig(RCP_Object_t *Obj, uint32_t pin,
-                                 uint32_t pull_state);
 
 /**
  * @brief  Query GPIO input value (AT+IOIN=<pin>?)
@@ -2163,6 +2168,28 @@ RCP_Status_t RCP_WiFi_GetCountryCode(RCP_Object_t *Obj, uint32_t *Policy,
  */
 RCP_Status_t RCP_WiFi_SetCountryCode(RCP_Object_t *Obj, uint32_t *Policy,
                                      char *CountryString);
+
+/**
+ * @brief  Get the Wi-Fi maximum transmit power limit
+ * @param  Obj: pointer to module handle
+ * @param  Enable: output pointer receiving whether the limit is enabled
+ * @param  MaxDbm: output pointer receiving the configured maximum transmit
+ * power in dBm
+ * @return Operation status
+ */
+RCP_Status_t RCP_WiFi_GetTxMaxPower(RCP_Object_t *Obj, uint32_t *Enable,
+                                    int32_t *MaxDbm);
+
+/**
+ * @brief  Set the Wi-Fi maximum transmit power limit
+ * @param  Obj: pointer to module handle
+ * @param  Enable: 0 to disable the limit, 1 to enable it
+ * @param  MaxDbm: maximum transmit power in dBm; valid range is -12 to 20
+ * when Enable is 1; ignored when Enable is 0
+ * @return Operation status
+ */
+RCP_Status_t RCP_WiFi_SetTxMaxPower(RCP_Object_t *Obj, uint32_t Enable,
+                                    int32_t MaxDbm);
 
 /**
  * @brief  Set the Wi-Fi mode to Station + Soft-AP

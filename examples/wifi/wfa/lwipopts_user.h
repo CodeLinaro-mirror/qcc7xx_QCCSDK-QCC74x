@@ -80,7 +80,8 @@
 
 #define TCP_QUEUE_OOSEQ               1
 #define MEMP_NUM_TCP_SEG              ((4 * TCP_SND_BUF) / TCP_MSS)
-#define MEMP_NUM_PBUF                 (TCP_SND_BUF / TCP_MSS)
+/* AP forwarding can retain every RX buffer until its TX confirmation. */
+#define MEMP_NUM_PBUF                 ((CFG_BARX * CFG_REORD_BUF) + 2 + 4)
 #define PBUF_POOL_SIZE                0
 #define LWIP_WND_SCALE                1
 #define TCP_RCV_SCALE                 2

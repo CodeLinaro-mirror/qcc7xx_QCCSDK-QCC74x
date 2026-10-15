@@ -595,6 +595,15 @@ int https_wrapper_recv(https_wrapper_handle_t https, uint8_t *data, uint32_t siz
     return recv(ctx->net.fd, data, size, flags);
 }
 
+int https_wrapper_ssl_check_pending(https_wrapper_handle_t https)
+{
+    ssl_param_t *ctx = (ssl_param_t *)https;
+    if (ctx->ssl_inited) {
+        return mbedtls_ssl_check_pending(&ctx->ssl);
+    }
+    return 0;
+}
+
 int https_wrapper_destroy(https_wrapper_handle_t https)
 {
     ssl_param_t *ctx = (ssl_param_t *)https;
@@ -613,4 +622,3 @@ int https_wrapper_socketfd_get(https_wrapper_handle_t https)
 {
     return ((ssl_param_t *)https)->net.fd;
 }
-

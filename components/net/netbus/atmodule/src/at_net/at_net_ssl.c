@@ -309,6 +309,10 @@ void *mbedtls_ssl_connect(int fd, const ssl_conn_param_t *param)
         goto ERROR;
     }
 
+    mbedtls_x509_crt_free(&ssl_param->ca_cert);
+    mbedtls_x509_crt_free(&ssl_param->owncert);
+    mbedtls_pk_free(&ssl_param->pkey);
+
     AT_NET_SSL_PRINTF("[MBEDTLS] ssl connect ok\r\n");
     return (void *)ssl_param;
 

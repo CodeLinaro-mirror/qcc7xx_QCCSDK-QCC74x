@@ -92,6 +92,8 @@ struct fhost_tg_profile
     uint32_t pksize;
     /// Traffic duration (seconds)
     uint32_t duration;
+    // Maximum TX frames (AP VIF only; zero means duration-controlled)
+    uint32_t maxcnt;
     /// TOS value to be put in the IP header
     uint16_t tos;
 };
@@ -183,7 +185,10 @@ extern struct fhost_tg_stream g_streams[FHOST_TG_MAX_TRAFFIC_STREAMS];
  */
 int fhost_tg_config(uint32_t stream_id, uint32_t prof, int direction, uint32_t rip,
                     uint32_t remote_port, uint32_t lip, uint32_t local_port, uint32_t rate,
-                    uint32_t pksize, uint32_t duration, uint16_t tos);
+                    uint32_t pksize, uint32_t duration, uint16_t tos, uint32_t maxcnt);
+
+// Return whether this stream may use AP-only maxcnt termination.
+bool fhost_tg_maxcnt_enabled(struct fhost_tg_stream *stream);
 
 /**
  ****************************************************************************************
@@ -215,6 +220,15 @@ int fhost_tg_start(uint32_t stream_id);
  ****************************************************************************************
  */
 struct fhost_tg_stats *fhost_tg_stop(uint32_t stream_id);
+
+/**
+ ****************************************************************************************
+ * @brief Stop all active TG streams and clear their profiles and statistics.
+ *
+ * @return Number of streams that were active and have been stopped
+ ****************************************************************************************
+ */
+uint32_t fhost_tg_reset(void);
 
 
 /*

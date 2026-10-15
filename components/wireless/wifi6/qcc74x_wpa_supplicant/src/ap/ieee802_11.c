@@ -5860,6 +5860,41 @@ static void handle_assoc(struct hostapd_data *hapd,
 }
 
 
+static bool handle_unprotected_mfp_disconnect(
+	struct hostapd_data *hapd, const struct ieee80211_mgmt *mgmt,
+	size_t len, u16 stype)
+{
+	struct sta_info *sta;
+	u16 reason_code;
+
+	if (len < IEEE80211_HDRLEN + sizeof(mgmt->u.disassoc))
+		return false;
+
+	sta = ap_get_sta(hapd, mgmt->sa);
+	if (!sta || !(sta->flags & WLAN_STA_MFP) ||
+	    (mgmt->frame_control & host_to_le16(WLAN_FC_ISWEP)))
+		return false;
+
+	if (stype == WLAN_FC_STYPE_DEAUTH)
+		reason_code = le_to_host16(mgmt->u.deauth.reason_code);
+	else
+		reason_code = le_to_host16(mgmt->u.disassoc.reason_code);
+
+	hostapd_logger(hapd, sta->addr, HOSTAPD_MODULE_IEEE80211,
+		       HOSTAPD_LEVEL_DEBUG,
+		       "Dropped unprotected %s frame from an MFP STA "
+		       "(reason=%u)",
+		       stype == WLAN_FC_STYPE_DEAUTH ? "Deauthentication" :
+		       "Disassociation", reason_code);
+
+	if (reason_code == WLAN_REASON_CLASS2_FRAME_FROM_NONAUTH_STA ||
+	    reason_code == WLAN_REASON_CLASS3_FRAME_FROM_NONASSOC_STA)
+		check_sa_query(hapd, sta, 0);
+
+	return true;
+}
+
+
 static void handle_disassoc(struct hostapd_data *hapd,
 			    const struct ieee80211_mgmt *mgmt, size_t len)
 {
@@ -6324,12 +6359,16 @@ int ieee802_11_mgmt(struct hostapd_data *hapd, const u8 *buf, size_t len,
 		break;
 	case WLAN_FC_STYPE_DISASSOC:
 		wpa_printf(MSG_DEBUG, "mgmt::disassoc");
-		handle_disassoc(hapd, mgmt, len);
+		if (!handle_unprotected_mfp_disconnect(hapd, mgmt, len,
+					       stype))
+			handle_disassoc(hapd, mgmt, len);
 		ret = 1;
 		break;
 	case WLAN_FC_STYPE_DEAUTH:
 		wpa_msg(hapd->msg_ctx, MSG_DEBUG, "mgmt::deauth");
-		handle_deauth(hapd, mgmt, len);
+		if (!handle_unprotected_mfp_disconnect(hapd, mgmt, len,
+					       stype))
+			handle_deauth(hapd, mgmt, len);
 		ret = 1;
 		break;
 	case WLAN_FC_STYPE_ACTION:

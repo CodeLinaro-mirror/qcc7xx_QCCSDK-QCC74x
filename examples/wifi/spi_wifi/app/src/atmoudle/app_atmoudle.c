@@ -9,11 +9,16 @@
 //#include <spisync.h>
 #include "at_main.h"
 #include "qcc74x_dma.h"
+#include <qcc74x_gpio.h>
 #include <utils_crc.h>
 
 #include <nxspi.h>
 #if CONFIG_THREAD
 #include <openthread_port.h>
+#endif
+
+#if NXSPI_HCI || NXUART_HCI
+#include "btblecontroller_port_uart.h"
 #endif
 
 #if 0
@@ -141,6 +146,30 @@ fakepush_err:
 }
 SHELL_CMD_EXPORT_ALIAS(atspisync_fakepush_forpop_cmd, atfake, spisync fake push for pop);
 
+#if NXUART_HCI
+static void uart_hci_init(void)
+{
+    const btble_uart_config_t uart_config = {
+        .uart_id = 1,
+        .tx_pin = GPIO_PIN_0,
+        .rx_pin = GPIO_PIN_1,
+        .cts_pin = 0xFF,
+        .rts_pin = 0xFF,
+        .baudrate = 115200,
+        .dma_enable = 0,
+        .flow_ctrl_enable = 0,
+    };
+
+    printf("config hci uart\r\n");
+    if (btble_uart_configure(&uart_config) != 0) {
+        printf("config hci uart failed\r\n");
+        return;
+    }
+    btble_uart_init(uart_config.uart_id);
+    btble_controller_init(configMAX_PRIORITIES - 1);
+}
+#endif
+
 void app_atmoudle_init(void)
 {
     nxspi_init();
@@ -150,6 +179,8 @@ void app_atmoudle_init(void)
     at_module_init();
 #if NXSPI_HCI
     spihci_init();
+#elif NXUART_HCI
+    uart_hci_init();
 #endif
 #if CONFIG_THREAD
     extern void ot_nxspi_notify_rxd(void);

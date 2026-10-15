@@ -54,6 +54,21 @@
 #else
 #include "lwipopts.h"
 #endif
+
+/* Enable serious pbuf diagnostics SDK-wide unless an application opts out. */
+#ifndef LWIP_PBUF_SERIOUS_DEBUG
+#define LWIP_PBUF_SERIOUS_DEBUG         1
+#endif
+
+#if LWIP_PBUF_SERIOUS_DEBUG
+#undef LWIP_DEBUG
+#define LWIP_DEBUG                      1
+#undef PBUF_DEBUG
+#define PBUF_DEBUG                      LWIP_DBG_ON
+#undef LWIP_DBG_MIN_LEVEL
+#define LWIP_DBG_MIN_LEVEL              LWIP_DBG_LEVEL_SERIOUS
+#endif
+
 #include "lwip/debug.h"
 #include "fcntl.h"
 /**
